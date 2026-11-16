@@ -1,0 +1,348 @@
+# One Data Navigator: MVP Architecture & Development Plan
+
+**Status:** Final (v1.0) — in build. Spikes done; Phase 1 and Phase 2 features built and running locally; hosting/CI and alpha telemetry outstanding (see [Progress Summary](#progress-summary-2026-11-15)).
+
+**Date:** 2026-11-14 (progress updated 2026-11-15)
+
+**Supersedes:** [One_Data_Navigator_Architecture.md](One_Data_Navigator_Architecture.md) (Full Vision Proposal) for v1 scope and sequencing. The full vision remains the v2+ reference.
+
+## 1. Product Redefinition & MVP Scope
+
+### Product Vision (MVP)
+
+**One Data Navigator** is a cloud-based, conversational data exploration and analysis workspace. It combines a familiar DBeaver-style schema browser with an AI data analyst that writes native SQL, caches results locally in an analytical workspace, and lets users slice, aggregate, and visualize data in plain English without re-querying expensive cloud warehouses.
+
+**Primary persona:** Non-technical product managers and managers. The default
+experience emphasizes understandable questions, business definitions, and
+plain-English explanations; SQL remains available for users who want detail.
+
+### Core Value Propositions (What We Are Shipping in v1)
+
+1. **Zero-Install Cloud Workspace:** Connect to BigQuery and Postgres from a multi-tenant web app via OIDC SSO, with static egress IPs and SSH tunneling for private VPCs.
+
+2. **Native Plain-English-to-SQL:** An agentic SQL assistant that writes dialect-native SQL directly against user-curated schemas and pinned joins—enforced by deterministic AST read-only guardrails.
+
+3. **Zero-Cost Conversational Follow-Ups:** Query results land in an isolated Parquet + DuckDB session workspace. Follow-up questions ("group by region", "filter outliers", "plot a trendline") execute in milliseconds against Parquet without touching the source warehouse.
+
+4. **Reusable Analytical Skills:** Ported Skills v2 workflows allowing teams to standardize repeatable multi-step analyses.
+
+5. **Understandable Results & Curated Definitions:** Show concise calculation
+   logic and source lineage with results, keep raw SQL collapsed by default,
+   and provide a curated schema explorer with business-friendly definitions.
+
+### Explicit Non-Goals (Cut or Deferred to v2)
+
+To ship a reliable v1 within 13 weeks (1-week spike + 12 build weeks), the following capabilities from the initial proposal are explicitly **out of scope**:
+
+* **Cross-Dialect SQL Transpilation:** We will *not* generate universal SQL and transpile via `sqlglot`. The LLM generates native SQL per target dialect; `sqlglot` is used strictly for AST read-only/allowlist security validation.
+
+* **Deterministic Flows & Scheduler:** Automated YAML pipelines and cron scheduling are deferred until text-to-SQL accuracy and workspace stability are proven.
+
+* **Custom Connectivity Gateway Agent:** Building an outbound-only customer-installed tunnel binary is deferred. v1 uses Cloud NAT static IPs and SSH bastion tunnels.
+
+* **Snowflake & Oracle Connectors:** Deferred to v2 after the Connector SPI is proven on BigQuery and Postgres.
+
+* **Automated AI Schema Crawling:** No bulk LLM description generation across thousands of tables. Context is opt-in at the dataset/schema level with user-curated descriptions and pinned joins.
+
+* **Cross-Tenant Marketplace:** Multi-tenant data isolation is built in from Day 1, but public skill/flow sharing across organizations is deferred.
+
+* **Arbitrary LLM-Generated Python:** v1 charts are produced from a typed, declarative chart spec rendered by platform-owned code. Free-form agent-written Python execution is deferred to v2 pending a dedicated sandbox security review.
+
+* **Write-Back / DML:** v1 is strictly read-only against source systems.
+
+## 2. MVP Architecture
+
+```mermaid
+flowchart LR
+  subgraph Web["Web App (Next.js + AG-UI / CopilotKit)"]
+    CHAT[Conversational Analyst<br/>Plain-English Logic + Collapsed SQL] --- EXP[Curated Schema Explorer & Results Grid] --- SK[Skills v2] --- CN[Connections & Settings]
+  end
+
+  Web -->|OIDC Session| API[API / BFF<br/>Auth, Tenancy, Rate Limits]
+  API --> AGT["Agent Runtime (ADK)<br/>Orchestrator + Native SQL & Analysis Sub-agents"]
+  AGT -->|Typed Tools Only| PLAT
+  API --> PLAT
+
+  subgraph PLAT["Platform Services (Deterministic, Policy-Enforced)"]
+    QS[Query Service<br/>AST Policy Check, Dry-Run, Execute]
+    CS[Connection & Credential Service]
+    CAT[Curated Definitions: Phase 2<br/>Pinned Joins + Retrieval: Phase 3]
+    WS[Result Workspace Service<br/>Parquet Writer, Isolated DuckDB & Chart Renderer]
+    SKR[Skill Registry<br/>Ported Skills v2]
+    POL[Policy, Quotas & Audit Logger]
+  end
+
+  QS --> SPI[Connector SPI]
+  SPI --> BQ[(BigQuery)]
+  SPI --> PG[(Postgres)]
+  SPI -. Static IP / SSH Tunnel .-> VPC[(Private VPC Databases)]
+
+  PLAT --> META[(Cloud SQL Postgres<br/>Tenants, Profiles, Context, pgvector)]
+  WS --> OBJ[(GCS Object Storage<br/>Tenant-Scoped Parquet & Charts)]
+  CS --> VAULT[(GCP Secret Manager<br/>Per-Tenant Encryption)]
+  AGT --> LLM[LLM Gateway<br/>Managed Keys + Tenant Quotas / Optional BYO]
+
+```
+
+### Key Architectural Decisions & Guardrails
+
+1. **Connector SPI (BigQuery + Postgres):**
+
+   * Uniform interface: `test_connection()`, `list_catalog()`, `get_schema()`, `estimate_cost()`, `execute_paged()`, `cancel_job()`, plus dialect/capability flags.
+
+   * No MCP servers in the core execution path; all calls are direct, typed Python service invocations.
+
+2. **AST Security Validation (Fail-Closed):**
+
+   * Every query (from Chat, Explorer, or Skills) passes through `sqlglot` AST parsing configured for the connection's exact dialect.
+
+   * Rejects DML/DDL, multi-statement scripts, `EXECUTE IMMEDIATE`, system catalog scrapes, and unapproved schemas/datasets. Backed by least-privilege database credentials.
+
+3. **Memory-Isolated Result Workspace:**
+
+   * Warehouse query results stream directly to Parquet files in GCS (`gs://<bucket>/<tenant_id>/<session_id>/<query_id>.parquet`), capped at 250MB / 500k rows for MVP. Results exceeding the cap are truncated, flagged as partial in the UI and agent metadata, and the user is prompted to narrow the query. BigQuery results are read via the Storage Read API (Arrow) where available.
+
+   * The LLM receives *only* the schema, row count, summary stats, and at most a 5-row sample—never full result sets. The sample can be disabled per connection, and masked columns are always redacted from it.
+
+   * DuckDB aggregations and chart rendering run inside an isolated Cloud Run worker pool (`concurrency=1` per container, strict RAM limits) to prevent OOM crashes in the main API/BFF. DuckDB runs with external access locked down (`enable_external_access=false`, `lock_configuration=true`, no extension installs) and can only read the Parquet artifacts of the caller's tenant/session, with per-query timeouts and memory limits.
+
+   * Charts are produced from a typed chart spec (chart type, x/y fields, aggregation, filters) validated against the artifact schema; no agent-authored code is executed.
+
+4. **Managed-First LLM Auth with Hard Budgets:**
+
+   * Users onboard immediately using a platform-managed LLM key governed by strict per-tenant daily token/cost budgets. Enterprise BYO LLM key support is added in Phase 4.
+
+5. **Tenant Isolation from Day 1:**
+
+   * Every Postgres table, GCS path, cache key, and Secret Manager entry is strictly partitioned by `tenant_id`, resolved from the verified OIDC session in BFF middleware (never from client input) and enforced in depth with Postgres Row-Level Security.
+
+6. **Network Egress & Private Connectivity:**
+
+   * Cloud Run services egress via Direct VPC egress + Cloud NAT with reserved static IPs that customers can allowlist.
+
+   * SSH bastion credentials (private keys, known-host fingerprints) are stored in Secret Manager; host-key verification is mandatory.
+
+7. **Auditability:**
+
+   * Every executed statement (source warehouse and DuckDB) is logged with `tenant_id`, `user_id`, connection, SQL text, policy decision, bytes/rows scanned, and latency. Rejected queries are logged with the rejection reason.
+
+8. **PM-Friendly Logic and Schema Discovery:**
+
+   * Each completed result and chart includes a one- or two-sentence
+     plain-English explanation of the actual calculation, including relevant
+     filters, aggregation, and source or workspace lineage. The explanation is
+     grounded in the executed query and workspace transformations, not an
+     unsupported claim about upstream lineage. When evidence is incomplete,
+     label the limitation rather than inventing logic.
+   * Raw source and follow-up SQL remain accessible in a collapsed-by-default
+     details section; SQL is not removed from execution, provenance, or audit.
+     Indicate partial/truncated results and distinguish source lineage from
+     unverified upstream pipeline lineage.
+   * Phase 2 provides an opt-in curated BigQuery schema explorer that imports
+     existing source descriptions for approved objects and lets authorized
+     data leads add or edit business definitions. Show source descriptions and
+     curated definitions with provenance; mark missing definitions explicitly.
+     Postgres descriptions are added when its connector arrives in Phase 3.
+     Full automated crawling and bulk LLM-generated descriptions remain deferred.
+
+## 3. MVP Development Plan & Actionable Todo Lists
+
+**Target Timeline:** 13 weeks total — 1-week Pre-Build Technical Spike (Week 0) + 4 build phases (Weeks 1–12).
+
+Each phase ends with an **Exit Check**. A phase is not closed until its Exit Check passes; slipped items roll forward explicitly rather than silently.
+
+### Progress Summary (2026-11-15)
+
+**Where it runs:** local Docker Compose stack (`docker-compose.yml`; `docker-compose.gcs.yml` switches the workspace to the real `gs://datahop` bucket under `odn/`) — frontend, API/BFF, ADK agent, isolated DuckDB worker, Postgres + pgvector, mock OIDC IdP and fake GCS. Real BigQuery (`clgx-idap-bigquery-int-278e`) via a service-account key; LLM via the LiteLLM proxy (`llm-uat.cotality.com`). 188 backend tests passing; ruff clean; frontend type-checks in the Docker build.
+
+**Done**
+
+| Area | Status |
+|---|---|
+| Spikes 1 & 2 | Done — policy suite 78/78 rejected, 17/17 allowed; worker sizing measured on real data. |
+| Tenancy & auth | OIDC (PKCE) login, encrypted session cookie, BFF proxy with same-origin writes, verified tenant/user context, Postgres RLS on every tenant table. |
+| Query path | `SqlPolicy` (fail-closed AST + allowlist) → dry-run cost gate → confirmation above 10 GiB → `maximum_bytes_billed` 100 GiB → capped execution → audit log for every allowed/rejected/failed query. |
+| BigQuery connector | Catalog, schema, dry-run, Storage Read (Arrow), cancel, column index; catalog listing up to 10k tables per dataset. |
+| Explorer | Allowlist-filtered tree, keyword search across datasets/tables/fields (+ curated definitions), hide-snapshots switch, draggable splitter, data dictionary panel, SQL runner with cost confirmation, **Preview data** (20 rows, `TABLESAMPLE SYSTEM (1 PERCENT)` for tables > 1 GB, first 10 columns). |
+| Favorites & usage | Per-user favorite datasets/tables (star), tables recorded from every successful warehouse query; both rank first in search, tree and the agent's `list_tables`; agent tool `get_my_tables`. |
+| Chat agent | ADK + LiteLLM; tools `list_connections`, `get_my_tables`, `list_tables`, `get_table_schema`, `run_sql` (approval card above threshold, model cannot self-approve), `query_workspace`, `list_workspace`, `generate_chart`. |
+| Result workspace | Warehouse results → Parquet in GCS (500k rows / 600 MB Arrow cap, partial flag) as `q1..qN`; DuckDB follow-ups and charts in the locked-down worker with zero warehouse re-scans; paged/sorted results grid and CSV download. |
+| PM explanations | Deterministic (AST-based, no LLM) one-to-two-sentence logic and lineage per result/chart; SQL collapsed by default; partial/unknown states labeled. |
+| Data dictionary | Live source descriptions + tenant-curated definitions (draft/approved/deprecated, history, data-lead edit only, allowlist-enforced). |
+| Local connection config | `.env` drives the local connection allowlist: `BQ_DATASET_IDS` (list, multi-line block with `#` comments, or `*`; empty = all datasets) and `BQ_TABLES` (`dataset.table`; a dataset listed there is limited to those tables). |
+
+**Left to do (in priority order)**
+
+1. **Hosting & CI (Phase 1 blocker):** choose the deploy target — (A) Jenkins + Helm on CNTV GKE like KWAgent, or (B) Cloud Run + a separate `-iac` Terraform repo via the approved GHA platform — then provision dev/int (Cloud SQL, bucket, Secret Manager, egress/NAT) and wire CI (policy suite, RLS isolation tests, lint, image builds).
+2. **Alpha telemetry & budgets (Phase 2):** query latency, dry-run vs billed bytes, DuckDB time, LLM tokens per tenant; per-tenant daily LLM budget with hard stop and user message.
+3. **Gold benchmark (Phase 1):** draft 25 BigQuery questions with the pilot data owners and record baseline execution accuracy.
+4. **Production hardening of what exists:** durable ADK sessions (currently in-memory), OIDC token refresh, summary stats for the LLM, keyboard-accessibility tests for the explorer/dictionary, run the Phase 1 and Phase 2 exit checks on the hosted URL.
+5. **Architecture sign-off:** close the [Open Decisions](#6-open-decisions-to-close-at-spike-sign-off).
+6. **Phases 3–4:** unchanged (Postgres connector, context layer, Skills v2, governance, release gate).
+
+### Pre-Build: 1-Week Technical Spike (Week 0, Gate to Phase 1)
+
+*Goal: De-risk the two hardest technical boundaries before writing production application code.*
+
+- [x] **Spike 1 — AST Policy Boundary:** Build a standalone Python script with `sqlglot` and run 50+ adversarial SQL test cases (CTEs hiding `INSERT`/`UPDATE`/`MERGE`, `EXECUTE IMMEDIATE`, multi-statement scripts, comment/quoting tricks, cross-project joins, `INFORMATION_SCHEMA` / `pg_catalog` scrapes, unparseable syntax) across BigQuery and Postgres dialects. Verify 100% fail-closed rejection with zero false negatives; the suite becomes the seed CI regression set.
+  - *Result (2026-11-14):* Implemented directly as `odn.platform.policy.SqlPolicy` (sqlglot 30.x; BigQuery, Postgres, DuckDB). 78/78 adversarial cases rejected with specific reasons, 17/17 legitimate queries allowed (`backend/tests/policy/test_sql_policy.py`). Known trade-offs: trailing comments after `;` are rejected (fail-closed); allowlist matching is case-insensitive; Postgres side-effecting user functions are not detectable by AST, so `READ ONLY` transactions + least-privilege roles remain mandatory.
+- [x] **Spike 2 — Parquet/DuckDB Memory Benchmark:** Stream a 500k-row BigQuery result into a GCS Parquet file, then execute 5 chained DuckDB group-by/window queries and a chart render from a typed chart spec inside a 2GB RAM Cloud Run container. Record p95 latency and peak RSS; use results to fix the worker RAM size and the result cap.
+  - *Synthetic run (narrow 7-column data):* `backend/spikes/duckdb_benchmark.py` in the worker container (2 GB, 1 CPU, read-only FS). 500k rows → 18 MB Parquet / 44 MB Arrow; chain p95 44 ms; peak RSS 447 MB. 2M rows: chain p95 129 ms, peak RSS 637 MB.
+  - *Real BigQuery run (2026-11-14):* `backend/spikes/bq_to_parquet.py` streamed 500k rows of `stg_property_firmographics.stg_combined_bus_name` (52 columns) via the Storage Read API (Arrow, single stream, stop-at-N rows, no query scan) → 58.6 MB Parquet in GCS. Worker: 299 MB Arrow in memory; 5-step policy-checked chain p50 87 ms / p95 134 ms; chart render p50 18 ms / p95 273 ms (first render is cold); peak RSS 843 MB. Engine lockdown (`enable_external_access=false`, `lock_configuration=true`) blocked file reads, `ATTACH`, and re-enabling access.
+  - *Findings:* (1) Arrow is ~5× Parquet for wide real data (2.4× for synthetic), so a 250 MB Parquet cap could need ~1.3 GB of Arrow plus ~350 MB baseline and download buffers, which risks OOM in a 2 GB worker. (2) Single-stream Storage Read from a laptop ran at ~3.3k rows/s (~150 s for 500k rows), limited by the local network link; this must be re-measured from Cloud Run in-region, and multiple parallel streams should be used.
+  - *Decision proposed for sign-off:* keep 2 GB workers; enforce the result cap as **500k rows AND ≤ 600 MB in-memory Arrow** (summed per batch in `QueryService` while streaming); the worker downloads to a stream/file rather than holding Parquet bytes and Arrow at the same time.
+- [ ] **Architecture Sign-Off:** Lock MVP decisions — see [Open Decisions](#6-open-decisions-to-close-at-spike-sign-off).
+
+### Phase 1: Foundation, Tenancy & BigQuery SPI (Weeks 1–3)
+
+*Goal: Hosted multi-tenant shell with OIDC login, AST policy engine, and direct BigQuery querying in Explorer and Chat (replacing MCP).*
+
+- [ ] **Infrastructure & Tenancy:**
+  - [ ] Provision GCP environment via IaC (Terraform): Cloud Run (API/BFF & Agent), Cloud SQL (Postgres + `pgvector`), GCS bucket with 24h lifecycle deletion, Secret Manager, Direct VPC egress + Cloud NAT (static egress IP), and separate dev/staging environments.
+    - *Blocked on the deploy-target decision (Open Decisions).* Company constraints found: the approved GHA platform has no Cloud Run deploy workflow, Terraform must live in a separate `{org}-{space}-iac` repo, Python CI is Poetry-based, and environment names are `dev/int/uat/prd` (no `staging`). The existing KWAgent path is Jenkins + Helm on CNTV GKE with Vault secrets. Local development runs fully in Docker Compose meanwhile.
+  - [x] Implement OIDC SSO authentication in Next.js + BFF; inject verified `tenant_id` and `user_id` into request context middleware.
+    - *Done:* BFF side (`odn.tenancy`, `odn.api.deps`): JWKS-verified asymmetric-only tokens (issuer/audience/exp required), tenant resolved server-side from issuer + tenant claim, user upserted under RLS. Next.js (`frontend/app/auth/*`, `frontend/lib/*`): authorization code + PKCE + state + nonce via `openid-client`, session in an encrypted (A256GCM) HttpOnly cookie, `/api/odn/*` proxy adds the bearer token and enforces same-origin on writes. IdP-agnostic; verified locally against the mock IdP. Token refresh is not implemented yet (session ends at token expiry).
+  - [x] Create core Postgres schema (`tenants`, `users`, `connections`, `audit_logs`) with Row-Level Security policies and cross-tenant isolation tests in CI.
+    - *Done:* `backend/src/odn/db/migrations/0001_core.sql` (FORCE RLS keyed on a transaction-local `odn.tenant_id`, fail-closed when unset; append-only audit log; tenant directory only reachable via a security-definer lookup). Isolation tests in `backend/tests/db/test_rls.py` (CI wiring pending).
+- [ ] **Connector SPI & Query Service:**
+  - [x] Define Python `BaseConnector` ABC and Pydantic data contracts (`CatalogNode`, `TableSchema`, `CostEstimate`, `QueryResultMeta`).
+  - [x] Productionize the Spike 1 `sqlglot` AST read-only & object-allowlist validator (fail-closed) with the adversarial suite running in CI. *(Suite runs in `pytest`; CI pipeline pending.)*
+  - [x] Implement `BigQueryConnector` (service-account credential resolver via Secret Manager, dry-run byte estimation, `maximum_bytes_billed` cap, job timeout, and cancellation).
+    - *Done:* verified against `clgx-idap-bigquery-int-278e` locally. Secret refs must be tenant-prefixed Secret Manager names (`odn-<tenant_id>-*`) or, in local dev only, `file:` refs under `keys/`; there is no fallback to the platform identity. Explorer catalog/schema calls are filtered by the same allowlist as queries.
+  - [x] Write an audit log record for every executed and rejected query.
+- [ ] **UI & Agent Parity:**
+  - [x] Wire Next.js Schema Explorer endpoints directly to `QueryService` (removing all legacy MCP server dependencies).
+    - *Done:* `frontend/app/components/Explorer.tsx`: connection picker, allowlist-filtered dataset/table tree, schema panel, read-only SQL runner with the dry-run confirmation card, rejection messages, and a basic results grid (virtualized grid comes in Phase 2).
+    - *Keyword search:* `GET /v1/connections/{id}/search-index` builds an allowlist-filtered dataset → table → field index (one `INFORMATION_SCHEMA.COLUMN_FIELD_PATHS` query per dataset, nested fields included, cached 1h per tenant/connection/allowlist, gzip). The explorer searches it client-side (all terms must match across dataset/table/field names and field descriptions), shows an auto-expanded highlighted hierarchy with counts and ranked field hits, and opens the table with the chosen field focused. Layout stacks on narrow screens.
+    - *Added (2026-11-15):* hide-snapshots switch (timestamped copies such as `*_20261022`), draggable/keyboard-resizable splitter, per-user **favorites** (star datasets/tables) and **recently queried** tables (recorded from every successful warehouse query, migration `0004`) ranked first in search and the tree, and **Preview data** (20 rows, 1% block sample on tables > 1 GB, first 10 columns — BigQuery checks the billing cap against unsampled column sizes, so `SELECT *` is avoided). Views cannot be sampled and keep the normal cost gate.
+  - [x] Connect ADK SQL sub-agent to `QueryService` typed tools; enforce confirmation cards when dry-run cost exceeds tenant threshold.
+    - *Done:* `backend/src/odn/agent/` (ADK 2.14 + ag-ui-adk, LiteLLM proxy model from `LITELLM_*`). Tools `list_connections`, `list_tables`, `get_table_schema`, `run_sql` call the API as the signed-in user (token kept in a request context variable, never in session state). Over-threshold queries pause via ADK `request_confirmation` (resumable app) and render as an approve/deny card in chat; the tool re-checks that the approved payload matches the paused SQL, so the model cannot self-approve. The model receives a 5-row sample; the full grid reaches the UI through agent state. Sessions are in-memory and scoped per tenant+user (durable sessions later). The agent checks the user's favorites and recently queried tables first (`get_my_tables`; `list_tables` ranks them first).
+  - [ ] Draft the first 25 BigQuery gold-benchmark questions and record a baseline execution accuracy.
+    - *Not started:* questions and expected answers need the pilot data owners (no invented questions/answers).
+- [ ] **Exit Check:** Authenticated user logs into the hosted URL, browses BigQuery datasets, and runs a chat query; CI verifies cross-tenant isolation and 100% rejection on the adversarial SQL suite; current MVP BigQuery features work with no MCP.
+  - *Status:* passes locally (login → browse → chat query, no MCP; isolation and policy suites green in `pytest`). Open: hosted URL and CI.
+
+### Phase 2: Result Workspace, PM Explanations & Curated Schema — *Core MVP* (Weeks 4–6)
+
+*Goal: Enable multi-turn exploration and charting without re-querying BigQuery, while helping PMs understand results and discover available fields.*
+
+- [ ] **Parquet Persistence & Workspace Storage:**
+  - [x] Update `QueryService` to stream BigQuery results into GCS Parquet files (enforcing the 250MB / 500k-row cap with a partial-result flag) and return only metadata, summary stats, and the optional 5-row preview to the ADK agent.
+    - *Done (2026-11-15):* `odn.platform.workspace.service` streams warehouse results through a `ParquetSink` (500k rows / 600 MB Arrow cap per Spike 2) to `gs://datahop/odn/<tenant>/<user>/<session>/<artifact>.parquet`; artifacts `q1..qN` are recorded in RLS-protected `workspace_artifacts` with SQL, parents and source tables. **Remaining:** summary stats (per-column min/max/null counts) for the agent.
+  - [x] Build frontend Results Grid component with virtualized scrolling, sorting, and CSV download backed by paginated Parquet reads.
+    - *Done:* `ResultsGrid.tsx` — server-paged (100 rows) and server-sorted via worker `/v1/rows`, accessible sortable headers (`aria-sort`), streamed CSV download of the full artifact (`/artifacts/{qN}/csv`). Paging stands in for virtualization for now.
+- [ ] **Isolated DuckDB & Chart Worker:**
+  - [ ] Deploy isolated Cloud Run worker service (`concurrency=1`, RAM sized from Spike 2) exposing internal-only endpoints for DuckDB SQL execution and chart rendering.
+    - *Local equivalent done:* separate `worker` container (2 GB, 1 CPU, read-only FS, all capabilities dropped, no host port, shared-token auth). Hosted deployment follows the deploy-target decision.
+  - [x] Lock down DuckDB (external access disabled, configuration locked, tenant/session-scoped file access, per-query timeout and memory limit) and run DuckDB SQL through the same AST read-only validator.
+    - *Done:* worker `/v1/query` + `/v1/rows` (shared-token auth, object keys confined to the workspace prefix, only the referenced artifacts loaded, policy re-checked against exactly those inputs, interrupt-based timeout, row/byte caps). The API validates first and audits every workspace query (`source=workspace`, `dialect=duckdb`).
+  - [x] Add `query_workspace` (DuckDB) and `generate_chart` (typed chart spec) tools to the ADK Analysis sub-agent. *(`query_workspace`, `list_workspace`, `generate_chart` done. Charts: typed spec → worker aggregates with schema-validated identifiers → dependency-free accessible SVG (bar/line/scatter, series, tooltips, data table + CSV fallback). Verified live: "top 10 states" bar chart from `q2` with no warehouse re-scan.)*
+  - [x] Implement session workspace state tracking so follow-up prompts ("break that down by week", "remove nulls and plot bar chart") automatically target the active Parquet artifact, with lineage back to the source query.
+    - *Verified live:* 1 BigQuery scan (656 MB) → `q1`; 3 DuckDB follow-ups (321/54/10 rows, ~0.3–1.4 s) with zero further warehouse scans in the audit log; a two-turn chat answered the follow-up with `query_workspace` only. Chat results panel shows the artifact name, warehouse-vs-workspace badge, derived-from and source tables.
+- [x] **Data Lineage & Logic for PMs:**
+  - *Done (2026-11-15):* `odn.platform.workspace.explain` builds explanations deterministically from the executed SQL's AST (sqlglot) plus recorded lineage — no LLM — so an explanation cannot describe a calculation that did not run. Shown above each result grid and chart; SQL stays in a collapsed details section. Partial results, unverifiable sources and parse failures are stated explicitly. 16 fixture tests (filters, aggregations, joins, windows, CTEs, unions, unparseable SQL, partial results).
+  - [x] Add a one- or two-sentence explanation beside each completed table or
+    chart, grounded in the executed source query and any workspace
+    transformations. Summarize relevant filters and aggregations and identify
+    the source or explicitly state when lineage/logic cannot be verified.
+  - [x] Show source SQL and DuckDB follow-up SQL in an accessible,
+    keyboard-operable details section collapsed by default; preserve audit
+    records and clearly label partial results or missing lineage.
+  - [x] Test explanations against query and workspace evidence, including
+    filters, aggregations, multiple follow-ups, partial results and failures;
+    do not report an unexecuted or failed calculation as completed.
+- [ ] **Curated Schema Explorer & Data Dictionary:** *(features done; accessibility tests and masking outstanding)*
+  - *Done (2026-11-15):* `data_definitions` + `data_definition_history` (RLS, migration `0003`), `GET .../dictionary` (live source descriptions merged with curated definitions; `not_found` / `permission_denied` / `unavailable` states), `PUT .../definitions` (data lead/admin only, allowlist-enforced, versioned). Explorer `DictionaryPanel` shows source vs. business definition with status and provenance, “Definition unavailable” when absent, inline edit for data leads; curated definitions are searchable. The agent's `get_table_schema` includes curated definitions. Masking policy arrives with Phase 4 column masking.
+  - [x] Import existing BigQuery table and column descriptions for explicitly
+    selected, approved objects via the connector; retain source identity,
+    update time and missing/permission-error states without broad crawling.
+    *(Read live per approved table rather than copied, so they never go stale.)*
+  - [x] Provide a simple accessible UI and API for authorized data leads to
+    add or edit tenant-scoped business definitions. Preserve source
+    descriptions separately; show definition provenance and update status.
+    Enforce verified tenant/user identity and authorization on reads and edits.
+  - [x] Display searchable table/field names, types and available definitions
+    beside the Phase 2 chat workspace; show “definition unavailable” when
+    absent, rather than generating one. Exercise the same object allowlist
+    and masking policy as query access. *(Allowlist enforced; masking is Phase 4.)*
+  - [ ] Add fixture tests for imports, missing descriptions, metadata
+    permission failures, edits, tenant isolation, and keyboard accessibility.
+    Postgres import follows its Phase 3 connector; semantic indexing and
+    bulk automated crawling are not Phase 2 dependencies.
+    *(Edits, allowlist and tenant isolation covered in `tests/db/test_dictionary.py`; import/permission-failure fixtures and keyboard-accessibility tests remain.)*
+- [ ] **Internal Alpha Launch:**
+  - [ ] Add basic telemetry (query latency, dry-run bytes, DuckDB execution time, LLM token usage per tenant).
+  - [ ] Enforce per-tenant daily LLM token/cost budgets on the managed key (hard stop + user-facing message).
+- [ ] **Exit Check:** Alpha user executes 1 warehouse query followed by 3 conversational follow-ups and 1 chart render with zero additional BigQuery scans and no result rows sent to the LLM beyond the optional 5-row preview. A PM sees a grounded one- or two-sentence logic/lineage explanation with SQL collapsed but accessible, and can find an approved BigQuery field and its source or curated definition in the schema explorer; missing definitions and partial results are labeled. CI verifies authorized edits and tenant isolation.
+  - *Status:* the workflow half passes locally (1 scan → 3 DuckDB follow-ups + chart, zero re-scans in the audit log; explanations and dictionary shown). Open: telemetry, LLM budgets, CI, and running it on the hosted alpha.
+
+### Phase 3: Postgres Connector & Lightweight Context Layer (Weeks 7–9)
+
+*Goal: Prove multi-database abstraction with Postgres, extend the Phase 2 curated explorer, and boost plain-English SQL accuracy with opt-in vector retrieval.*
+
+- [ ] **Postgres Connector & Private VPC Networking:**
+  - [ ] Implement `PostgresConnector` adhering to `BaseConnector` SPI (`psycopg` async pool, `EXPLAIN` cost/row estimation, read-only transaction mode, statement timeout enforcement, query cancellation).
+  - [ ] Build DBeaver-style Connection Manager UI supporting BigQuery and Postgres profiles, SSH bastion tunnel configuration (keys in Secret Manager, mandatory host-key verification), and granular **Test Connection** diagnostics (Auth → Network → Metadata → Read Check).
+- [ ] **Lightweight Context Layer:**
+  - [ ] Extend the Phase 2 explorer and curated-definition model to import
+    descriptions for explicitly selected, approved Postgres schemas and
+    columns, preserving source and business-definition provenance.
+  - [ ] Build opt-in metadata sync job: user selects specific datasets/schemas to index into Postgres + `pgvector` (no full-warehouse auto-crawling).
+  - [ ] Extend the Phase 2 data-lead UI/API to define **Pinned Joins** (verified foreign-key relationships) and **Verified Metrics** with appropriate authorization.
+  - [ ] Implement semantic retrieval tool in ADK: retrieve top-$k$ relevant tables + pinned joins per user prompt to inject into the SQL sub-agent's context.
+- [ ] **Accuracy Evaluation Harness:**
+  - [ ] Complete the 50-question gold benchmark (25 BigQuery, 25 Postgres) and automate execution-accuracy evaluation in CI, tracked per release.
+- [ ] **Exit Check:** Same natural-language analytical workflow runs cleanly on both BigQuery and Postgres (including one Postgres reached via SSH tunnel); approved Postgres fields and available descriptions appear in the curated explorer; gold eval set hits $\ge 80\%$ execution accuracy.
+
+### Phase 4: Skills v2, Enterprise Governance & v1 Release (Weeks 10–12)
+
+*Goal: Port repeatable analytical skills, add enterprise key/masking controls, and harden for external pilot tenants.*
+
+- [ ] **Skills v2 Integration:**
+  - [ ] Port Skills v2 registry, YAML/instruction validation checks, and admin approval workflow into the multi-tenant Postgres schema.
+  - [ ] Expose Skills UI tab and allow the ADK Orchestrator to invoke approved tenant skills over both BigQuery and Postgres connections; all skill SQL goes through `QueryService` and the AST validator.
+- [ ] **Enterprise Governance & BYO LLM Keys:**
+  - [ ] Add optional **Settings → LLM Keys** UI for enterprise tenants to configure BYO Google/LiteLLM keys in Secret Manager with strict no-fallback isolation.
+  - [ ] Add PII/column-masking rules in the Parquet writer so restricted columns are redacted before reaching the Result Workspace, the LLM preview, or the browser.
+- [ ] **Hardening & Release Gate:**
+  - [ ] Run OWASP/penetration review on auth/tenancy, AST validator, SSH tunnel handling, and Cloud Run worker isolation.
+  - [ ] Execute load test (20 concurrent users running warehouse queries + DuckDB follow-ups) against the targets in Section 4.
+  - [ ] Publish pilot onboarding guide (static egress IPs, least-privilege role setup for BigQuery/Postgres, SSH bastion setup).
+- [ ] **Exit Check:** Security sign-off complete with no open high/critical findings; onboard first external pilot organization.
+
+## 4. MVP Success Metrics (v1 Release Targets)
+
+| Area | Target |
+| --- | --- |
+| SQL policy | 100% rejection on adversarial suite; 0 known bypasses |
+| Text-to-SQL accuracy | $\ge 80\%$ execution accuracy on 50-question gold set |
+| Follow-up latency | DuckDB follow-up p95 $\le 3$ s on a 500k-row artifact |
+| Warehouse cost | 0 additional warehouse scans for workspace follow-ups |
+| Tenant isolation | 0 cross-tenant access in CI and pen test |
+| Concurrency | 20 concurrent users with no worker OOM or API errors |
+| PM explanation | Phase 2 acceptance cases verify every completed table/chart has 1–2 evidence-grounded sentences; SQL is collapsed initially and accessible on demand |
+| Curated dictionary | Phase 2 acceptance cases cover imported, curated and missing BigQuery definitions with authorized editing; Postgres coverage follows in Phase 3 |
+
+## 5. Key Risks & Mitigations
+
+| Risk | Mitigation |
+| --- | --- |
+| AST validator bypass leads to writes or data exfiltration | Fail-closed parsing, least-privilege read-only credentials, adversarial CI suite, pen test before release |
+| Text-to-SQL accuracy below target | Curated context + pinned joins, gold benchmark from Phase 1, confirmation cards on expensive queries |
+| Misleading logic or missing business definitions | Validate explanations against executed query/workspace evidence; label unknowns and partial results; retain source provenance and authorized curated definitions |
+| Worker OOM / noisy neighbor on large results | Result cap, `concurrency=1`, DuckDB memory limits, sizing from Spike 2 |
+| Sensitive data exposure to LLM | Schema + stats only, optional 5-row preview disabled per connection, column masking in Phase 4 |
+| LLM cost overrun on managed key | Per-tenant daily budgets with hard stop from Phase 2 |
+| Customer network access blocked | Static NAT IPs + SSH bastion; connection diagnostics pinpoint the failing layer |
+| 12-week schedule slip | Phase exit gates; Phase 4 BYO keys are the first candidate to defer if needed |
+
+## 6. Open Decisions (to Close at Spike Sign-Off)
+
+- [ ] Managed LLM gateway provider and default model(s).
+- [ ] Embedding model for `pgvector` context retrieval.
+- [ ] Workspace Parquet retention TTL (proposed: 24h) and whether users can pin artifacts longer. *Local/dev:* `gs://datahop` (prefix `odn/`) has a 3-day bucket default set by the owner; confirm whether that is a lifecycle delete rule or the soft-delete window, and align the app TTL with it.
+- [ ] Final worker RAM size and result cap (from Spike 2 results).
+- [ ] OIDC identity provider(s) supported for the pilot.
+- [ ] Pilot organization and its target BigQuery/Postgres sources.
+- [ ] Deploy target and CI path: (A) Jenkins + Helm on CNTV GKE (`clgx-gke-cntv-us-w1-dev`/`uat`, configs repo, Vault) — fastest for a pilot; or (B) Cloud Run + separate `-iac` Terraform repo, which needs a Cloud Run workflow from the GHA platform team.
+- [ ] Cost guardrails per tenant: confirmation threshold (now 10 GiB) and hard `maximum_bytes_billed` cap (now 100 GiB). Note: some approved views (e.g. `vw_edr_sdp_address_universe`, ~17–30 GB minimum per query because of a whole-table dedup) can never get cheaper; consider asking data owners for materialized/clustered copies of heavily used tables.

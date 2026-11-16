@@ -1,0 +1,204 @@
+# One Data Navigator MVP: local Docker development stack.
+# See docs/one_data_navigator_mvp_dev_plan.md. Local emulation of the GCP target:
+#   Cloud SQL (Postgres + pgvector) -> postgres
+#   GCS workspace bucket            -> gcs (fake-gcs-server)
+#   OIDC SSO                        -> oidc (mock-oauth2-server)
+#   Secret Manager                  -> ./keys mounted read-only (api only)
+# Host ports are bound to 127.0.0.1 and offset from navigator_docker_env so both stacks can run.
+name: one-data-navigator
+
+x-backend-build: &backend-build
+  context: ./backend
+
+x-backend-env: &backend-env
+  ODN_ENV: local
+  # Non-superuser, NOBYPASSRLS role so Row-Level Security is actually enforced.
+  ODN_DATABASE_URL: postgresql://odn_app:odn_app_local_dev@postgres:5432/odn
+  ODN_GCS_BUCKET: odn-workspace-local
+  STORAGE_EMULATOR_HOST: http://gcs:4443
+  # Tokens are always minted via the in-network URL, so this is the issuer everywhere server-side.
+  ODN_OIDC_ISSUER: http://oidc:8080/odn
+  ODN_OIDC_JWKS_URL: http://oidc:8080/odn/jwks
+  ODN_WORKER_URL: http://worker:8000
+  ODN_AGENT_URL: http://agent:8000
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      # Local-only dev credentials; owner/migration role.
+      POSTGRES_USER: odn
+      POSTGRES_PASSWORD: odn_local_dev
+      POSTGRES_DB: odn
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:5532:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odn -d odn"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  gcs:
+    image: fsouza/fake-gcs-server:1.52.2
+    entrypoint: ["/bin/sh", "-c"]
+    # Each directory under the filesystem root is a bucket. external-url must be reachable from
+    # the other containers because resumable uploads follow it.
+    command:
+      - mkdir -p /storage/odn-workspace-local &&
+        exec /bin/fake-gcs-server -backend filesystem -filesystem-root /storage
+        -scheme http -port 4443 -external-url http://gcs:4443
+    volumes:
+      - gcs_data:/storage
+    ports:
+      - "127.0.0.1:4443:4443"
+
+  oidc:
+    image: ghcr.io/navikt/mock-oauth2-server:2.1.10
+    environment:
+      SERVER_PORT: "8080"
+      # Local dev identity: tenant "local" (seeded by the api on start), audience "odn".
+      # The issuer in tokens follows the request host; server-side calls use http://oidc:8080/odn.
+      JSON_CONFIG: >-
+        {"interactiveLogin": false,
+         "tokenCallbacks": [{"issuerId": "odn", "tokenExpiry": 3600,
+           "requestMappings": [{"requestParam": "grant_type", "match": "*",
+             "claims": {"sub": "dev-user", "aud": ["odn", "odn-web"], "azp": "odn-web", "tenant": "local",
+                        "email": "dev@local.test", "name": "Dev User"}}]}]}
+    ports:
+      - "127.0.0.1:8180:8080"
+
+  api:
+    build:
+      <<: *backend-build
+      args:
+        ODN_EXTRAS: api
+    command:
+      - sh
+      - -c
+      - python -m odn.db.migrate --seed-local &&
+        exec uvicorn odn.api.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/src
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *backend-env
+      ODN_MIGRATIONS_DATABASE_URL: postgresql://odn:odn_local_dev@postgres:5432/odn
+      ODN_CONFIRM_BYTES_THRESHOLD: ${ODN_CONFIRM_BYTES_THRESHOLD:-10737418240}
+      ODN_WORKER_TOKEN: ${ODN_WORKER_TOKEN:-local-dev-worker-token}
+      # BQ_SA_KEY_FILE in .env is relative to the repo root (e.g. keys/<sa>.json).
+      GOOGLE_APPLICATION_CREDENTIALS: /app/${BQ_SA_KEY_FILE:-keys/missing-sa.json}
+      GOOGLE_CLOUD_PROJECT: ${BQ_PROJECT_ID:-}
+    volumes:
+      - ./backend/src:/app/src
+      - ./keys:/app/keys:ro
+    ports:
+      - "127.0.0.1:8100:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      gcs:
+        condition: service_started
+      oidc:
+        condition: service_started
+      worker:
+        condition: service_started
+
+  agent:
+    build:
+      <<: *backend-build
+      args:
+        ODN_EXTRAS: agent
+    command: ["uvicorn", "odn.agent.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/src"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      <<: *backend-env
+      # Agent reaches data only through the API's typed tools, never the DB directly.
+      ODN_DATABASE_URL: ""
+      ODN_API_URL: http://api:8000
+    volumes:
+      - ./backend/src:/app/src
+    ports:
+      - "127.0.0.1:8110:8000"
+    depends_on:
+      - api
+
+  # Isolated DuckDB + chart worker: no credentials, no host port, locked-down container.
+  worker:
+    build:
+      <<: *backend-build
+      args:
+        ODN_EXTRAS: worker
+    command: ["uvicorn", "odn.worker.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/app/src"]
+    environment:
+      ODN_ENV: local
+      ODN_GCS_BUCKET: odn-workspace-local
+      STORAGE_EMULATOR_HOST: http://gcs:4443
+      ODN_WORKER_MEMORY_LIMIT: 1536MB
+      ODN_WORKER_TOKEN: ${ODN_WORKER_TOKEN:-local-dev-worker-token}
+      MPLCONFIGDIR: /tmp/matplotlib
+    volumes:
+      - ./backend/src:/app/src:ro
+    expose:
+      - "8000"
+    mem_limit: 2g
+    cpus: 1.0
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - gcs
+
+  frontend:
+    build:
+      context: ./frontend
+    # `next dev` can be OOM-killed with exit code 0, so on-failure would not catch it.
+    restart: unless-stopped
+    environment:
+      ODN_API_URL: http://api:8000
+      ODN_AGENT_URL: http://agent:8000
+      ODN_ENV: local
+      ODN_PUBLIC_URL: http://localhost:3100
+      ODN_OIDC_ISSUER: http://oidc:8080/odn
+      ODN_OIDC_PUBLIC_ISSUER: http://localhost:8180/odn
+      ODN_OIDC_CLIENT_ID: odn-web
+      ODN_OIDC_CLIENT_SECRET: local-dev-only
+      # 32 random bytes, base64url. Local default only; set your own in .env.
+      ODN_SESSION_SECRET: ${ODN_SESSION_SECRET:-aFvY2Uq6JklszAz8Ydu4NrTOYFMRwq5gkAJFMpZ0Ct0}
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    ports:
+      - "127.0.0.1:3100:3000"
+    depends_on:
+      - api
+
+  # Sample source database for connector/eval work (Phase 3). Start with: --profile targets
+  sample-postgres:
+    image: postgres:16-alpine
+    profiles: ["targets"]
+    environment:
+      POSTGRES_USER: sample_admin
+      POSTGRES_PASSWORD: sample_admin_local_dev
+      POSTGRES_DB: sample
+    volumes:
+      - ./docker/sample-postgres/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "127.0.0.1:5533:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sample_admin -d sample"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
+  gcs_data:

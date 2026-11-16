@@ -1,0 +1,19 @@
+# Overlay: use the real workspace bucket (gs://datahop) instead of the local GCS emulator.
+#   docker compose -f docker-compose.yml -f docker-compose.gcs.yml up -d api worker
+# Requires in .env:  GCS_SA_KEY_FILE=keys/<datahop-sa>.json   (and optionally ODN_GCS_BUCKET)
+# Only this one key file is mounted, and only into api and worker; the BigQuery key stays api-only.
+x-gcs-env: &gcs-env
+  STORAGE_EMULATOR_HOST: ""
+  ODN_GCS_BUCKET: ${ODN_GCS_BUCKET:-datahop}
+  ODN_GCS_PREFIX: ${ODN_GCS_PREFIX:-odn}
+  ODN_GCS_CREDENTIALS_FILE: /run/odn-gcs/sa.json
+
+services:
+  api:
+    environment: *gcs-env
+    volumes:
+      - ./${GCS_SA_KEY_FILE:?set GCS_SA_KEY_FILE in .env}:/run/odn-gcs/sa.json:ro
+  worker:
+    environment: *gcs-env
+    volumes:
+      - ./${GCS_SA_KEY_FILE:?set GCS_SA_KEY_FILE in .env}:/run/odn-gcs/sa.json:ro
