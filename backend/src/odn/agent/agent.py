@@ -52,9 +52,11 @@ partial (truncated), say so. Be concise. Never claim to have run a query you did
 
 
 def _model() -> LiteLlm:
+    # LITELLM_API_BASE is only needed for a proxy (e.g. "openai/<alias>"); provider models such as
+    # "gemini/<model>" (AI Studio key) use the provider's default endpoint.
     return LiteLlm(
         model=os.environ["LITELLM_MODEL"],
-        api_base=os.environ["LITELLM_API_BASE"],
+        api_base=os.environ.get("LITELLM_API_BASE") or None,
         api_key=os.environ["LITELLM_API_KEY"],
         num_retries=2,
         timeout=120,

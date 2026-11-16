@@ -53,12 +53,16 @@ class CredentialError(Exception):
     pass
 
 
+def is_tenant_secret_ref(tenant_id: UUID, secret_ref: str) -> bool:
+    """Secret Manager refs must name a secret prefixed with the owning tenant's id."""
+    return bool(
+        re.fullmatch(rf"projects/[a-z0-9-]+/secrets/odn-{tenant_id}-[A-Za-z0-9_-]+/versions/(latest|\d+)", secret_ref)
+    )
+
+
 def resolve_credentials(tenant_id: UUID, secret_ref: str) -> Credentials:
     """Every connection must carry its own credentials; the platform identity is never used as a fallback."""
-    sm = re.fullmatch(
-        rf"projects/[a-z0-9-]+/secrets/odn-{tenant_id}-[A-Za-z0-9_-]+/versions/(latest|\d+)", secret_ref
-    )
-    if sm:
+    if is_tenant_secret_ref(tenant_id, secret_ref):
         from google.cloud import secretmanager
 
         payload = secretmanager.SecretManagerServiceClient().access_secret_version(name=secret_ref).payload.data

@@ -12,8 +12,7 @@ from functools import cache
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from odn.config import settings
-from odn.tenancy.oidc import InvalidToken, TokenVerifier
+from odn.tenancy.oidc import InvalidToken, TokenVerifier, verifier_from_settings
 
 bearer_token: ContextVar[str | None] = ContextVar("odn_bearer_token", default=None)
 user_key: ContextVar[str | None] = ContextVar("odn_user_key", default=None)
@@ -23,12 +22,7 @@ PUBLIC_PATHS = {"/healthz"}
 
 @cache
 def _verifier() -> TokenVerifier:
-    return TokenVerifier(
-        issuer=settings.oidc_issuer,
-        jwks_url=settings.oidc_jwks_url,
-        audience=settings.oidc_audience,
-        tenant_claim=settings.oidc_tenant_claim,
-    )
+    return verifier_from_settings()
 
 
 class BearerAuthMiddleware:

@@ -1,0 +1,17 @@
+# Public entry point: automatic Let's Encrypt TLS for ODN_HOSTNAME, proxied to the Next.js BFF.
+# The API, agent, worker and Postgres are only reachable on the internal Docker network.
+{
+	email {$ACME_EMAIL}
+}
+
+{$ODN_HOSTNAME} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+	reverse_proxy frontend:3000
+}

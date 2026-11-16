@@ -9,6 +9,7 @@ export const SESSION_COOKIE = "odn_session";
 export const AUTH_TX_COOKIE = "odn_auth_tx";
 
 export type Session = {
+  /** Bearer token for the API (the access or ID token, per ODN_OIDC_API_TOKEN). */
   accessToken: string;
   expiresAt: number;
   name?: string;

@@ -1,8 +1,8 @@
 # One Data Navigator: MVP Architecture & Development Plan
 
-**Status:** Final (v1.0) — in build. Spikes done; Phase 1 and Phase 2 features built and running locally; hosting/CI and alpha telemetry outstanding (see [Progress Summary](#progress-summary-2026-11-15)).
+**Status:** Final (v1.0) — in build. Spikes done; Phase 1 and Phase 2 features built and running locally; hosting target decided (single GCP VM, see [deploy_gcp_vm.md](deploy_gcp_vm.md)) and pending first deploy (see [Progress Summary](#progress-summary-2026-11-15)).
 
-**Date:** 2026-11-14 (progress updated 2026-11-15)
+**Date:** 2026-11-14 (progress updated 2026-11-16)
 
 **Supersedes:** [One_Data_Navigator_Architecture.md](One_Data_Navigator_Architecture.md) (Full Vision Proposal) for v1 scope and sequencing. The full vision remains the v2+ reference.
 
@@ -174,10 +174,10 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 
 **Left to do (in priority order)**
 
-1. **Hosting & CI (Phase 1 blocker):** choose the deploy target — (A) Jenkins + Helm on CNTV GKE like KWAgent, or (B) Cloud Run + a separate `-iac` Terraform repo via the approved GHA platform — then provision dev/int (Cloud SQL, bucket, Secret Manager, egress/NAT) and wire CI (policy suite, RLS isolation tests, lint, image builds).
+1. **Hosting (Phase 1 blocker):** *decided 2026-11-16* — one GCP Compute Engine VM (`datahop-514819`) running the same Docker Compose stack plus `docker-compose.prod.yml` at `https://odn.datahop.ai`: Caddy TLS, Google sign-in (`cotality.com` → `cotality` tenant, other accounts → `datahop`), `gs://datahop` via the VM service account, Cotality BigQuery key in Secret Manager, Gemini API via LiteLLM. Deploys run from the Mac with `deploy/deploy.sh` (no CI/CD for now). Setup scripts and runbook are done ([deploy_gcp_vm.md](deploy_gcp_vm.md)). **Remaining:** run `deploy/gcp/create-vm.sh`, DNS, Google OAuth client, first deploy and tenant/connection provisioning. CI (policy suite, RLS isolation tests, lint, image builds) is deferred.
 2. ~~**Alpha telemetry & budgets (Phase 2)**~~ — done 2026-11-16 (telemetry API + per-tenant daily LLM token budget with hard stop). Optional: a small usage view in the UI.
 3. **Gold benchmark (Phase 1):** draft 25 BigQuery questions with the pilot data owners and record baseline execution accuracy.
-4. **Production hardening of what exists:** durable ADK sessions (currently in-memory), OIDC token refresh, summary stats for the LLM, keyboard-accessibility tests for the explorer/dictionary, run the Phase 1 and Phase 2 exit checks on the hosted URL.
+4. **Production hardening of what exists:** ~~durable ADK sessions~~ (done 2026-11-16: Postgres `adk` schema, `odn_agent` role), OIDC token refresh (prod sessions end after the 1-hour Google ID token), summary stats for the LLM, keyboard-accessibility tests for the explorer/dictionary, run the Phase 1 and Phase 2 exit checks on the hosted URL.
 5. **Architecture sign-off:** close the [Open Decisions](#6-open-decisions-to-close-at-spike-sign-off).
 6. **Phases 3–4:** unchanged (Postgres connector, context layer, Skills v2, governance, release gate).
 
@@ -200,7 +200,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 
 - [ ] **Infrastructure & Tenancy:**
   - [ ] Provision GCP environment via IaC (Terraform): Cloud Run (API/BFF & Agent), Cloud SQL (Postgres + `pgvector`), GCS bucket with 24h lifecycle deletion, Secret Manager, Direct VPC egress + Cloud NAT (static egress IP), and separate dev/staging environments.
-    - *Blocked on the deploy-target decision (Open Decisions).* Company constraints found: the approved GHA platform has no Cloud Run deploy workflow, Terraform must live in a separate `{org}-{space}-iac` repo, Python CI is Poetry-based, and environment names are `dev/int/uat/prd` (no `staging`). The existing KWAgent path is Jenkins + Helm on CNTV GKE with Vault secrets. Local development runs fully in Docker Compose meanwhile.
+    - *Superseded for the MVP (2026-11-16):* a single GCP VM with Docker Compose instead of Cloud Run/Terraform; see [deploy_gcp_vm.md](deploy_gcp_vm.md) (static IP, firewall, VM service account, Secret Manager, daily disk snapshots; Postgres runs on the VM instead of Cloud SQL). Earlier findings for the Cloud Run/GKE options, kept for v2: the approved GHA platform has no Cloud Run deploy workflow, Terraform must live in a separate `{org}-{space}-iac` repo, Python CI is Poetry-based, and environment names are `dev/int/uat/prd` (no `staging`). The existing KWAgent path is Jenkins + Helm on CNTV GKE with Vault secrets. Local development runs fully in Docker Compose meanwhile.
   - [x] Implement OIDC SSO authentication in Next.js + BFF; inject verified `tenant_id` and `user_id` into request context middleware.
     - *Done:* BFF side (`odn.tenancy`, `odn.api.deps`): JWKS-verified asymmetric-only tokens (issuer/audience/exp required), tenant resolved server-side from issuer + tenant claim, user upserted under RLS. Next.js (`frontend/app/auth/*`, `frontend/lib/*`): authorization code + PKCE + state + nonce via `openid-client`, session in an encrypted (A256GCM) HttpOnly cookie, `/api/odn/*` proxy adds the bearer token and enforces same-origin on writes. IdP-agnostic; verified locally against the mock IdP. Token refresh is not implemented yet (session ends at token expiry).
   - [x] Create core Postgres schema (`tenants`, `users`, `connections`, `audit_logs`) with Row-Level Security policies and cross-tenant isolation tests in CI.
@@ -221,7 +221,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
   - [ ] Draft the first 25 BigQuery gold-benchmark questions and record a baseline execution accuracy.
     - *Not started:* questions and expected answers need the pilot data owners (no invented questions/answers).
 - [ ] **Exit Check:** Authenticated user logs into the hosted URL, browses BigQuery datasets, and runs a chat query; CI verifies cross-tenant isolation and 100% rejection on the adversarial SQL suite; current MVP BigQuery features work with no MCP.
-  - *Status:* passes locally (login → browse → chat query, no MCP; isolation and policy suites green in `pytest`). Open: hosted URL and CI.
+  - *Status:* passes locally (login → browse → chat query, no MCP; isolation and policy suites green in `pytest`). Open: first deploy to `odn.datahop.ai`; CI deferred (suites run with `pytest` before each deploy).
 
 ### Phase 2: Result Workspace, PM Explanations & Curated Schema — *Core MVP* (Weeks 4–6)
 
@@ -234,7 +234,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
     - *Done:* `ResultsGrid.tsx` — server-paged (100 rows) and server-sorted via worker `/v1/rows`, accessible sortable headers (`aria-sort`), streamed CSV download of the full artifact (`/artifacts/{qN}/csv`). Paging stands in for virtualization for now.
 - [ ] **Isolated DuckDB & Chart Worker:**
   - [ ] Deploy isolated Cloud Run worker service (`concurrency=1`, RAM sized from Spike 2) exposing internal-only endpoints for DuckDB SQL execution and chart rendering.
-    - *Local equivalent done:* separate `worker` container (2 GB, 1 CPU, read-only FS, all capabilities dropped, no host port, shared-token auth). Hosted deployment follows the deploy-target decision.
+    - *Local equivalent done:* separate `worker` container (2 GB, 1 CPU, read-only FS, all capabilities dropped, no host port, shared-token auth). The MVP runs this same container on the prod VM; Cloud Run is deferred.
   - [x] Lock down DuckDB (external access disabled, configuration locked, tenant/session-scoped file access, per-query timeout and memory limit) and run DuckDB SQL through the same AST read-only validator.
     - *Done:* worker `/v1/query` + `/v1/rows` (shared-token auth, object keys confined to the workspace prefix, only the referenced artifacts loaded, policy re-checked against exactly those inputs, interrupt-based timeout, row/byte caps). The API validates first and audits every workspace query (`source=workspace`, `dialect=duckdb`).
   - [x] Add `query_workspace` (DuckDB) and `generate_chart` (typed chart spec) tools to the ADK Analysis sub-agent. *(`query_workspace`, `list_workspace`, `generate_chart` done. Charts: typed spec → worker aggregates with schema-validated identifiers → dependency-free accessible SVG (bar/line/scatter, series, tooltips, data table + CSV fallback). Verified live: "top 10 states" bar chart from `q2` with no warehouse re-scan.)*
@@ -277,7 +277,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
   - [x] Enforce per-tenant daily LLM token/cost budgets on the managed key (hard stop + user-facing message).
     - *Done (2026-11-16):* `before_model_callback` checks `GET /v1/llm-budget` before every model call and, at or over the limit, answers with a plain message (used/limit, reset time 00:00 UTC, Explorer still works) without calling the model; fails closed if the budget can't be checked. Default `ODN_LLM_DAILY_TOKEN_BUDGET` (2M tokens/tenant/UTC day); per-tenant override in `tenant_llm_budgets` (operator-managed, read-only to the app). A single in-flight call can overshoot slightly; the next call is stopped. Token-based for now; cost-based limits need per-model prices.
 - [ ] **Exit Check:** Alpha user executes 1 warehouse query followed by 3 conversational follow-ups and 1 chart render with zero additional BigQuery scans and no result rows sent to the LLM beyond the optional 5-row preview. A PM sees a grounded one- or two-sentence logic/lineage explanation with SQL collapsed but accessible, and can find an approved BigQuery field and its source or curated definition in the schema explorer; missing definitions and partial results are labeled. CI verifies authorized edits and tenant isolation.
-  - *Status:* the workflow half passes locally (1 scan → 3 DuckDB follow-ups + chart, zero re-scans in the audit log; explanations and dictionary shown). Open: telemetry, LLM budgets, CI, and running it on the hosted alpha.
+  - *Status:* the workflow half passes locally (1 scan → 3 DuckDB follow-ups + chart, zero re-scans in the audit log; explanations and dictionary shown); telemetry and LLM budgets done. Open: running it on the hosted alpha; CI deferred.
 
 ### Phase 3: Postgres Connector & Lightweight Context Layer (Weeks 7–9)
 
@@ -341,11 +341,11 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 
 ## 6. Open Decisions (to Close at Spike Sign-Off)
 
-- [ ] Managed LLM gateway provider and default model(s).
+- [x] Managed LLM gateway provider and default model(s). *MVP prod: Gemini API (AI Studio key) through LiteLLM (`LITELLM_MODEL=gemini/<model>`); the corporate LiteLLM proxy needs the corporate network, so it stays local-only.*
 - [ ] Embedding model for `pgvector` context retrieval.
 - [ ] Workspace Parquet retention TTL (proposed: 24h) and whether users can pin artifacts longer. *Local/dev:* `gs://datahop` (prefix `odn/`) has a 3-day bucket default set by the owner; confirm whether that is a lifecycle delete rule or the soft-delete window, and align the app TTL with it.
 - [ ] Final worker RAM size and result cap (from Spike 2 results).
-- [ ] OIDC identity provider(s) supported for the pilot.
+- [x] OIDC identity provider(s) supported for the pilot. *Google sign-in: the Workspace `hd` claim maps a domain to a tenant (`ODN_OIDC_TENANT_DOMAINS`, e.g. `cotality.com=cotality`); other Google accounts go to the default tenant (`ODN_OIDC_DEFAULT_TENANT`), optionally limited by `ODN_OIDC_DEFAULT_TENANT_EMAILS`.*
 - [ ] Pilot organization and its target BigQuery/Postgres sources.
-- [ ] Deploy target and CI path: (A) Jenkins + Helm on CNTV GKE (`clgx-gke-cntv-us-w1-dev`/`uat`, configs repo, Vault) — fastest for a pilot; or (B) Cloud Run + separate `-iac` Terraform repo, which needs a Cloud Run workflow from the GHA platform team.
+- [x] Deploy target and CI path. *Decided 2026-11-16: one GCP VM (`datahop-514819`, `e2-standard-4`) running Docker Compose, deployed manually with `deploy/deploy.sh`; no CI/CD for the MVP. GCP over AWS because BigQuery and `gs://datahop` are on GCP (no egress fees, VM service account instead of key files). Earlier options: (A) Jenkins + Helm on CNTV GKE; (B) Cloud Run + `-iac` Terraform repo.*
 - [ ] Cost guardrails per tenant: confirmation threshold (now 10 GiB) and hard `maximum_bytes_billed` cap (now 100 GiB). Note: some approved views (e.g. `vw_edr_sdp_address_universe`, ~17–30 GB minimum per query because of a whole-table dedup) can never get cheaper; consider asking data owners for materialized/clustered copies of heavily used tables.

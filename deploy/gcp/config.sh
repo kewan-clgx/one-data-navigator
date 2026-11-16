@@ -1,0 +1,11 @@
+# Shared settings for deploy/gcp/create-vm.sh and deploy/deploy.sh. Override any value via the environment.
+: "${GCP_PROJECT:=datahop-514819}"
+: "${GCP_REGION:=us-central1}"
+: "${GCP_ZONE:=${GCP_REGION}-a}"
+: "${ODN_VM:=odn-prod}"
+: "${ODN_VM_MACHINE:=e2-standard-4}"
+: "${ODN_VM_DISK_GB:=50}"
+: "${ODN_VM_SA:=odn-vm}"
+: "${ODN_BUCKET:=datahop}"
+: "${ODN_REMOTE_DIR:=/opt/odn}"
+ODN_VM_SA_EMAIL="${ODN_VM_SA}@${GCP_PROJECT}.iam.gserviceaccount.com"

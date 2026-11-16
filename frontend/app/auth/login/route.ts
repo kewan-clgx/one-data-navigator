@@ -20,6 +20,7 @@ export async function GET() {
     code_challenge_method: "S256",
     state,
     nonce,
+    ...(config.prompt ? { prompt: config.prompt } : {}),
   });
 
   const res = NextResponse.redirect(toBrowserUrl(url));

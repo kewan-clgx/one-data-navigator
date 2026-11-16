@@ -32,9 +32,14 @@ export async function GET(req: NextRequest) {
   }
 
   const claims = tokens.claims();
-  const maxAge = Math.min(tokens.expiresIn() ?? 3600, MAX_SESSION_S);
+  const useIdToken = config.apiToken === "id_token";
+  const bearer = useIdToken ? tokens.id_token : tokens.access_token;
+  if (!bearer) return NextResponse.json({ error: "login failed" }, { status: 400 });
+  const lifetime = useIdToken && claims ? claims.exp - Math.floor(Date.now() / 1000) : tokens.expiresIn();
+  const maxAge = Math.min(lifetime ?? 3600, MAX_SESSION_S);
+  if (maxAge <= 0) return NextResponse.json({ error: "login failed" }, { status: 400 });
   const session = {
-    accessToken: tokens.access_token,
+    accessToken: bearer,
     expiresAt: Math.floor(Date.now() / 1000) + maxAge,
     name: typeof claims?.name === "string" ? claims.name : undefined,
     email: typeof claims?.email === "string" ? claims.email : undefined,

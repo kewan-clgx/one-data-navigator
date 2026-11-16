@@ -32,6 +32,17 @@ export const config = {
   get scope() {
     return process.env.ODN_OIDC_SCOPE || "openid profile email";
   },
+  /**
+   * Token forwarded to the API as the bearer: "access_token" (default; a JWT from most IdPs) or
+   * "id_token" (Google, whose access tokens are opaque and cannot be verified by the API).
+   */
+  get apiToken(): "access_token" | "id_token" {
+    return process.env.ODN_OIDC_API_TOKEN === "id_token" ? "id_token" : "access_token";
+  },
+  /** Optional OIDC "prompt", e.g. "select_account" so Google users can pick personal vs. corporate. */
+  get prompt() {
+    return process.env.ODN_OIDC_PROMPT || "";
+  },
   get sessionSecret() {
     return required("ODN_SESSION_SECRET");
   },

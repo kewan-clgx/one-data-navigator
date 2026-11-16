@@ -8,21 +8,15 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from odn.config import settings
 from odn.tenancy.context import RequestContext, UnknownTenant, resolve_context
-from odn.tenancy.oidc import InvalidToken, TokenVerifier
+from odn.tenancy.oidc import InvalidToken, TokenVerifier, verifier_from_settings
 
 _bearer = HTTPBearer(auto_error=False)
 
 
 @cache
 def token_verifier() -> TokenVerifier:
-    return TokenVerifier(
-        issuer=settings.oidc_issuer,
-        jwks_url=settings.oidc_jwks_url,
-        audience=settings.oidc_audience,
-        tenant_claim=settings.oidc_tenant_claim,
-    )
+    return verifier_from_settings()
 
 
 def request_context(

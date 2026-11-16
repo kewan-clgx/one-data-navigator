@@ -22,3 +22,9 @@ docker compose --profile targets up -d sample-postgres   # sample Postgres sourc
 | sample-postgres | localhost:5533 (`analyst_ro`) | Sample source DB |
 
 Backend tests: `cd backend && uv sync --all-extras && uv run pytest`
+
+## Production (GCP VM)
+
+The same stack runs on one Compute Engine VM with `docker-compose.prod.yml` (Google sign-in, Caddy TLS,
+`gs://datahop`). Deploy the committed `HEAD` with `deploy/deploy.sh up`. See
+[docs/deploy_gcp_vm.md](docs/deploy_gcp_vm.md).

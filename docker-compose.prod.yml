@@ -1,0 +1,130 @@
+# Production overlay for a single VM (see docs/deploy_gcp_vm.md):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Differences from local: real Google OIDC and GCS (VM service account), Caddy TLS on 80/443 as the only
+# public entry point, no source mounts or reload, no mock IdP/GCS. Secrets come from the VM's .env
+# (template: deploy/.env.prod.example) and each service gets only the variables it needs.
+# Requires Docker Compose >= 2.24 for !reset.
+name: one-data-navigator
+
+x-prod-backend-env: &prod-backend-env
+  ODN_ENV: prod
+  ODN_DATABASE_URL: postgresql://odn_app:${ODN_APP_DB_PASSWORD:?set in .env}@postgres:5432/odn
+  # Workspace bucket via the VM service account (metadata server); no key files.
+  STORAGE_EMULATOR_HOST: ""
+  GOOGLE_APPLICATION_CREDENTIALS: ""
+  GOOGLE_CLOUD_PROJECT: ""
+  ODN_GCS_BUCKET: ${ODN_GCS_BUCKET:?set in .env}
+  ODN_GCS_PREFIX: ${ODN_GCS_PREFIX:-odn}
+  ODN_GCS_CREDENTIALS_FILE: ""
+  # Google sign-in: ID tokens (aud = OAuth client id); hd = Workspace domain mapped to a tenant.
+  ODN_OIDC_ISSUER: https://accounts.google.com
+  ODN_OIDC_JWKS_URL: https://www.googleapis.com/oauth2/v3/certs
+  ODN_OIDC_AUDIENCE: ${ODN_OIDC_CLIENT_ID:?set in .env}
+  ODN_OIDC_TENANT_CLAIM: hd
+  ODN_OIDC_TENANT_DOMAINS: ${ODN_OIDC_TENANT_DOMAINS:-}
+  ODN_OIDC_DEFAULT_TENANT: ${ODN_OIDC_DEFAULT_TENANT:-}
+  ODN_OIDC_DEFAULT_TENANT_EMAILS: ${ODN_OIDC_DEFAULT_TENANT_EMAILS:-}
+  ODN_WORKER_TOKEN: ${ODN_WORKER_TOKEN:?set in .env}
+  ODN_AGENT_TOKEN: ${ODN_AGENT_TOKEN:?set in .env}
+
+services:
+  postgres:
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${ODN_DB_OWNER_PASSWORD:?set in .env}
+      ODN_APP_DB_PASSWORD: ${ODN_APP_DB_PASSWORD:?set in .env}
+      ODN_AGENT_DB_PASSWORD: ${ODN_AGENT_DB_PASSWORD:?set in .env}
+    # Applied by docker/postgres/init/90-prod-passwords.sh on first init.
+    ports: !reset []
+
+  # Local-only emulators: never started in prod.
+  gcs:
+    profiles: ["local-only"]
+  oidc:
+    profiles: ["local-only"]
+
+  api:
+    restart: unless-stopped
+    env_file: !reset []
+    command:
+      - sh
+      - -c
+      - python -m odn.db.migrate && exec uvicorn odn.api.main:app --host 0.0.0.0 --port 8000
+    environment:
+      <<: *prod-backend-env
+      ODN_MIGRATIONS_DATABASE_URL: postgresql://odn:${ODN_DB_OWNER_PASSWORD:?set in .env}@postgres:5432/odn
+    volumes: !reset []
+    ports: !reset []
+    depends_on: !override
+      postgres:
+        condition: service_healthy
+      worker:
+        condition: service_started
+
+  agent:
+    restart: unless-stopped
+    env_file: !reset []
+    command: ["uvicorn", "odn.agent.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      <<: *prod-backend-env
+      ODN_DATABASE_URL: ""
+      ODN_AGENT_SESSION_DB_URL: postgresql+psycopg://odn_agent:${ODN_AGENT_DB_PASSWORD:?set in .env}@postgres:5432/odn?options=-csearch_path%3Dadk
+      LITELLM_MODEL: ${LITELLM_MODEL:?set in .env}
+      LITELLM_API_KEY: ${LITELLM_API_KEY:?set in .env}
+      LITELLM_API_BASE: ${LITELLM_API_BASE:-}
+    volumes: !reset []
+    ports: !reset []
+
+  worker:
+    restart: unless-stopped
+    command: ["uvicorn", "odn.worker.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      ODN_ENV: prod
+      STORAGE_EMULATOR_HOST: ""
+      ODN_GCS_BUCKET: ${ODN_GCS_BUCKET:?set in .env}
+      ODN_GCS_PREFIX: ${ODN_GCS_PREFIX:-odn}
+      ODN_GCS_CREDENTIALS_FILE: ""
+      ODN_WORKER_TOKEN: ${ODN_WORKER_TOKEN:?set in .env}
+    volumes: !reset []
+    depends_on: !reset []
+
+  frontend:
+    # Separate tag so the prod build never replaces the local dev image.
+    image: one-data-navigator-frontend:prod
+    build:
+      target: prod
+    restart: unless-stopped
+    environment:
+      ODN_ENV: prod
+      ODN_PUBLIC_URL: https://${ODN_HOSTNAME:?set in .env}
+      ODN_OIDC_ISSUER: https://accounts.google.com
+      ODN_OIDC_PUBLIC_ISSUER: ""
+      ODN_OIDC_CLIENT_ID: ${ODN_OIDC_CLIENT_ID:?set in .env}
+      ODN_OIDC_CLIENT_SECRET: ${ODN_OIDC_CLIENT_SECRET:?set in .env}
+      # Google access tokens are opaque; the API verifies the ID token instead.
+      ODN_OIDC_API_TOKEN: id_token
+      ODN_OIDC_PROMPT: select_account
+      ODN_SESSION_SECRET: ${ODN_SESSION_SECRET:?set in .env}
+    volumes: !reset []
+    ports: !reset []
+
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    environment:
+      ODN_HOSTNAME: ${ODN_HOSTNAME:?set in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set in .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    depends_on:
+      - frontend
+
+volumes:
+  caddy_data:
+  caddy_config:

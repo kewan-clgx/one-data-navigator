@@ -164,6 +164,7 @@ services:
   frontend:
     build:
       context: ./frontend
+      target: dev
     # `next dev` can be OOM-killed with exit code 0, so on-failure would not catch it.
     restart: unless-stopped
     environment:
