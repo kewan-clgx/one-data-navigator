@@ -7,6 +7,7 @@ import os
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
 
+from odn.agent.budget import enforce_budget, record_usage
 from odn.agent.tools import (
     generate_chart,
     get_my_tables,
@@ -66,6 +67,8 @@ def build_root_agent() -> LlmAgent:
         model=_model(),
         description="Answers data questions by exploring schemas and running governed read-only SQL.",
         instruction=INSTRUCTION,
+        before_model_callback=enforce_budget,
+        after_model_callback=record_usage,
         tools=[
             list_connections, get_my_tables, list_tables, get_table_schema, run_sql, query_workspace,
             list_workspace, generate_chart,

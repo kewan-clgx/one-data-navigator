@@ -2,6 +2,7 @@ from fastapi import FastAPI, Response
 from fastapi.middleware.gzip import GZipMiddleware
 
 from odn.api.routes import router
+from odn.api.usage_routes import router as usage_router
 from odn.api.workspace_routes import router as workspace_router
 from odn.config import settings
 
@@ -9,6 +10,7 @@ app = FastAPI(title="One Data Navigator API")
 app.add_middleware(GZipMiddleware, minimum_size=2048)
 app.include_router(router)
 app.include_router(workspace_router)
+app.include_router(usage_router)
 
 
 @app.get("/healthz")

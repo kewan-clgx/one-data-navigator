@@ -19,12 +19,14 @@ class ToolError(Exception):
     pass
 
 
-async def _api(method: str, path: str, **kwargs: Any) -> httpx.Response:
+async def _api(method: str, path: str, *, headers: dict[str, str] | None = None, **kwargs: Any) -> httpx.Response:
     token = bearer_token.get()
     if not token:
         raise ToolError("no authenticated user for this request")
     async with httpx.AsyncClient(base_url=settings.api_url, timeout=settings.query_timeout_s + 30) as client:
-        return await client.request(method, f"/v1/{path}", headers={"Authorization": f"Bearer {token}"}, **kwargs)
+        return await client.request(
+            method, f"/v1/{path}", headers={**(headers or {}), "Authorization": f"Bearer {token}"}, **kwargs
+        )
 
 
 def _detail(resp: httpx.Response) -> Any:

@@ -88,6 +88,8 @@ services:
       ODN_MIGRATIONS_DATABASE_URL: postgresql://odn:odn_local_dev@postgres:5432/odn
       ODN_CONFIRM_BYTES_THRESHOLD: ${ODN_CONFIRM_BYTES_THRESHOLD:-10737418240}
       ODN_WORKER_TOKEN: ${ODN_WORKER_TOKEN:-local-dev-worker-token}
+      ODN_AGENT_TOKEN: ${ODN_AGENT_TOKEN:-local-dev-agent-token}
+      ODN_LLM_DAILY_TOKEN_BUDGET: ${ODN_LLM_DAILY_TOKEN_BUDGET:-2000000}
       # BQ_SA_KEY_FILE in .env is relative to the repo root (e.g. keys/<sa>.json).
       GOOGLE_APPLICATION_CREDENTIALS: /app/${BQ_SA_KEY_FILE:-keys/missing-sa.json}
       GOOGLE_CLOUD_PROJECT: ${BQ_PROJECT_ID:-}
@@ -120,6 +122,7 @@ services:
       # Agent reaches data only through the API's typed tools, never the DB directly.
       ODN_DATABASE_URL: ""
       ODN_API_URL: http://api:8000
+      ODN_AGENT_TOKEN: ${ODN_AGENT_TOKEN:-local-dev-agent-token}
     volumes:
       - ./backend/src:/app/src
     ports:

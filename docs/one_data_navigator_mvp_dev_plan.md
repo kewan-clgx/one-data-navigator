@@ -170,11 +170,12 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 | PM explanations | Deterministic (AST-based, no LLM) one-to-two-sentence logic and lineage per result/chart; SQL collapsed by default; partial/unknown states labeled. |
 | Data dictionary | Live source descriptions + tenant-curated definitions (draft/approved/deprecated, history, data-lead edit only, allowlist-enforced). |
 | Local connection config | `.env` drives the local connection allowlist: `BQ_DATASET_IDS` (list, multi-line block with `#` comments, or `*`; empty = all datasets) and `BQ_TABLES` (`dataset.table`; a dataset listed there is limited to those tables). |
+| Telemetry & LLM budgets | `GET /v1/telemetry` (latency, bytes, DuckDB time, LLM tokens per tenant); per-tenant daily LLM token budget enforced before every model call with a user-facing stop message. |
 
 **Left to do (in priority order)**
 
 1. **Hosting & CI (Phase 1 blocker):** choose the deploy target — (A) Jenkins + Helm on CNTV GKE like KWAgent, or (B) Cloud Run + a separate `-iac` Terraform repo via the approved GHA platform — then provision dev/int (Cloud SQL, bucket, Secret Manager, egress/NAT) and wire CI (policy suite, RLS isolation tests, lint, image builds).
-2. **Alpha telemetry & budgets (Phase 2):** query latency, dry-run vs billed bytes, DuckDB time, LLM tokens per tenant; per-tenant daily LLM budget with hard stop and user message.
+2. ~~**Alpha telemetry & budgets (Phase 2)**~~ — done 2026-11-16 (telemetry API + per-tenant daily LLM token budget with hard stop). Optional: a small usage view in the UI.
 3. **Gold benchmark (Phase 1):** draft 25 BigQuery questions with the pilot data owners and record baseline execution accuracy.
 4. **Production hardening of what exists:** durable ADK sessions (currently in-memory), OIDC token refresh, summary stats for the LLM, keyboard-accessibility tests for the explorer/dictionary, run the Phase 1 and Phase 2 exit checks on the hosted URL.
 5. **Architecture sign-off:** close the [Open Decisions](#6-open-decisions-to-close-at-spike-sign-off).
@@ -271,8 +272,10 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
     bulk automated crawling are not Phase 2 dependencies.
     *(Edits, allowlist and tenant isolation covered in `tests/db/test_dictionary.py`; import/permission-failure fixtures and keyboard-accessibility tests remain.)*
 - [ ] **Internal Alpha Launch:**
-  - [ ] Add basic telemetry (query latency, dry-run bytes, DuckDB execution time, LLM token usage per tenant).
-  - [ ] Enforce per-tenant daily LLM token/cost budgets on the managed key (hard stop + user-facing message).
+  - [x] Add basic telemetry (query latency, dry-run bytes, DuckDB execution time, LLM token usage per tenant).
+    - *Done (2026-11-16):* query latency, dry-run vs billed bytes and DuckDB time come from the audit log; LLM tokens are recorded per tenant/user/day/model in `llm_usage` (migration `0005`) by an ADK `after_model_callback` (only the agent can report, via `X-ODN-Agent-Token` + the user's token). `GET /v1/telemetry?days=N` (data lead/admin) returns daily p50/p95 latency, executed/rejected/failed counts and bytes per engine (warehouse vs DuckDB) plus LLM requests/tokens/users per model. No UI yet.
+  - [x] Enforce per-tenant daily LLM token/cost budgets on the managed key (hard stop + user-facing message).
+    - *Done (2026-11-16):* `before_model_callback` checks `GET /v1/llm-budget` before every model call and, at or over the limit, answers with a plain message (used/limit, reset time 00:00 UTC, Explorer still works) without calling the model; fails closed if the budget can't be checked. Default `ODN_LLM_DAILY_TOKEN_BUDGET` (2M tokens/tenant/UTC day); per-tenant override in `tenant_llm_budgets` (operator-managed, read-only to the app). A single in-flight call can overshoot slightly; the next call is stopped. Token-based for now; cost-based limits need per-model prices.
 - [ ] **Exit Check:** Alpha user executes 1 warehouse query followed by 3 conversational follow-ups and 1 chart render with zero additional BigQuery scans and no result rows sent to the LLM beyond the optional 5-row preview. A PM sees a grounded one- or two-sentence logic/lineage explanation with SQL collapsed but accessible, and can find an approved BigQuery field and its source or curated definition in the schema explorer; missing definitions and partial results are labeled. CI verifies authorized edits and tenant isolation.
   - *Status:* the workflow half passes locally (1 scan → 3 DuckDB follow-ups + chart, zero re-scans in the audit log; explanations and dictionary shown). Open: telemetry, LLM budgets, CI, and running it on the hosted alpha.
 
