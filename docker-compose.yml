@@ -123,6 +123,8 @@ services:
       ODN_DATABASE_URL: ""
       ODN_API_URL: http://api:8000
       ODN_AGENT_TOKEN: ${ODN_AGENT_TOKEN:-local-dev-agent-token}
+      # Durable chat sessions: agent-only role, confined to the "adk" schema.
+      ODN_AGENT_SESSION_DB_URL: postgresql+psycopg://odn_agent:odn_agent_local_dev@postgres:5432/odn?options=-csearch_path%3Dadk
     volumes:
       - ./backend/src:/app/src
     ports:

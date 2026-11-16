@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     api_url: str = "http://api:8000"
     # Shared secret proving LLM-usage reports come from the agent runtime, not a browser.
     agent_token: str = ""
+    # SQLAlchemy URL for durable ADK chat sessions (agent role, "adk" schema); empty = in-memory sessions.
+    agent_session_db_url: str = ""
     # Default per-tenant LLM token limit per UTC day (prompt + completion); tenant_llm_budgets overrides it.
     llm_daily_token_budget: int = 2_000_000
 

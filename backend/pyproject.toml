@@ -31,6 +31,9 @@ agent = [
     # Upper bound matches KWAgent; do not lift without a supply-chain review.
     "litellm>=1.81.13,<=1.82.6",
     "pyjwt[crypto]>=2.10",
+    # Durable ADK sessions (DatabaseSessionService) in Postgres.
+    "sqlalchemy[asyncio]>=2,<3",
+    "psycopg[binary]>=3.2",
 ]
 worker = [
     "duckdb>=1.1",
