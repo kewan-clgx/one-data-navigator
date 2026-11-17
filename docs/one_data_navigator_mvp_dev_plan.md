@@ -153,7 +153,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 
 ### Progress Summary (updated 2026-11-17)
 
-**Where it runs:** production at `https://odn.datahop.ai` since 2026-11-16 (one GCP VM, Docker Compose + Caddy, Google sign-in, Gemini via LiteLLM). Development uses the local Docker Compose stack (`docker-compose.yml`; `docker-compose.gcs.yml` switches the workspace to the real `gs://datahop` bucket under `odn/`): frontend, API/BFF, ADK agent, isolated DuckDB worker, Postgres + pgvector, mock OIDC IdP and fake GCS, with real BigQuery (`clgx-idap-bigquery-int-278e`) via a service-account key. As of 2026-11-17: 255 backend tests passing, ruff clean, frontend type-check and production build passing. The 2026-11-17 work below is verified locally only and is **not yet committed or deployed** to `odn.datahop.ai`.
+**Where it runs:** production at `https://odn.datahop.ai` since 2026-11-16 (one GCP VM, Docker Compose + Caddy, Google sign-in, Gemini via LiteLLM). Development uses the local Docker Compose stack (`docker-compose.yml`; `docker-compose.gcs.yml` switches the workspace to the real `gs://datahop` bucket under `odn/`): frontend, API/BFF, ADK agent, isolated DuckDB worker, Postgres + pgvector, mock OIDC IdP and fake GCS, with real BigQuery (`clgx-idap-bigquery-int-278e`) via a service-account key, plus a client Postgres on AWS RDS (`devindulge_aws`) for Phase 3. As of 2026-11-17 (evening): 347 backend tests passing. **Deployed:** `odn.datahop.ai` runs release `6e33d68` (UI redesign, Chats, Artifacts, attachments). **Committed, not deployed:** everything after it — the Postgres connector, SSH tunnel, Postgres connection manager and agent schema-discovery changes (`303f56b` … `3b9d590`).
 
 **Done**
 
@@ -163,9 +163,9 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 | Tenancy & auth | OIDC (PKCE) login, encrypted session cookie, BFF proxy with same-origin writes, verified tenant/user context, Postgres RLS on every tenant table. |
 | Query path | `SqlPolicy` (fail-closed AST + allowlist) → dry-run cost gate → confirmation above 10 GiB → `maximum_bytes_billed` 100 GiB → capped execution → audit log for every allowed/rejected/failed query. |
 | BigQuery connector | Catalog, schema, dry-run, Storage Read (Arrow), cancel, column index; catalog listing up to 10k tables per dataset. |
-| Explorer | Allowlist-filtered tree, keyword search across datasets/tables/fields (+ curated definitions), hide-snapshots switch, draggable splitter, data dictionary panel, SQL runner with cost confirmation, **Preview data** (20 rows, `TABLESAMPLE SYSTEM (1 PERCENT)` for tables > 1 GB, first 10 columns). |
+| Explorer | Allowlist-filtered tree, keyword search across datasets/tables/fields (+ curated definitions), hide-snapshots switch, draggable splitter, data dictionary panel, SQL runner with cost confirmation, **Preview data** (20 rows, first 10 columns; BigQuery adds `TABLESAMPLE SYSTEM (1 PERCENT)` for tables > 1 GB, Postgres uses quoted identifiers + `LIMIT` only). |
 | Favorites & usage | Per-user favorite datasets/tables (star), tables recorded from every successful warehouse query; both rank first in search, tree and the agent's `list_tables`; agent tool `get_my_tables`. |
-| Chat agent | ADK + LiteLLM; tools `list_connections`, `get_my_tables`, `list_tables`, `get_table_schema`, `run_sql` (approval card above threshold, model cannot self-approve), `query_workspace`, `list_workspace`, `generate_chart`. |
+| Chat agent | ADK + LiteLLM; tools `list_connections`, `get_my_tables`, `search_tables_by_keyword`, `list_tables`, `get_table_schema`, `run_sql` (approval card above threshold, model cannot self-approve), `query_workspace`, `list_workspace`, `generate_chart`. |
 | Result workspace | Warehouse results → Parquet in GCS (500k rows / 600 MB Arrow cap, partial flag) as `q1..qN`; DuckDB follow-ups and charts in the locked-down worker with zero warehouse re-scans; paged/sorted results grid and CSV download. |
 | PM explanations | Deterministic (AST-based, no LLM) one-to-two-sentence logic and lineage per result/chart; SQL collapsed by default; partial/unknown states labeled. |
 | Data dictionary | Live source descriptions + tenant-curated definitions (draft/approved/deprecated, history, data-lead edit only, allowlist-enforced). |
@@ -179,6 +179,9 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 | Artifacts store (2026-11-17) | Migration `0008`: charts are saved automatically (`c1..cN` per conversation, `workspace_charts`) and uploaded files are stored (`workspace_files`), both owner-only via RLS. **Artifacts** tab lists every table, chart and file across conversations with type filters, a "this conversation" switch, previews (paged table, chart, image), CSV/file/PNG downloads and links back to the source conversation. API `GET /v1/artifacts`, `/v1/artifacts/{charts,tables,files}/{id}`; files download as attachments except raster images (`nosniff`, sandbox CSP). |
 | File uploads & chat attachments (2026-11-17) | Paperclip in the chat input (and **Upload files** in Artifacts): files up to 20 MB (CSV, XLSX, images, PDF, TXT, MD, JSON) go to the Artifacts store; CSV/XLSX become queryable workspace tables (kind `upload`). The message carries only a reference; an agent `before_model_callback` replaces it with a short note (table, columns, first 5 rows, plus any text written above the header), so file contents are not sent to the model. The importer detects the real header row below title/instruction lines and makes SQL-friendly column names. `openpyxl` added for XLSX. |
 | Agent guardrails (2026-11-17) | App context (selected table, uploaded files) now reaches the prompt: ag_ui_adk only stored it in session state, so the instruction appends it on every call. The agent is told to use DuckDB double-quote identifiers in workspace SQL, to say up front when a request needs a system it cannot reach (e.g. Collibra), and never to present invented definitions, scores or environments as facts. Found while testing a Collibra field-mapping template (see Phase 5). |
+| Postgres connector (2026-11-17, not deployed) | `PostgresConnector` on the `BaseConnector` SPI (`303f56b`, fixes `cf2c811`): async `psycopg` pool, `EXPLAIN (FORMAT JSON)` cost/row estimate, `statement_timeout` per query, cancellation by backend PID, catalog/schema/column listing with `pg_description` comments, `sslmode`. SSH bastion tunnel (`ssh_tunnel.py`) with mandatory host-key pinning, encrypted private key, and diagnostics. Wired into the connection service (`969b932`) and API (`abced93`). Verified against AWS RDS `devindulge_aws`: browse, preview and a chat count over `public.businesses`. |
+| Postgres connection manager (2026-11-17, not deployed) | Settings → Data connections now creates/edits Postgres profiles (`c0fba60`, `37899b6`, per [UI_Design_note.md](UI_Design_note.md)): host/port/db/user/schema/SSL, optional SSH tunnel, and **Test connection** with step diagnostics. Personal connections stay owner-only via RLS. |
+| Agent schema discovery (2026-11-17, not deployed) | A chat count query had explored 51 tables with 23 queries. Fixes: instructions with a discovery order (scoped table/connection → ask which connection → favorites/recent → keyword search → full listing only on request) (`3502345`, `0b11adb`) and a new `search_tables_by_keyword` tool that ranks table names without per-table schema calls (`73b9cc7`). Design and tests: [SCHEMA_DISCOVERY_STRATEGY.md](SCHEMA_DISCOVERY_STRATEGY.md), [OPTIMIZATION_SUMMARY.md](OPTIMIZATION_SUMMARY.md), [TESTING_SEMANTIC_SEARCH.md](TESTING_SEMANTIC_SEARCH.md). |
 
 **Results so far (verified)**
 
@@ -190,22 +193,29 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
   - A reopened conversation restored its messages, steps and result.
   - A deleted conversation's artifacts remained, labelled as from a deleted conversation.
   - A user's 5-field Collibra mapping XLSX now imports with the header on row 2 and its instructions kept as notes.
+- 2026-11-17 (evening), locally against AWS RDS Postgres `devindulge_aws`:
+  - Connection test, Explorer browse and preview of `public.businesses`.
+  - Chat answered "businesses in Las Vegas and San Diego by status and published" correctly (7 rows), but only at **q6**: with only the connection picked, the agent still started with `list_connections` and BigQuery `idap-int` (see *Left to do*, item 2).
 
 **Left to do (in priority order)**
 
-1. **Ship the 2026-11-17 work:** commit; deploy with an API image rebuild (new `openpyxl` dependency); migration `0008` runs when the API starts; set `ODN_THEME` if a non-default theme is wanted; smoke-test Chats, Artifacts and attachments on `odn.datahop.ai`.
-2. **Gold benchmark (Phase 1):** draft 25 BigQuery questions with the pilot data owners and record baseline execution accuracy.
-3. **Production hardening:**
+1. **Ship the Postgres + agent work** (`303f56b` … `3b9d590`): run `deploy/deploy.sh up` (rebuilds images; `uv.lock` already includes `asyncssh` and `psycopg[pool]`), smoke-test BigQuery and Postgres on `odn.datahop.ai`. Ask the client to allow the VM's static egress IP **`136.71.108.203/32`** on TCP 5432 in the RDS security group (RDS must be publicly accessible), or port 22 on their bastion if they use the SSH tunnel.
+2. **Share the active connection with the agent:** the Explorer only shares a selected *table*; picking just a connection resets the scope, so the agent can't see it and explores other connections. Lift the selected connection to `AppShell` and add it to the `useCopilotReadable` context.
+3. **Postgres read-only enforcement:** `PostgresConnector` sets `statement_timeout` but does not open a `READ ONLY` transaction. Spike 1 requires one, because the AST check cannot detect side-effecting functions. Add `SET TRANSACTION READ ONLY` (or `default_transaction_read_only`) per query, plus a test. Recommend least-privilege read-only DB users in the onboarding guide.
+4. **Gold benchmark (Phase 1):** draft 25 BigQuery questions with the pilot data owners and record baseline execution accuracy.
+5. **Production hardening:**
    - OIDC token refresh (prod sessions end after the 1-hour Google ID token).
+   - Local dev seed: the `local` tenant can end up with an empty `oidc_issuer` ("tenant is not provisioned"); make `--seed-local` set `http://oidc:8080/odn`.
    - Summary stats for the LLM.
    - Keyboard-accessibility tests for the explorer, dictionary and the new panel tabs.
    - Run the Phase 1 and Phase 2 exit checks on the hosted URL.
    - CI (policy suite, RLS isolation tests, lint, image builds).
-4. **Workspace retention:** decide the Parquet/upload TTL and whether users can delete individual artifacts (only whole conversations can be deleted today; their artifacts are kept).
-5. **Architecture sign-off:** close the [Open Decisions](#6-open-decisions-to-close-at-spike-sign-off).
-6. **Phases 3–4:** unchanged (Postgres connector, context layer, Skills v2, governance, release gate).
-7. **Phase 5 (post-v1):** Collibra catalog integration.
-8. **Later options:**
+6. **Workspace retention:** decide the Parquet/upload TTL and whether users can delete individual artifacts (only whole conversations can be deleted today; their artifacts are kept).
+7. **Architecture sign-off:** close the [Open Decisions](#6-open-decisions-to-close-at-spike-sign-off).
+8. **Phase 3 remainder:** a Postgres reached through an SSH tunnel end to end; Postgres descriptions in the curated explorer; opt-in pgvector metadata sync and semantic (embedding) table retrieval to replace keyword matching; pinned joins and verified metrics; 50-question gold benchmark.
+9. **Phase 4:** Skills v2, column masking, security review, load test, pilot onboarding guide.
+10. **Phase 5 (post-v1):** Collibra catalog integration.
+11. **Later options:**
    - Pass attached images to vision-capable models; today the agent knows an image was attached but cannot see it.
    - Additional enterprise themes (B, C, D) as clients onboard.
    - A small usage view for telemetry.
@@ -314,8 +324,9 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 *Goal: Prove multi-database abstraction with Postgres, extend the Phase 2 curated explorer, and boost plain-English SQL accuracy with opt-in vector retrieval.*
 
 - [ ] **Postgres Connector & Private VPC Networking:**
-  - [ ] Implement `PostgresConnector` adhering to `BaseConnector` SPI (`psycopg` async pool, `EXPLAIN` cost/row estimation, read-only transaction mode, statement timeout enforcement, query cancellation).
-  - [ ] Build DBeaver-style Connection Manager UI supporting BigQuery and Postgres profiles, *(BigQuery part done 2026-11-16: Settings → Data connections, personal connections with service-account keys and Test connection (Auth → Network → Metadata → Read); Postgres and SSH tunnels remain)* SSH bastion tunnel configuration (keys in Secret Manager, mandatory host-key verification), and granular **Test Connection** diagnostics (Auth → Network → Metadata → Read Check).
+  - [x] Implement `PostgresConnector` adhering to `BaseConnector` SPI (`psycopg` async pool, `EXPLAIN` cost/row estimation, read-only transaction mode, statement timeout enforcement, query cancellation).
+    - *Done (2026-11-17, `303f56b`, `969b932`, `cf2c811`):* async pool, `EXPLAIN (FORMAT JSON)` estimate, `statement_timeout`, cancel by backend PID, catalog/schema with comments, `sslmode`; verified on AWS RDS `devindulge_aws`. **Open:** read-only transaction mode is not enforced yet (only the AST policy blocks writes).
+  - [ ] Build DBeaver-style Connection Manager UI supporting BigQuery and Postgres profiles, *(BigQuery part done 2026-11-16; Postgres profiles, SSH tunnel form and Test connection diagnostics done 2026-11-17 in `c0fba60`, `37899b6`, `abced93`; remaining: keys in Secret Manager for tenant-shared tunnels — personal tunnel keys are encrypted in Postgres — and an end-to-end tunnel test against a real bastion)* SSH bastion tunnel configuration (keys in Secret Manager, mandatory host-key verification), and granular **Test Connection** diagnostics (Auth → Network → Metadata → Read Check).
 - [ ] **Lightweight Context Layer:**
   - [ ] Extend the Phase 2 explorer and curated-definition model to import
     descriptions for explicitly selected, approved Postgres schemas and
@@ -323,9 +334,11 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
   - [ ] Build opt-in metadata sync job: user selects specific datasets/schemas to index into Postgres + `pgvector` (no full-warehouse auto-crawling).
   - [ ] Extend the Phase 2 data-lead UI/API to define **Pinned Joins** (verified foreign-key relationships) and **Verified Metrics** with appropriate authorization.
   - [ ] Implement semantic retrieval tool in ADK: retrieve top-$k$ relevant tables + pinned joins per user prompt to inject into the SQL sub-agent's context.
+    - *Interim (2026-11-17, `73b9cc7`):* `search_tables_by_keyword` ranks table names by keyword match (top 5, no schema calls), and the instructions set a discovery order (see [SCHEMA_DISCOVERY_STRATEGY.md](SCHEMA_DISCOVERY_STRATEGY.md)). Embedding retrieval, column-level matching and pinned joins remain; it depends on the metadata sync job above.
 - [ ] **Accuracy Evaluation Harness:**
   - [ ] Complete the 50-question gold benchmark (25 BigQuery, 25 Postgres) and automate execution-accuracy evaluation in CI, tracked per release.
 - [ ] **Exit Check:** Same natural-language analytical workflow runs cleanly on both BigQuery and Postgres (including one Postgres reached via SSH tunnel); approved Postgres fields and available descriptions appear in the curated explorer; gold eval set hits $\ge 80\%$ execution accuracy.
+  - *Status (2026-11-17):* the chat workflow runs on BigQuery and on a direct (no tunnel) AWS RDS Postgres, locally. Open: SSH-tunnel Postgres, Postgres descriptions in the curated explorer, gold eval, and the hosted run (needs the client's RDS to allow `136.71.108.203`).
 
 ### Phase 4: Skills v2, Enterprise Governance & v1 Release (Weeks 10–12)
 
@@ -342,6 +355,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
   - [ ] Run OWASP/penetration review on auth/tenancy, AST validator, SSH tunnel handling, and Cloud Run worker isolation.
   - [ ] Execute load test (20 concurrent users running warehouse queries + DuckDB follow-ups) against the targets in Section 4.
   - [ ] Publish pilot onboarding guide (static egress IPs, least-privilege role setup for BigQuery/Postgres, SSH bastion setup).
+    - *Input:* prod egress IP is the VM's reserved static address `odn-prod-ip` = `136.71.108.203` (also `odn.datahop.ai`); clients allow it on TCP 5432 (RDS security group, publicly accessible) or on port 22 of their bastion.
 - [ ] **Exit Check:** Security sign-off complete with no open high/critical findings; onboard first external pilot organization.
 
 ### Phase 5: Collibra Catalog Integration (Post-v1, Not Yet Scheduled)
