@@ -3,6 +3,10 @@
 ## Commits Included
 1. ✅ **Commit 3502345**: Optimized agent instructions to prioritize UI context and reduce exploration
 2. ✅ **Commit 73b9cc7**: Added `search_tables_by_keyword()` tool with semantic relevance scoring
+3. ✅ **Commit 0b11adb**: Instructions enforce the scoped (active) connection exclusively
+
+> ⚠️ Only a selected **table** reaches the agent today. Picking just a connection in the Explorer dropdown
+> is not shared, so the agent treats it as "nothing scoped" (see Test 1b).
 
 ## What Changed
 
@@ -84,6 +88,27 @@
 **Before Fix**: 23+ calls (explores all tables)
 **After Fix**: 2 calls (uses selected table)
 **Improvement**: ~91% reduction
+
+**Also verify**: no `list_connections` call, and every tool call uses the scoped table's `connection_id`.
+
+---
+
+### Test 1b: Only a Connection Picked (Known Gap)
+**Setup**: Pick `devindulge_aws` (Postgres) in the Explorer connection dropdown; do not select a table.
+Keep the BigQuery `idap-int` connection available.
+
+**Query**: "How many businesses in Las Vegas and San Diego, breakdown by status and published?"
+
+**Current behavior (2026-11-17)**: agent calls `list_connections`, then `get_my_tables`,
+`get_table_schema` and `search_tables_by_keyword` against `idap-int` (BigQuery) before landing on
+`public.businesses` at q6 — because the UI context says "No table is selected in Explorer".
+
+**Expected after the UI fix** (share active connection via `useCopilotReadable`):
+- No `list_connections`; no BigQuery `connection_id` in any call
+- `get_my_tables` → `search_tables_by_keyword` → `get_table_schema` → `run_sql`, all on `devindulge_aws`
+- Result at q1
+
+**Workaround today**: select `public.businesses` in Explorer (Test 1 path).
 
 ---
 
@@ -252,20 +277,15 @@
 
 ### Prerequisites
 ```bash
-# 1. Backend running
-cd backend && uv run python -m uvicorn odn.api.main:app --host 0.0.0.0 --port 8000 --reload
-
-# 2. Frontend running (separate terminal)
-cd frontend && npm run dev
-
-# 3. All containers up
-docker-compose up -d postgres oidc
-
-# 4. Database migrations
-export ODN_MIGRATIONS_DATABASE_URL="postgresql://odn:odn_local_dev@localhost:5532/odn"
-export ODN_DATABASE_URL="postgresql+psycopg://odn:odn_local_dev@localhost:5532/odn"
-uv run python -m odn.db.migrate --seed-local
+# Full local stack: api :8100, agent :8110, frontend :3100, postgres :5532, oidc :8180
+docker compose up -d
+docker compose ps
 ```
+`backend/src` is bind-mounted and uvicorn runs with `--reload`, so backend code edits apply without a
+rebuild. Rebuild only after dependency changes.
+
+If the Explorer shows **"tenant is not provisioned"** or **"No data connections yet"**, see the
+Troubleshooting table in [OPTIMIZATION_SUMMARY.md](./OPTIMIZATION_SUMMARY.md#troubleshooting-local).
 
 ### Manual Testing in UI
 

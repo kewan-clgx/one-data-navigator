@@ -19,6 +19,24 @@ Agent was running **23+ inefficient SQL queries** to explore all 50+ tables when
 
 **Result**: Better LLM guidance, but LLM can still make poor choices
 
+#### Phase 1b: Enforce Scoped Connection (Commit 0b11adb)
+Found in testing: with `devindulge_aws` (Postgres) picked in Explorer, the agent still called
+`list_connections`, ran `get_my_tables`/`get_table_schema` against the BigQuery `idap-int` connection,
+and only reached `public.businesses` at q6.
+- Instruction step 1 is now **HIGHEST PRIORITY**: a scoped table/connection is used exclusively; no
+  `list_connections`, no other connections.
+- Without a scope: call `list_connections` once; if several exist, ask the user and stick to the answer.
+- All tool calls (`get_my_tables`, `search_tables_by_keyword`, `get_table_schema`, `run_sql`) must use the
+  scoped `connection_id`.
+- New red flags: calling `list_connections` / touching another connection while one is scoped, or calling
+  `get_table_schema` across multiple connections.
+
+> ⚠️ **Known gap (open)**: the frontend only shares a *table* scope with the agent
+> (`ScopeContext` in `frontend/app/components/AppShell.tsx`). Choosing a connection in the Explorer
+> dropdown resets the scope to `null`, so the agent is told "No table is selected in Explorer" and does
+> not know the active connection. Until the active connection is also shared via `useCopilotReadable`,
+> Phase 1b only takes effect when a **table** is selected.
+
 #### Phase 2: Semantic Search Tool (Commit 73b9cc7) ⭐
 - **New tool**: `search_tables_by_keyword(connection_id, keywords)`
 - Keyword-based table matching WITHOUT schema scanning
@@ -29,8 +47,8 @@ Agent was running **23+ inefficient SQL queries** to explore all 50+ tables when
 ### Discovery Workflow (5-Level Hierarchy)
 
 ```
-1. UI Context        → If table selected, use it immediately
-2. Connections       → If multiple, ask user which one
+1. UI Context        → If table/connection scoped, use it EXCLUSIVELY (no list_connections)
+2. Connections       → If none scoped and multiple exist, ask user which one
 3. Favorites/Recent  → check get_my_tables() first
 4. Semantic Search   → search_tables_by_keyword() finds top matches
 5. Full Exploration  → Only if explicitly requested
@@ -84,7 +102,8 @@ tools=[
 ## How to Verify
 
 ### Manual Testing
-1. **Scenario A**: Select table in Explorer → ask question → verify 2-3 tool calls
+1. **Scenario A**: Select table in Explorer → ask question → verify 2-3 tool calls, all on that
+   table's connection (no `list_connections`, no other connection ids)
 2. **Scenario B**: No selection, single connection → ask question → verify semantic search used
 3. **Scenario C**: No selection, multiple tables → verify agent shows top 3-5 options
 
@@ -92,6 +111,7 @@ tools=[
 Watch for tool calls:
 - ✅ **Good**: `get_my_tables` → `search_tables_by_keyword` → `get_table_schema` → `run_sql`
 - ❌ **Bad**: `get_my_tables` → `get_table_schema` × 20 → `run_sql`
+- ❌ **Bad**: `list_connections` or a different `connection_id` while a table is scoped in Explorer
 
 ### Test Query
 ```
@@ -104,17 +124,21 @@ breakdown by status and published(True/False)?"
 
 ## Deployment
 
-### Backend Restart Required
-```bash
-cd backend
-# Kill old process
-export ODN_MIGRATIONS_DATABASE_URL="postgresql://odn:odn_local_dev@localhost:5532/odn"
-export ODN_DATABASE_URL="postgresql+psycopg://odn:odn_local_dev@localhost:5532/odn"
-uv run python -m uvicorn odn.api.main:app --host 0.0.0.0 --port 8000 --reload
-```
+### Local (docker compose)
+`docker-compose.yml` bind-mounts `./backend/src` into the `api`, `agent` and `worker` containers and runs
+uvicorn with `--reload`, so edits to `agent.py` / `tools.py` are picked up automatically — **no rebuild
+needed**. Rebuild (`docker compose build agent && docker compose up -d agent`) only after dependency
+changes (`pyproject.toml` / `uv.lock`).
+
+### Troubleshooting (local)
+| Symptom | Cause | Fix |
+|---|---|---|
+| Explorer shows "tenant is not provisioned" | `tenants.oidc_issuer` doesn't match the token issuer (`http://oidc:8080/odn`) | `docker compose exec -T postgres psql -U odn -d odn -c "UPDATE tenants SET oidc_issuer='http://oidc:8080/odn' WHERE slug='local';"` |
+| Explorer shows "No data connections yet" although rows exist in `connections`; frontend logs `HeadersTimeoutError` | `api` hung during a `--reload` triggered by a source edit (`Waiting for background tasks to complete`) | `docker compose restart api` |
 
 ### Frontend
-No changes needed. Existing UI already passes table scope to agent via `useCopilotReadable`.
+No changes needed for the table-scoped flow (UI passes table scope via `useCopilotReadable`).
+Sharing the active *connection* (no table) still needs a frontend change — see Known gap above.
 
 ### Production
 Push commits to main, deploy as usual. No database migrations required.
@@ -122,6 +146,10 @@ Push commits to main, deploy as usual. No database migrations required.
 ## Future Enhancements
 
 ### Phase 3 (Recommended for Next Sprint)
+0. **Share the active connection with the agent** (fixes the Known gap)
+   - Lift the Explorer's selected connection to `AppShell` and add it to the `useCopilotReadable` context
+     (e.g. "Active connection devindulge_aws (postgres, connection_id …)") even when no table is selected
+
 1. **Semantic similarity** using embeddings (not just keyword match)
    - Would catch synonyms: "user" → "customer", "product" → "item"
    - Requires: LLM embeddings endpoint or Postgres pgvector
@@ -178,12 +206,13 @@ A: `search_tables_by_keyword` runs locally on catalog list (cached). One API cal
 ## Related Documentation
 
 - [Schema Discovery Strategy](./SCHEMA_DISCOVERY_STRATEGY.md) - Detailed design
-- [Agent Efficiency Fix](./AGENT_EFFICIENCY_FIX.md) - Phase 1 details
 - [Testing Guide](./TESTING_SEMANTIC_SEARCH.md) - How to verify improvements
+- [Verification Checklist](./VERIFICATION_CHECKLIST.md) - Deployment readiness
 
 ## Commits
 
 1. 3502345 - Optimize agent instructions & UI context
 2. 73b9cc7 - Add semantic table search tool
+3. 0b11adb - Enforce active (scoped) connection priority in agent instructions
 
-Both merged to `main` and ready for deployment.
+All merged to `main`.

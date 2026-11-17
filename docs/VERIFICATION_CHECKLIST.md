@@ -26,22 +26,25 @@
   - [x] Integration with agent
   - [x] Documentation in docstrings
 
+- [x] Commit 0b11adb: "refactor: Enforce active connection priority in agent instructions"
+  - [x] Scoped table/connection used exclusively (no `list_connections`, no other connections)
+  - [x] Red flags for cross-connection tool calls
+  - [ ] Frontend shares the active connection when no table is selected (open — see
+        [SCHEMA_DISCOVERY_STRATEGY.md](./SCHEMA_DISCOVERY_STRATEGY.md#what-the-ui-shares-today-and-the-open-gap))
+
 ## Runtime Validation
 
 ### Setup Prerequisites
-- [x] PostgreSQL running on localhost:5532
-- [x] OIDC running on localhost:8180
-- [x] Database migrations applied
-- [x] Backend API running on localhost:8000
+- [x] `docker compose up -d` — api :8100, agent :8110, frontend :3100, postgres :5532, oidc :8180
+- [x] Local tenant issuer matches the OIDC issuer:
+  ```bash
+  docker compose exec -T postgres psql -U odn -d odn -c "SELECT slug, oidc_issuer FROM tenants;"
+  # expect: local | http://oidc:8080/odn   (else Explorer shows "tenant is not provisioned")
+  ```
+- [x] Explorer lists connections (if "No data connections yet" while rows exist, the `api` hung on a
+      `--reload`: `docker compose restart api`)
 
-```bash
-# Commands executed:
-export ODN_MIGRATIONS_DATABASE_URL="postgresql://odn:odn_local_dev@localhost:5532/odn"
-export ODN_DATABASE_URL="postgresql+psycopg://odn:odn_local_dev@localhost:5532/odn"
-uv run python -m odn.db.migrate --seed-local
-uv run python -m uvicorn odn.api.main:app --host 0.0.0.0 --port 8000 --reload
-✓ Backend started successfully
-```
+Backend source is bind-mounted with `--reload`; code edits need no rebuild.
 
 ### API Health
 - [x] Backend responds to `GET /healthz`
@@ -150,7 +153,9 @@ print('Contains red flags?', 'Red flags' in INSTRUCTION)
 **Verification**:
 ```
 ✅ Expected: 2-3 tool calls
+✅ Expected: no list_connections; every call uses the scoped table's connection_id
 ❌ If >10 calls: Semantic search not being used
+❌ If another connection (e.g. BigQuery idap-int) appears: scoped-connection rule ignored
 ```
 
 **Status**: Ready for manual testing
