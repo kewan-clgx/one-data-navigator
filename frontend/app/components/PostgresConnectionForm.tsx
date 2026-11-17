@@ -180,7 +180,7 @@ export default function PostgresConnectionForm({ initial, onDone }: { initial: D
       {d.use_ssh_tunnel && (
         <SSHTunnelSetup
           d={d}
-          set={set}
+          setD={setD}
         />
       )}
 

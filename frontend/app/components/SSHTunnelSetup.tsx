@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 
 type Draft = {
   bastion_host: string;
@@ -12,13 +12,15 @@ type Draft = {
 
 function SSHTunnelSetup({
   d,
-  set,
+  setD,
 }: {
   d: Draft;
-  set: (k: keyof Draft) => (e: { target: { value: string } }) => void;
+  setD: (updater: (prev: any) => any) => void;
 }) {
   const [keyFile, setKeyFile] = useState<{ label: string; content: string } | null>(null);
   const [keyType, setKeyType] = useState<string | null>(null);
+
+  const set = (k: keyof Draft) => (e: { target: { value: string } }) => setD((v: any) => ({ ...v, [k]: e.target.value }));
 
   async function onKeyFile(file: File | undefined) {
     if (!file) {
@@ -35,6 +37,8 @@ function SSHTunnelSetup({
     }
     setKeyFile({ label: `Loaded ${file.name}`, content: text });
     setKeyType(type || "ssh-rsa");
+    // Update the form state with the loaded key
+    setD((v: any) => ({ ...v, ssh_private_key: text }));
   }
 
   const displayedKey = keyFile?.content || d.ssh_private_key;
