@@ -17,6 +17,7 @@ dependencies = [
 api = [
     "sqlglot>=26",
     "psycopg[binary,pool]>=3.2",
+    "asyncssh>=2.14.0",
     "pgvector>=0.3",
     "pyjwt[crypto]>=2.10",
     "google-cloud-bigquery>=3.38.0",
