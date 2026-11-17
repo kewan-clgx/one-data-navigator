@@ -1,6 +1,6 @@
 # One Data Navigator: MVP Architecture & Development Plan
 
-**Status:** Final (v1.0) — in build. Spikes done; Phase 1 and Phase 2 features built and running locally; hosting target decided (single GCP VM, see [deploy_gcp_vm.md](deploy_gcp_vm.md)) and pending first deploy (see [Progress Summary](#progress-summary-2026-11-15)).
+**Status:** Final (v1.0) — in build. Spikes done; Phase 1 and Phase 2 features built and running locally; hosted on a single GCP VM at `https://odn.datahop.ai` since 2026-11-16 (see [deploy_gcp_vm.md](deploy_gcp_vm.md)) (see [Progress Summary](#progress-summary-2026-11-15)).
 
 **Date:** 2026-11-14 (progress updated 2026-11-16)
 
@@ -174,7 +174,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 
 **Left to do (in priority order)**
 
-1. **Hosting (Phase 1 blocker):** *decided 2026-11-16* — one GCP Compute Engine VM (`datahop-514819`) running the same Docker Compose stack plus `docker-compose.prod.yml` at `https://odn.datahop.ai`: Caddy TLS, Google sign-in (`cotality.com` → `cotality` tenant, other accounts → `datahop`), `gs://datahop` via the VM service account, Cotality BigQuery key in Secret Manager, Gemini API via LiteLLM. Deploys run from the Mac with `deploy/deploy.sh` (no CI/CD for now). Setup scripts and runbook are done ([deploy_gcp_vm.md](deploy_gcp_vm.md)). **Remaining:** run `deploy/gcp/create-vm.sh`, DNS, Google OAuth client, first deploy and tenant/connection provisioning. CI (policy suite, RLS isolation tests, lint, image builds) is deferred.
+1. **Hosting (Phase 1 blocker):** *decided 2026-11-16* — one GCP Compute Engine VM (`datahop-514819`) running the same Docker Compose stack plus `docker-compose.prod.yml` at `https://odn.datahop.ai`: Caddy TLS, Google sign-in (`cotality.com` → `cotality` tenant, other accounts → `datahop`), `gs://datahop` via the VM service account, Cotality BigQuery key in Secret Manager, Gemini API via LiteLLM. Deploys run from the Mac with `deploy/deploy.sh` (no CI/CD for now). **Live 2026-11-16:** VM `odn-prod` (`us-central1-a`, static IP `136.71.108.203`), Let's Encrypt TLS, tenants `datahop` and `cotality`, Cotality BigQuery connection `idap-int` (key in Secret Manager); Google sign-in verified for a personal account and a `cotality.com` account. CI (policy suite, RLS isolation tests, lint, image builds) is deferred.
 2. ~~**Alpha telemetry & budgets (Phase 2)**~~ — done 2026-11-16 (telemetry API + per-tenant daily LLM token budget with hard stop). Optional: a small usage view in the UI.
 3. **Gold benchmark (Phase 1):** draft 25 BigQuery questions with the pilot data owners and record baseline execution accuracy.
 4. **Production hardening of what exists:** ~~durable ADK sessions~~ (done 2026-11-16: Postgres `adk` schema, `odn_agent` role), OIDC token refresh (prod sessions end after the 1-hour Google ID token), summary stats for the LLM, keyboard-accessibility tests for the explorer/dictionary, run the Phase 1 and Phase 2 exit checks on the hosted URL.
@@ -221,7 +221,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
   - [ ] Draft the first 25 BigQuery gold-benchmark questions and record a baseline execution accuracy.
     - *Not started:* questions and expected answers need the pilot data owners (no invented questions/answers).
 - [ ] **Exit Check:** Authenticated user logs into the hosted URL, browses BigQuery datasets, and runs a chat query; CI verifies cross-tenant isolation and 100% rejection on the adversarial SQL suite; current MVP BigQuery features work with no MCP.
-  - *Status:* passes locally (login → browse → chat query, no MCP; isolation and policy suites green in `pytest`). Open: first deploy to `odn.datahop.ai`; CI deferred (suites run with `pytest` before each deploy).
+  - *Status:* passes locally (login → browse → chat query, no MCP; isolation and policy suites green in `pytest`). Hosted login, browse and query verified on `odn.datahop.ai` (2026-11-16); CI deferred (suites run with `pytest` before each deploy).
 
 ### Phase 2: Result Workspace, PM Explanations & Curated Schema — *Core MVP* (Weeks 4–6)
 
