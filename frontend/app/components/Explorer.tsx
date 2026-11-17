@@ -50,14 +50,23 @@ const PREVIEW_COLUMNS = 10;
 // Below this size a full read is cheap, and block sampling could return no rows at all.
 const PREVIEW_SAMPLE_MIN_BYTES = 1024 ** 3;
 
-function previewSql(s: TableSchema, focus: string | null): string {
+function previewSql(s: TableSchema, focus: string | null, connectionKind: string = "bigquery"): string {
   const names = s.columns.map((c) => c.name).filter((n) => !n.includes("."));
   const cols = (focus && names.includes(focus) ? [focus, ...names.filter((n) => n !== focus)] : names).slice(
     0,
     PREVIEW_COLUMNS,
   );
-  const sample = (s.size_bytes ?? Infinity) > PREVIEW_SAMPLE_MIN_BYTES ? " TABLESAMPLE SYSTEM (1 PERCENT)" : "";
-  return `SELECT ${cols.join(", ")}\nFROM \`${s.path.join(".")}\`${sample}\nLIMIT ${PREVIEW_ROWS}`;
+  
+  // Dialect-specific SQL generation
+  if (connectionKind === "postgres") {
+    // PostgreSQL: use quoted identifiers and LIMIT (no TABLESAMPLE)
+    const tablePath = s.path.map(p => `"${p}"`).join(".");
+    return `SELECT ${cols.join(", ")}\nFROM ${tablePath}\nLIMIT ${PREVIEW_ROWS}`;
+  } else {
+    // BigQuery (default): use backticks and optional TABLESAMPLE for large tables
+    const sample = (s.size_bytes ?? Infinity) > PREVIEW_SAMPLE_MIN_BYTES ? " TABLESAMPLE SYSTEM (1 PERCENT)" : "";
+    return `SELECT ${cols.join(", ")}\nFROM \`${s.path.join(".")}\`${sample}\nLIMIT ${PREVIEW_ROWS}`;
+  }
 }
 
 type Connection = { id: string; name: string; kind: string; scope?: "shared" | "personal"; allowed_objects: string[] };
@@ -563,7 +572,8 @@ export default function Explorer({
             <button
               type="button"
               onClick={() => {
-                const text = previewSql(schema, focusColumn);
+                const conn = connections.find((c) => c.id === connectionId);
+                const text = previewSql(schema, focusColumn, conn?.kind ?? "bigquery");
                 setSql(text);
                 run(false, text);
               }}
@@ -571,7 +581,7 @@ export default function Explorer({
               title={
                 schema.kind === "view"
                   ? "Sampling isn't available for views; write a filtered query instead"
-                  : `Run ${PREVIEW_ROWS} rows of the first ${PREVIEW_COLUMNS} columns from a ~1% block sample`
+                  : `Run ${PREVIEW_ROWS} rows of the first ${PREVIEW_COLUMNS} columns`
               }
             >
               Preview data

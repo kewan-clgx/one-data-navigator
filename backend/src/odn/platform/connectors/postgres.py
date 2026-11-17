@@ -97,8 +97,9 @@ class PostgresExecution(QueryExecution):
         finally:
             loop.close()
 
-    async def _fetch_batches_async(self) -> Iterator[pa.RecordBatch]:
-        """Async fetch, converted to sync via event loop."""
+    async def _fetch_batches_async(self) -> list[pa.RecordBatch]:
+        """Async fetch, return list of RecordBatches."""
+        batches = []
         try:
             async with self._conn.cursor() as cur:
                 await cur.execute(self._sql_text)
@@ -110,24 +111,24 @@ class PostgresExecution(QueryExecution):
                     # Return empty batch with correct schema
                     if columns:
                         schema = pa.schema([(col, pa.string()) for col in columns])
-                        yield pa.RecordBatch.from_pylist([], schema=schema)
-                    return
+                        batches.append(pa.RecordBatch.from_pylist([], schema=schema))
+                    return batches
 
                 # Convert rows to Arrow RecordBatches
                 # psycopg returns rows as tuples or namedtuples; convert to list of dicts
                 records = [dict(zip(columns, row)) for row in rows]
                 table = pa.Table.from_pylist(records)
 
-                # Yield in batches of reasonable size
+                # Collect in batches of reasonable size
                 batch_size = max(1000, len(rows) // 10)  # At least 1000 rows per batch
                 for i in range(0, table.num_rows, batch_size):
-                    yield table.slice(i, min(batch_size, table.num_rows - i)).to_batches()[0]
-
+                    batches.append(table.slice(i, min(batch_size, table.num_rows - i)).to_batches()[0])
         except psycopg.errors.QueryCanceled:
-            # Query was cancelled; just stop iteration
-            return
+            raise
         except psycopg.errors.QueryTimedOut:
             raise TimeoutError(f"Query timed out after {self._timeout_s}s") from None
+        
+        return batches
 
 
 class PostgresConnector(BaseConnector):
@@ -174,12 +175,12 @@ class PostgresConnector(BaseConnector):
         self._max_size = max_size
         self._connect_timeout = connect_timeout
 
-        # Build connection string
+        # Build connection string (search_path set via options in _get_conn, not URI)
         self._conninfo = (
             f"postgresql://{user}"
             + (f":{password}" if password else "")
             + f"@{host}:{port}/{database}"
-            + f"?sslmode={ssl_mode}&connect_timeout={connect_timeout}&search_path={self.schema}"
+            + f"?sslmode={ssl_mode}&connect_timeout={connect_timeout}"
         )
 
         # Lazy initialization: pool is created on first use
@@ -193,15 +194,20 @@ class PostgresConnector(BaseConnector):
     async def _get_conn(self) -> AsyncConnection:
         """Get a connection from the pool, ensuring pool is open and initialized."""
         if self._pool is None:
-            # Lazy initialization: create pool on first use (now we have a running loop)
+            # Lazy initialization: create pool on first use
+            # This now happens in the calling event loop context, which is stable
             self._pool = AsyncConnectionPool(
                 self._conninfo,
                 min_size=self._min_size,
                 max_size=self._max_size,
                 check=AsyncConnectionPool.check_connection,
             )
+            # Open the pool to initialize it
+            await self._pool.open()
 
         async with self._pool.connection() as conn:
+            # Set search_path for this connection
+            await conn.execute(sql.SQL("SET search_path TO {}").format(sql.Identifier(self.schema)))
             yield conn
 
     def test_connection(self) -> list[ConnectionTestStep]:
@@ -471,15 +477,19 @@ class PostgresConnector(BaseConnector):
                     if result:
                         import json
 
-                        plan = json.loads(result[0]) if isinstance(result[0], str) else result["QUERY PLAN"]
-                        if isinstance(plan, list) and len(plan) > 0:
-                            plan = plan[0]
+                        # result is a dict when using row_factory=dict_row
+                        # EXPLAIN (FORMAT JSON) returns a column named 'QUERY PLAN'
+                        plan_json = result.get("QUERY PLAN")
+                        if plan_json:
+                            plan = json.loads(plan_json) if isinstance(plan_json, str) else plan_json
+                            if isinstance(plan, list) and len(plan) > 0:
+                                plan = plan[0]
 
-                        # Extract row estimate from the top-level Plan node
-                        if isinstance(plan, dict) and "Plan" in plan:
-                            rows_estimate = plan["Plan"].get("Rows", plan["Plan"].get("Actual Rows"))
-                            if rows_estimate:
-                                return CostEstimate(rows_estimated=int(rows_estimate))
+                            # Extract row estimate from the top-level Plan node
+                            if isinstance(plan, dict) and "Plan" in plan:
+                                rows_estimate = plan["Plan"].get("Rows", plan["Plan"].get("Actual Rows"))
+                                if rows_estimate:
+                                    return CostEstimate(rows_estimated=int(rows_estimate))
 
         except psycopg.Error:
             # EXPLAIN failed; return None
