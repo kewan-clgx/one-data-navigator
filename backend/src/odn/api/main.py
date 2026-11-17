@@ -1,6 +1,9 @@
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
+from google.auth import exceptions as auth_exc
 
+from odn.api.me_routes import router as me_router
 from odn.api.routes import router
 from odn.api.usage_routes import router as usage_router
 from odn.api.workspace_routes import router as workspace_router
@@ -11,6 +14,15 @@ app.add_middleware(GZipMiddleware, minimum_size=2048)
 app.include_router(router)
 app.include_router(workspace_router)
 app.include_router(usage_router)
+app.include_router(me_router)
+
+
+@app.exception_handler(auth_exc.RefreshError)
+def credentials_rejected(_request: Request, exc: auth_exc.RefreshError) -> JSONResponse:
+    # A connection's key was rejected by Google (common for user-supplied keys); not a server error.
+    return JSONResponse(
+        status_code=409, content={"detail": f"the connection's key was rejected by Google: {exc.args[0]}"}
+    )
 
 
 @app.get("/healthz")

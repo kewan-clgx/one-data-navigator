@@ -40,15 +40,16 @@ async def list_connections() -> dict[str, Any]:
     """Lists the data connections (warehouses) the user can query.
 
     Returns:
-        A dict with `connections`: each has `id`, `name`, `kind` (e.g. bigquery) and `allowed_objects`
-        (the datasets/tables queries may reference).
+        A dict with `connections`: each has `id`, `name`, `kind` (e.g. bigquery), `scope` ("shared" by the
+        organization or the user's own "personal" connection) and `allowed_objects` (the datasets/tables
+        queries may reference). If there are none, the user can add one in Settings → Data connections.
     """
     resp = await _api("GET", "connections")
     if resp.status_code != 200:
         return {"error": _detail(resp)}
     return {
         "connections": [
-            {k: c[k] for k in ("id", "name", "kind", "allowed_objects")} for c in resp.json()
+            {k: c.get(k) for k in ("id", "name", "kind", "scope", "allowed_objects")} for c in resp.json()
         ]
     }
 

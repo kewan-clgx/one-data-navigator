@@ -13,6 +13,8 @@ import CatalogSearchResults, {
   type MyTables,
   type SearchIndex,
 } from "./CatalogSearch";
+import { CONNECTIONS_CHANGED } from "@/lib/client-api";
+
 import DictionaryPanel from "./DictionaryPanel";
 import SplitPane from "./SplitPane";
 
@@ -55,7 +57,7 @@ function previewSql(s: TableSchema, focus: string | null): string {
   return `SELECT ${cols.join(", ")}\nFROM \`${s.path.join(".")}\`${sample}\nLIMIT ${PREVIEW_ROWS}`;
 }
 
-type Connection = { id: string; name: string; kind: string; allowed_objects: string[] };
+type Connection = { id: string; name: string; kind: string; scope?: "shared" | "personal"; allowed_objects: string[] };
 type CatalogNode = { kind: string; path: string[]; name: string };
 type Column = { name: string; type: string; nullable: boolean; description?: string | null };
 type TableSchema = { path: string[]; kind: "table" | "view"; columns: Column[]; row_count?: number | null; size_bytes?: number | null; description?: string | null };
@@ -136,14 +138,21 @@ export default function Explorer() {
     });
   };
 
-  useEffect(() => {
+  const loadConnections = useCallback(() => {
     api<Connection[]>("connections")
       .then((cs) => {
         setConnections(cs);
-        if (cs.length) setConnectionId(cs[0].id);
+        // Keep the current selection if it still exists (e.g. after adding a connection in Settings).
+        setConnectionId((id) => (cs.some((c) => c.id === id) ? id : cs[0]?.id ?? ""));
       })
       .catch((e: Error) => setError(e.message));
   }, []);
+
+  useEffect(() => {
+    loadConnections();
+    window.addEventListener(CONNECTIONS_CHANGED, loadConnections);
+    return () => window.removeEventListener(CONNECTIONS_CHANGED, loadConnections);
+  }, [loadConnections]);
 
   const loadMine = useCallback(() => {
     if (!connectionId) return;
@@ -353,11 +362,14 @@ export default function Explorer() {
           <select value={connectionId} onChange={(e) => setConnectionId(e.target.value)}>
             {connections.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name} ({c.kind})
+                {c.name} ({c.kind}{c.scope === "personal" ? ", yours" : ""})
               </option>
             ))}
           </select>
         </label>
+        {connections.length === 0 && !error && (
+          <p className="muted">No data connections yet. Add your own BigQuery connection in the Settings tab.</p>
+        )}
         <div className="search-row">
           <input
             type="search"

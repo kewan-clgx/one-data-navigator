@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -69,10 +69,15 @@ class ConnectionOut(BaseModel):
     kind: str
     config: dict[str, Any]
     allowed_objects: list[str]
+    # "shared": managed for the whole organization; "personal": the user's own (editable in Settings).
+    scope: Literal["shared", "personal"]
 
     @classmethod
     def of(cls, p: ConnectionProfile) -> ConnectionOut:
-        return cls(id=p.id, name=p.name, kind=p.kind, config=p.config, allowed_objects=p.allowed_objects)
+        return cls(
+            id=p.id, name=p.name, kind=p.kind, config=p.config, allowed_objects=p.allowed_objects,
+            scope="personal" if p.personal else "shared",
+        )
 
 
 class QueryRequest(BaseModel):
@@ -96,7 +101,7 @@ def me(ctx: Context) -> dict[str, Any]:
 
 @router.get("/connections")
 def connections(ctx: Context) -> list[ConnectionOut]:
-    return [ConnectionOut.of(p) for p in list_connections(ctx.tenant_id)]
+    return [ConnectionOut.of(p) for p in list_connections(ctx.tenant_id, ctx.user_id)]
 
 
 @router.post("/connections", status_code=status.HTTP_201_CREATED)
@@ -107,7 +112,7 @@ def add_connection(
 
 
 def _profile(ctx: RequestContext, connection_id: UUID) -> ConnectionProfile:
-    profile = get_connection(ctx.tenant_id, connection_id)
+    profile = get_connection(ctx.tenant_id, ctx.user_id, connection_id)
     if profile is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "connection not found")
     return profile
@@ -192,10 +197,11 @@ def definitions(connection_id: UUID, ctx: Context) -> list[dict[str, str]]:
 
 
 @router.put("/connections/{connection_id}/definitions")
-def put_definition(
-    connection_id: UUID, data: DefinitionInput, ctx: Annotated[RequestContext, Depends(require_data_lead)]
-) -> CuratedDefinition:
+def put_definition(connection_id: UUID, data: DefinitionInput, ctx: Context) -> CuratedDefinition:
     profile = _profile(ctx, connection_id)
+    # Shared connections: data leads/admins. Personal connections: their owner curates their own definitions.
+    if profile.owner_user_id != ctx.user_id and ctx.role not in ("data_lead", "admin"):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "data lead or admin role required")
     try:
         return upsert_definition(ctx, profile.id, build_policy(profile, _connector(profile)), data)
     except NotAllowed:

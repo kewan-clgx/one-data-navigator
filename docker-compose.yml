@@ -90,6 +90,9 @@ services:
       ODN_WORKER_TOKEN: ${ODN_WORKER_TOKEN:-local-dev-worker-token}
       ODN_AGENT_TOKEN: ${ODN_AGENT_TOKEN:-local-dev-agent-token}
       ODN_LLM_DAILY_TOKEN_BUDGET: ${ODN_LLM_DAILY_TOKEN_BUDGET:-2000000}
+      ODN_LLM_TRIAL_USER_DAILY_TOKENS: ${ODN_LLM_TRIAL_USER_DAILY_TOKENS:-200000}
+      # Encrypts user-supplied credentials (connection keys, LLM keys). Local default only.
+      ODN_SECRETS_KEY: ${ODN_SECRETS_KEY:-N2R7fz4qBIBVzHkefFUcCe79JC-NccgQwsOUpHK8JNE}
       # BQ_SA_KEY_FILE in .env is relative to the repo root (e.g. keys/<sa>.json).
       GOOGLE_APPLICATION_CREDENTIALS: /app/${BQ_SA_KEY_FILE:-keys/missing-sa.json}
       GOOGLE_CLOUD_PROJECT: ${BQ_PROJECT_ID:-}
@@ -123,6 +126,8 @@ services:
       ODN_DATABASE_URL: ""
       ODN_API_URL: http://api:8000
       ODN_AGENT_TOKEN: ${ODN_AGENT_TOKEN:-local-dev-agent-token}
+      # Gemini keys (platform or user-supplied) are called through LiteLLM on purpose (one code path).
+      ADK_SUPPRESS_GEMINI_LITELLM_WARNINGS: "true"
       # Durable chat sessions: agent-only role, confined to the "adk" schema.
       ODN_AGENT_SESSION_DB_URL: postgresql+psycopg://odn_agent:odn_agent_local_dev@postgres:5432/odn?options=-csearch_path%3Dadk
     volumes:

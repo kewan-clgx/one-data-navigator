@@ -53,6 +53,10 @@ services:
     environment:
       <<: *prod-backend-env
       ODN_MIGRATIONS_DATABASE_URL: postgresql://odn:${ODN_DB_OWNER_PASSWORD:?set in .env}@postgres:5432/odn
+      # Encrypts user-supplied connection and LLM keys; back it up (losing it makes them unreadable).
+      ODN_SECRETS_KEY: ${ODN_SECRETS_KEY:?set in .env}
+      ODN_LLM_DAILY_TOKEN_BUDGET: ${ODN_LLM_DAILY_TOKEN_BUDGET:-2000000}
+      ODN_LLM_TRIAL_USER_DAILY_TOKENS: ${ODN_LLM_TRIAL_USER_DAILY_TOKENS:-200000}
     volumes: !reset []
     ports: !reset []
     depends_on: !override

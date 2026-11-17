@@ -171,6 +171,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 | Data dictionary | Live source descriptions + tenant-curated definitions (draft/approved/deprecated, history, data-lead edit only, allowlist-enforced). |
 | Local connection config | `.env` drives the local connection allowlist: `BQ_DATASET_IDS` (list, multi-line block with `#` comments, or `*`; empty = all datasets) and `BQ_TABLES` (`dataset.table`; a dataset listed there is limited to those tables). |
 | Telemetry & LLM budgets | `GET /v1/telemetry` (latency, bytes, DuckDB time, LLM tokens per tenant); per-tenant daily LLM token budget enforced before every model call with a user-facing stop message. |
+| User settings (2026-11-16) | **Settings** tab: bring-your-own LLM key (Gemini, OpenAI, Anthropic, OpenAI-compatible; tested by listing models) used for that user's chat, with a per-user daily trial on the platform key (`ODN_LLM_TRIAL_USER_DAILY_TOKENS`) and a prompt to add a key once it runs out. Personal BigQuery connections (service-account JSON, Test connection, optional dataset/table allowlist) visible only to their owner via RLS (migration `0007`); tenant-shared connections remain. User keys are encrypted at rest (AES-256-GCM, `ODN_SECRETS_KEY`, bound to owner); OpenAI-compatible endpoints must be public https (SSRF guard). |
 
 **Left to do (in priority order)**
 
@@ -285,7 +286,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 
 - [ ] **Postgres Connector & Private VPC Networking:**
   - [ ] Implement `PostgresConnector` adhering to `BaseConnector` SPI (`psycopg` async pool, `EXPLAIN` cost/row estimation, read-only transaction mode, statement timeout enforcement, query cancellation).
-  - [ ] Build DBeaver-style Connection Manager UI supporting BigQuery and Postgres profiles, SSH bastion tunnel configuration (keys in Secret Manager, mandatory host-key verification), and granular **Test Connection** diagnostics (Auth → Network → Metadata → Read Check).
+  - [ ] Build DBeaver-style Connection Manager UI supporting BigQuery and Postgres profiles, *(BigQuery part done 2026-11-16: Settings → Data connections, personal connections with service-account keys and Test connection (Auth → Network → Metadata → Read); Postgres and SSH tunnels remain)* SSH bastion tunnel configuration (keys in Secret Manager, mandatory host-key verification), and granular **Test Connection** diagnostics (Auth → Network → Metadata → Read Check).
 - [ ] **Lightweight Context Layer:**
   - [ ] Extend the Phase 2 explorer and curated-definition model to import
     descriptions for explicitly selected, approved Postgres schemas and
@@ -305,7 +306,8 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
   - [ ] Port Skills v2 registry, YAML/instruction validation checks, and admin approval workflow into the multi-tenant Postgres schema.
   - [ ] Expose Skills UI tab and allow the ADK Orchestrator to invoke approved tenant skills over both BigQuery and Postgres connections; all skill SQL goes through `QueryService` and the AST validator.
 - [ ] **Enterprise Governance & BYO LLM Keys:**
-  - [ ] Add optional **Settings → LLM Keys** UI for enterprise tenants to configure BYO Google/LiteLLM keys in Secret Manager with strict no-fallback isolation.
+  - [x] Add optional **Settings → LLM Keys** UI for enterprise tenants to configure BYO Google/LiteLLM keys in Secret Manager with strict no-fallback isolation.
+    - *Done early (2026-11-16), per user rather than per tenant:* keys are encrypted in Postgres (app master key) instead of Secret Manager, so the VM needs no secret-creation rights. The platform key is only a per-user daily trial; a user's own key is never replaced by the platform key (an unreadable or failing key produces a message, not a fallback).
   - [ ] Add PII/column-masking rules in the Parquet writer so restricted columns are redacted before reaching the Result Workspace, the LLM preview, or the browser.
 - [ ] **Hardening & Release Gate:**
   - [ ] Run OWASP/penetration review on auth/tenancy, AST validator, SSH tunnel handling, and Cloud Run worker isolation.

@@ -26,10 +26,15 @@ def pool() -> ConnectionPool:
 
 
 @contextmanager
-def tenant_transaction(tenant_id: UUID) -> Iterator[psycopg.Connection]:
-    """Transaction with RLS scoped to one tenant; the setting is discarded at commit/rollback."""
+def tenant_transaction(tenant_id: UUID, user_id: UUID | None = None) -> Iterator[psycopg.Connection]:
+    """Transaction with RLS scoped to one tenant (and, if given, one user: personal connections and LLM keys).
+
+    The settings are discarded at commit/rollback.
+    """
     with pool().connection() as conn, conn.transaction():
         conn.execute("SELECT set_config('odn.tenant_id', %s, true)", (str(tenant_id),))
+        if user_id is not None:
+            conn.execute("SELECT set_config('odn.user_id', %s, true)", (str(user_id),))
         yield conn
 
 

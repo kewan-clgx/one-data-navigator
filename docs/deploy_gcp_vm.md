@@ -110,7 +110,22 @@ Layout on the VM: `/opt/odn/releases/<sha>` (code), `/opt/odn/current` (symlink 
 release), `/opt/odn/shared/.env` (settings, mode 600). Data lives in Docker volumes (`postgres_data`,
 `caddy_data`) on the boot disk, which is snapshotted daily.
 
-## 3. Notes and limits
+## 3. User settings: own LLM keys and data connections
+
+Signed-in users manage these themselves in the app's **Settings** tab; no operator step is needed.
+
+- **AI model**: users add their own Gemini, OpenAI, Anthropic or OpenAI-compatible key, and the chat then runs
+  on it at their own cost. Users without a key get a daily trial on the platform key
+  (`ODN_LLM_TRIAL_USER_DAILY_TOKENS` per user, inside the tenant's `ODN_LLM_DAILY_TOKEN_BUDGET`). When the trial
+  runs out, the chat asks them to add their own key.
+- **Data connections**: users add BigQuery connections with a service-account JSON key. These personal
+  connections are visible only to their owner. Shared connections created with `deploy.sh provision
+  connection` stay visible to the whole tenant.
+- Both kinds of key are encrypted in Postgres with `ODN_SECRETS_KEY` (AES-256-GCM, bound to the owner). **Back
+  up this value outside the VM.** If it is lost or changed, every saved user key becomes unreadable and users
+  must enter their keys again.
+
+## 4. Notes and limits
 
 - **Sessions last up to 1 hour** (the Google ID token lifetime); users sign in again after that. Token
   refresh is still on the hardening list.

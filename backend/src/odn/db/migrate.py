@@ -114,7 +114,7 @@ def seed_local_connection(url: str, env: dict[str, str]) -> str | None:
             """
             INSERT INTO connections (tenant_id, name, kind, config, secret_ref, allowed_objects)
             VALUES (%s, %s, 'bigquery', %s, %s, %s)
-            ON CONFLICT (tenant_id, name) DO UPDATE
+            ON CONFLICT (tenant_id, name) WHERE owner_user_id IS NULL DO UPDATE
               SET config = EXCLUDED.config, secret_ref = EXCLUDED.secret_ref,
                   allowed_objects = EXCLUDED.allowed_objects
             """,

@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     agent_session_db_url: str = ""
     # Default per-tenant LLM token limit per UTC day (prompt + completion); tenant_llm_budgets overrides it.
     llm_daily_token_budget: int = 2_000_000
+    # Per-user daily trial on the platform key for users without their own LLM key; 0 = no trial.
+    llm_trial_user_daily_tokens: int = 200_000
+    # 32 random bytes, base64url: encrypts user-supplied credentials (connection keys, LLM keys) at rest.
+    # Losing or changing it makes stored user credentials unreadable.
+    secrets_key: str = ""
 
 
 settings = Settings()

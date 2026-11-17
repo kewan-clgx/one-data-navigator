@@ -5,9 +5,8 @@ from __future__ import annotations
 import os
 
 from google.adk.agents import LlmAgent
-from google.adk.models.lite_llm import LiteLlm
 
-from odn.agent.budget import enforce_budget, record_usage
+from odn.agent.budget import RoutedLiteLlm, record_usage
 from odn.agent.tools import (
     generate_chart,
     get_my_tables,
@@ -51,10 +50,11 @@ partial (truncated), say so. Be concise. Never claim to have run a query you did
 """
 
 
-def _model() -> LiteLlm:
-    # LITELLM_API_BASE is only needed for a proxy (e.g. "openai/<alias>"); provider models such as
-    # "gemini/<model>" (AI Studio key) use the provider's default endpoint.
-    return LiteLlm(
+def _model() -> RoutedLiteLlm:
+    # Platform (trial) model. LITELLM_API_BASE is only needed for a proxy (e.g. "openai/<alias>"); provider
+    # models such as "gemini/<model>" (AI Studio key) use the provider's default endpoint. Users with their
+    # own key are routed to it per call (odn.agent.budget.RoutedLiteLlm).
+    return RoutedLiteLlm(
         model=os.environ["LITELLM_MODEL"],
         api_base=os.environ.get("LITELLM_API_BASE") or None,
         api_key=os.environ["LITELLM_API_KEY"],
@@ -69,7 +69,6 @@ def build_root_agent() -> LlmAgent:
         model=_model(),
         description="Answers data questions by exploring schemas and running governed read-only SQL.",
         instruction=INSTRUCTION,
-        before_model_callback=enforce_budget,
         after_model_callback=record_usage,
         tools=[
             list_connections, get_my_tables, list_tables, get_table_schema, run_sql, query_workspace,

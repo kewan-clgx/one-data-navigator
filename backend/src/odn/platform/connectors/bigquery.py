@@ -7,6 +7,7 @@ from collections.abc import Iterator
 
 import pyarrow as pa
 from google.api_core import exceptions as gexc
+from google.auth import exceptions as auth_exc
 from google.auth.credentials import Credentials
 from google.cloud import bigquery, bigquery_storage
 
@@ -74,6 +75,13 @@ class BigQueryConnector(BaseConnector):
             self._client.query("SELECT 1", job_config=bigquery.QueryJobConfig(dry_run=True))
             steps.append(ConnectionTestStep(step="auth", ok=True))
             steps.append(ConnectionTestStep(step="network", ok=True))
+        except auth_exc.RefreshError as exc:
+            # Google rejected the key itself (deleted/disabled service account or key, wrong key).
+            steps.append(ConnectionTestStep(step="auth", ok=False, detail=f"key rejected by Google: {exc.args[0]}"))
+            return steps
+        except auth_exc.TransportError as exc:
+            steps.append(ConnectionTestStep(step="network", ok=False, detail=type(exc).__name__))
+            return steps
         except gexc.GoogleAPIError as exc:
             steps.append(ConnectionTestStep(step="auth", ok=False, detail=type(exc).__name__))
             return steps
