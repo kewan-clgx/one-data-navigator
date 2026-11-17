@@ -313,14 +313,41 @@ class ChartResult(BaseModel):
     source_tables: list[str]
     source_truncated: bool
     explanation: str = ""
+    # Saved chart name in the conversation (c1, c2, ...); empty for results rendered before saving existed.
+    name: str = ""
+
+
+def save_chart(ctx: RequestContext, session_id: str, result: ChartResult, source_artifact_id: uuid.UUID | None) -> str:
+    """Persists a rendered chart as c1, c2, ... in its conversation (the artifacts store) and returns the name."""
+    for _ in range(3):
+        try:
+            with tenant_transaction(ctx.tenant_id, ctx.user_id) as conn:
+                count = conn.execute(
+                    "SELECT count(*) AS n FROM workspace_charts WHERE user_id = %s AND session_id = %s",
+                    (ctx.user_id, session_id),
+                ).fetchone()["n"]
+                name = f"c{count + 1}"
+                conn.execute(
+                    "INSERT INTO workspace_charts (tenant_id, user_id, session_id, name, source_artifact_id, "
+                    "title, chart_type, result) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                    (
+                        ctx.tenant_id, ctx.user_id, session_id, name, source_artifact_id,
+                        result.spec.title, result.spec.type,
+                        Jsonb(result.model_copy(update={"name": name}).model_dump(mode="json")),
+                    ),
+                )
+            return name
+        except psycopg.errors.UniqueViolation:
+            continue  # a concurrent chart took the same cN name
+    raise RuntimeError("could not allocate a chart name")
 
 
 def render_chart(ctx: RequestContext, session_id: str, spec: ChartSpec) -> ChartResult:
-    """Aggregates one artifact into chart points in the worker; the chart itself is drawn client-side."""
+    """Aggregates one artifact into chart points in the worker and saves the chart; it is drawn client-side."""
     keys = _object_keys(ctx, _check_session(session_id))
     if spec.source not in keys:
         raise KeyError(spec.source)
-    _, object_key, source_tables = keys[spec.source]
+    source_id, object_key, source_tables = keys[spec.source]
     audit = AuditRecord(
         tenant_id=ctx.tenant_id, user_id=ctx.user_id, connection_id=None, source="workspace",
         dialect="duckdb", sql_text=f"-- chart over {spec.source}", decision="failed", tables=(spec.source,),
@@ -346,7 +373,7 @@ def render_chart(ctx: RequestContext, session_id: str, spec: ChartSpec) -> Chart
             "SELECT truncated FROM workspace_artifacts WHERE user_id = %s AND session_id = %s AND name = %s",
             (ctx.user_id, session_id, spec.source),
         ).fetchone()["truncated"]
-    return ChartResult(
+    result = ChartResult(
         spec=spec, sql=out["sql"], points=out["points"], truncated=out["truncated"],
         source_tables=source_tables, source_truncated=truncated_src,
         explanation=explain_chart(
@@ -355,6 +382,8 @@ def render_chart(ctx: RequestContext, session_id: str, spec: ChartSpec) -> Chart
             source_truncated=truncated_src,
         ),
     )
+    result.name = save_chart(ctx, session_id, result, source_id)
+    return result
 
 
 def artifact_csv(ctx: RequestContext, session_id: str, name: str) -> Iterator[bytes]:

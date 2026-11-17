@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import CatalogSearchResults, {
   isSnapshot,
@@ -16,7 +17,9 @@ import CatalogSearchResults, {
 import { CONNECTIONS_CHANGED } from "@/lib/client-api";
 
 import DictionaryPanel from "./DictionaryPanel";
-import SplitPane from "./SplitPane";
+
+/** The table the user picked; the chat is scoped to it. */
+export type TableScope = { connectionId: string; connectionName: string; path: string[] };
 
 type CuratedRow = { table_path: string; field_path: string; definition: string; status: string };
 
@@ -108,7 +111,20 @@ function cell(v: unknown): string {
   return typeof v === "object" ? JSON.stringify(v) : String(v);
 }
 
-export default function Explorer() {
+export default function Explorer({
+  scope,
+  onScopeChange,
+  workbenchHost,
+  workbenchOpen,
+  onWorkbenchOpenChange,
+}: {
+  scope: TableScope | null;
+  onScopeChange: (scope: TableScope | null) => void;
+  /** Element in the chat pane that the SQL workbench overlay renders into. */
+  workbenchHost: HTMLElement | null;
+  workbenchOpen: boolean;
+  onWorkbenchOpenChange: (open: boolean) => void;
+}) {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [connectionId, setConnectionId] = useState<string>("");
   const [datasets, setDatasets] = useState<CatalogNode[]>([]);
@@ -166,6 +182,7 @@ export default function Explorer() {
     setDatasets([]);
     setTables({});
     setSchema(null);
+    onScopeChange(null);
     setMine(null);
     loadMine();
     api<CatalogNode[]>(`connections/${connectionId}/catalog`)
@@ -187,7 +204,7 @@ export default function Explorer() {
     return () => {
       cancelled = true;
     };
-  }, [connectionId, loadMine]);
+  }, [connectionId, loadMine, onScopeChange]);
 
   const prefs = useMemo(() => prefsOf(mine), [mine]);
 
@@ -291,6 +308,8 @@ export default function Explorer() {
         const s = await api<TableSchema>(`connections/${connectionId}/schema?${query({ path })}`);
         setSchema(s);
         setFocusColumn(column ?? null);
+        const conn = connections.find((c) => c.id === connectionId);
+        onScopeChange({ connectionId, connectionName: conn?.name ?? connectionId, path: s.path });
         const names = s.columns.map((c) => c.name).filter((n) => !n.includes("."));
         const picked = column && !column.includes(".") ? [column, ...names.filter((n) => n !== column)] : names;
         setSql(`SELECT ${picked.slice(0, 5).join(", ")}\nFROM \`${path.join(".")}\`\nLIMIT 100`);
@@ -299,8 +318,21 @@ export default function Explorer() {
         setError((e as Error).message);
       }
     },
-    [connectionId],
+    [connectionId, connections, onScopeChange],
   );
+
+  // Clearing the scope chip in the chat also clears the selection here.
+  useEffect(() => {
+    if (!scope) {
+      setSchema(null);
+      setFocusColumn(null);
+    }
+  }, [scope]);
+
+  const workbenchRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (workbenchOpen) workbenchRef.current?.focus();
+  }, [workbenchOpen]);
 
   const run = useCallback(
     async (confirmed: boolean, sqlText: string = sql) => {
@@ -347,16 +379,14 @@ export default function Explorer() {
           : `${indexedTables} tables searchable${hiddenNote}`;
   const selectedPath = schema?.path.join(".") ?? null;
 
-  return (
-    <SplitPane
-      className="explorer"
-      storageKey="odn.split.explorer"
-      defaultFraction={0.3}
-      minLeft={280}
-      minRight={360}
-      label="Resize explorer panel"
-      left={
+  const sidebar = (
       <aside className="sidebar" aria-label="Schema explorer">
+        {error && (
+          <p role="alert" className="error">
+            {error}{" "}
+            <button type="button" className="link" onClick={() => setError(null)}>Dismiss</button>
+          </p>
+        )}
         <label>
           Connection
           <select value={connectionId} onChange={(e) => setConnectionId(e.target.value)}>
@@ -508,15 +538,10 @@ export default function Explorer() {
         </>
         )}
       </aside>
-      }
-      right={
-      <main className="workspace">
-        {error && (
-          <p role="alert" className="error">
-            {error} <button type="button" onClick={() => setError(null)}>Dismiss</button>
-          </p>
-        )}
+  );
 
+  const workbenchBody = (
+      <>
         {schema && (
           <DictionaryPanel
             connectionId={connectionId}
@@ -603,8 +628,75 @@ export default function Explorer() {
             </div>
           </section>
         )}
-      </main>
-      }
-    />
+      </>
+  );
+
+  const workbench = (
+    <div
+      ref={workbenchRef}
+      className="odn-workbench"
+      role="dialog"
+      aria-label="SQL workbench"
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          onWorkbenchOpenChange(false);
+        }
+      }}
+    >
+      <div className="odn-workbench-head">
+        <div className="odn-workbench-title">
+          <span>SQL workbench</span>
+          {selectedPath && <code title={selectedPath}>{selectedPath}</code>}
+        </div>
+        <div className="odn-workbench-actions">
+          <button
+            type="button"
+            className="odn-btn odn-btn--outline odn-btn--small"
+            onClick={() => onWorkbenchOpenChange(false)}
+          >
+            Back to chat
+          </button>
+        </div>
+      </div>
+      <div className="workspace">{workbenchBody}</div>
+    </div>
+  );
+
+  return (
+    <>
+      {sidebar}
+      {connectionId && (
+        <div className="odn-selection">
+          {schema ? (
+            <>
+              <span className="odn-panel-heading">Selected {schema.kind}</span>
+              <span className="odn-selection-path">{schema.path.join(".")}</span>
+              <span className="odn-selection-meta">
+                {schema.columns.length} columns
+                {schema.row_count != null && ` · ${schema.row_count.toLocaleString()} rows`}
+                {schema.size_bytes != null && ` · ${formatBytes(schema.size_bytes)}`} · chat is scoped to this table
+              </span>
+              <div className="odn-selection-actions">
+                <button type="button" className="odn-btn odn-btn--on-panel odn-btn--small" onClick={() => onWorkbenchOpenChange(true)}>
+                  Details &amp; SQL
+                </button>
+                <button type="button" className="odn-btn odn-btn--ghost-panel odn-btn--small" onClick={() => onScopeChange(null)}>
+                  Clear selection
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="odn-selection-actions">
+              <button type="button" className="odn-btn odn-btn--ghost-panel odn-btn--small" onClick={() => onWorkbenchOpenChange(true)}>
+                Open SQL workbench
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {workbenchOpen && workbenchHost && createPortal(workbench, workbenchHost)}
+    </>
   );
 }

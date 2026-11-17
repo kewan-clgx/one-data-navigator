@@ -1,0 +1,414 @@
+"use client";
+
+import { CopilotKit, useCoAgent, useCopilotReadable } from "@copilotkit/react-core";
+import { useAgent } from "@copilotkit/react-core/v2";
+import { CopilotChat } from "@copilotkit/react-ui";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+
+import { api, LLM_CHANGED, type Budget } from "@/lib/client-api";
+import { CHAT_ATTACH_ACCEPT, FILES_CHANGED, UPLOAD_MAX_BYTES, uploadChatAttachment } from "@/lib/uploads";
+
+import type { Theme } from "../themes";
+import AboutSlides from "./AboutSlides";
+import { AgentStepsToggle, ShowResultsContext, useAgentStepRenderers } from "./AgentSteps";
+import ArtifactsPanel from "./ArtifactsPanel";
+import ChatsPanel, { useConversations } from "./Conversations";
+import Explorer, { type TableScope } from "./Explorer";
+import ResultsPanel, { AGENT_ID, type AgentState } from "./Results";
+import Settings from "./Settings";
+import SplitPane from "./SplitPane";
+
+const TABS = [
+  { id: "about", label: "About" },
+  { id: "chats", label: "Chats" },
+  { id: "explorer", label: "Explorer" },
+  { id: "results", label: "Results" },
+  { id: "artifacts", label: "Artifacts" },
+  { id: "settings", label: "Settings" },
+] as const;
+
+type TabId = (typeof TABS)[number]["id"];
+
+const PANEL_OPEN_KEY = "odn.panelOpen";
+const THREAD_KEY = "odn.activeThreadId";
+// CopilotKit's dev-only Inspector button is fixed top-right; keep the chat toolbar clear of it locally.
+const IS_DEV = process.env.NODE_ENV === "development";
+
+/** Prompts users on the shared trial model to add their own LLM key. */
+function TrialBanner({ onOpenSettings }: { onOpenSettings: () => void }) {
+  const [budget, setBudget] = useState<Budget | null>(null);
+  const load = useCallback(() => {
+    api<Budget>("llm-budget").then(setBudget).catch(() => setBudget(null));
+  }, []);
+  useEffect(() => {
+    load();
+    window.addEventListener(LLM_CHANGED, load);
+    return () => window.removeEventListener(LLM_CHANGED, load);
+  }, [load]);
+
+  if (!budget || budget.key_source === "user") return null;
+  const used = budget.user_tokens_used_today ?? 0;
+  const limit = budget.user_daily_token_limit ?? 0;
+  return (
+    <div className={`trial-banner${budget.exceeded ? " exceeded" : ""}`} role="status">
+      {budget.exceeded
+        ? "Today's free trial of the shared AI model is used up."
+        : `You're on the free trial of the shared AI model (${used.toLocaleString()} of ${limit.toLocaleString()} tokens used today).`}{" "}
+      <button type="button" className="link" onClick={onOpenSettings}>
+        Add your own API key
+      </button>{" "}
+      to keep chatting without limits.
+    </div>
+  );
+}
+
+/** Loads the conversation's saved messages and state into the chat whenever the thread changes. */
+function HistoryHydrator({ threadId }: { threadId: string }) {
+  const { agent } = useAgent({ agentId: AGENT_ID });
+  useEffect(() => {
+    if (!agent) return;
+    let cancelled = false;
+    agent.setMessages([]);
+    agent.setState({});
+    fetch("/api/agent/thread-state", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ threadId }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.threadExists) return;
+        if (Array.isArray(data.messages) && data.messages.length) agent.setMessages(data.messages);
+        if (data.state && typeof data.state === "object") {
+          // Internal bridge keys (thread id, shared context) stay server-side.
+          agent.setState(Object.fromEntries(Object.entries(data.state).filter(([k]) => !k.startsWith("_"))));
+        }
+      })
+      .catch(() => {
+        // Best effort: the conversation still continues with new messages.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [agent, threadId]);
+  return null;
+}
+
+/**
+ * Calls `onNew` when the agent publishes a new result or chart during a run (not when a saved
+ * conversation is loaded), and `onRunEnd` when a run finishes (titles and artifacts may have changed).
+ */
+function RunWatcher({ onNew, onRunEnd }: { onNew: () => void; onRunEnd: () => void }) {
+  const { state, running } = useCoAgent<AgentState>({ name: AGENT_ID, initialState: {} });
+  const { last_result, last_chart } = state ?? {};
+  const key = last_result || last_chart
+    ? `${last_result?.session_id}/${last_result?.name}|${last_chart ? JSON.stringify(last_chart.spec) + last_chart.points.length : ""}`
+    : "";
+  const previous = useRef(key);
+  const wasRunning = useRef(running);
+  useEffect(() => {
+    if (running && key && key !== previous.current) onNew();
+    previous.current = key;
+  }, [key, running, onNew]);
+  useEffect(() => {
+    if (wasRunning.current && !running) onRunEnd();
+    wasRunning.current = running;
+  }, [running, onRunEnd]);
+  return null;
+}
+
+type UploadedFile = { name: string; table_name: string | null; mime_type: string };
+
+/** Tells the agent which files were uploaded in this conversation and which table each became. */
+function UploadsContext({ sessionId, revision }: { sessionId: string; revision: number }) {
+  const [files, setFiles] = useState<UploadedFile[]>([]);
+  const load = useCallback(() => {
+    fetch(`/api/odn/artifacts?kind=file&session_id=${encodeURIComponent(sessionId)}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((items: UploadedFile[]) => setFiles(Array.isArray(items) ? items : []))
+      .catch(() => setFiles([]));
+  }, [sessionId]);
+  useEffect(load, [load, revision]);
+  useEffect(() => {
+    window.addEventListener(FILES_CHANGED, load);
+    return () => window.removeEventListener(FILES_CHANGED, load);
+  }, [load]);
+  useCopilotReadable({
+    description: "Files the user uploaded in this conversation",
+    value: files.length
+      ? files
+          .map((f) =>
+            f.table_name
+              ? `${f.name} (workspace table ${f.table_name}; query it with query_workspace)`
+              : `${f.name} (${f.mime_type}; stored in Artifacts, content not readable by you)`,
+          )
+          .join("; ")
+      : "None.",
+  });
+  return null;
+}
+
+/** Tells the agent which table the user picked in Explorer (AG-UI context reaches the ADK agent). */
+function ScopeContext({ scope }: { scope: TableScope | null }) {
+  useCopilotReadable({
+    description: "The table the user selected in the Explorer tab, if any",
+    value: scope
+      ? `Scoped to table ${scope.path.join(".")} in connection "${scope.connectionName}" (connection_id ${scope.connectionId}). ` +
+        "Answer about this table unless the user clearly asks about something else; no need to list other tables first."
+      : "No table is selected in Explorer.",
+  });
+  return null;
+}
+
+function ChatRenderers() {
+  useAgentStepRenderers();
+  return null;
+}
+
+export default function AppShell({ theme }: { theme: Theme }) {
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [tab, setTab] = useState<TabId>("about");
+  const [resultsUnseen, setResultsUnseen] = useState(false);
+  const [threadId, setThreadId] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
+  const { items: conversations, error: conversationsError, remove: forgetConversation } = useConversations(revision);
+  const [scope, setScope] = useState<TableScope | null>(null);
+  const [workbenchOpen, setWorkbenchOpen] = useState(false);
+  const [workbenchHost, setWorkbenchHost] = useState<HTMLDivElement | null>(null);
+  const tabRefs = useRef<Partial<Record<TabId, HTMLButtonElement | null>>>({});
+
+  useEffect(() => {
+    if (localStorage.getItem(PANEL_OPEN_KEY) === "false") setPanelOpen(false);
+    // Reload reopens the conversation the user was last in.
+    setThreadId(localStorage.getItem(THREAD_KEY) || crypto.randomUUID());
+  }, []);
+
+  useEffect(() => {
+    if (threadId) localStorage.setItem(THREAD_KEY, threadId);
+  }, [threadId]);
+
+  const bump = useCallback(() => setRevision((r) => r + 1), []);
+  // New threads use their thread id as the ADK session id; older ones keep a generated session id.
+  const sessionId = conversations?.find((c) => c.threadId === threadId)?.sessionId ?? threadId ?? "";
+
+  const showPanel = useCallback((open: boolean) => {
+    setPanelOpen(open);
+    localStorage.setItem(PANEL_OPEN_KEY, String(open));
+  }, []);
+
+  const selectTab = useCallback((id: TabId) => {
+    setTab(id);
+    if (id === "results") setResultsUnseen(false);
+  }, []);
+
+  const showResults = useCallback(() => {
+    showPanel(true);
+    selectTab("results");
+  }, [showPanel, selectTab]);
+
+  // New results open the Results tab, except while the user is editing Settings (then just flag it).
+  const onNewResult = useCallback(() => {
+    if (tab === "settings") setResultsUnseen(true);
+    else showResults();
+  }, [tab, showResults]);
+
+  const startNewConversation = useCallback(() => {
+    setThreadId(crypto.randomUUID());
+    setResultsUnseen(false);
+  }, []);
+
+  const openConversation = useCallback((id: string) => {
+    setThreadId(id);
+    setResultsUnseen(false);
+  }, []);
+
+  const onConversationDeleted = useCallback(
+    (id: string) => {
+      forgetConversation(id);
+      if (id === threadId) startNewConversation();
+      bump();
+    },
+    [threadId, startNewConversation, bump, forgetConversation],
+  );
+
+  function onTabKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    const index = TABS.findIndex((t) => t.id === tab);
+    const next =
+      e.key === "ArrowRight" ? (index + 1) % TABS.length
+      : e.key === "ArrowLeft" ? (index - 1 + TABS.length) % TABS.length
+      : e.key === "Home" ? 0
+      : e.key === "End" ? TABS.length - 1
+      : null;
+    if (next === null) return;
+    e.preventDefault();
+    selectTab(TABS[next].id);
+    tabRefs.current[TABS[next].id]?.focus();
+  }
+
+  const panel = (
+    <section className={`odn-panel${tab === "about" ? " odn-decor" : ""}`} aria-label="Side panel">
+      <div className="odn-tabs">
+        <div role="tablist" aria-label="Side panel" className="odn-tablist" onKeyDown={onTabKeyDown}>
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              ref={(el) => {
+                tabRefs.current[t.id] = el;
+              }}
+              type="button"
+              role="tab"
+              id={`tab-${t.id}`}
+              aria-selected={tab === t.id}
+              aria-controls={`tabpanel-${t.id}`}
+              tabIndex={tab === t.id ? 0 : -1}
+              onClick={() => selectTab(t.id)}
+              className="odn-tab"
+            >
+              {t.label}
+              {t.id === "results" && resultsUnseen && (
+                <>
+                  <span aria-hidden className="odn-tab-dot" />
+                  <span className="sr-only"> (new)</span>
+                </>
+              )}
+            </button>
+          ))}
+        </div>
+        <button type="button" className="odn-panel-hide" onClick={() => showPanel(false)} aria-label="Hide side panel" title="Hide side panel">
+          Hide ✕
+        </button>
+      </div>
+
+      {/* All tab panels stay mounted so switching keeps explorer, results and settings state. */}
+      <div role="tabpanel" id="tabpanel-about" aria-labelledby="tab-about" hidden={tab !== "about"} className="odn-tabpanel odn-tabpanel--about">
+        <AboutSlides slides={theme.about} label={`About ${theme.product}`} />
+      </div>
+      <div role="tabpanel" id="tabpanel-chats" aria-labelledby="tab-chats" hidden={tab !== "chats"} className="odn-tabpanel">
+        {threadId && (
+          <ChatsPanel
+            threadId={threadId}
+            items={conversations}
+            error={conversationsError}
+            onOpen={openConversation}
+            onNew={startNewConversation}
+            onDeleted={onConversationDeleted}
+          />
+        )}
+      </div>
+      <div role="tabpanel" id="tabpanel-explorer" aria-labelledby="tab-explorer" hidden={tab !== "explorer"} className="odn-tabpanel">
+        <Explorer
+          scope={scope}
+          onScopeChange={setScope}
+          workbenchHost={workbenchHost}
+          workbenchOpen={workbenchOpen}
+          onWorkbenchOpenChange={setWorkbenchOpen}
+        />
+      </div>
+      <div role="tabpanel" id="tabpanel-results" aria-labelledby="tab-results" hidden={tab !== "results"} className="odn-tabpanel">
+        <div className="odn-sheet">
+          <ResultsPanel />
+        </div>
+      </div>
+      <div role="tabpanel" id="tabpanel-artifacts" aria-labelledby="tab-artifacts" hidden={tab !== "artifacts"} className="odn-tabpanel">
+        {sessionId && (
+          <ArtifactsPanel
+            sessionId={sessionId}
+            conversations={conversations}
+            revision={revision}
+            onOpenConversation={openConversation}
+          />
+        )}
+      </div>
+      <div role="tabpanel" id="tabpanel-settings" aria-labelledby="tab-settings" hidden={tab !== "settings"} className="odn-tabpanel">
+        <div className="odn-sheet">
+          <Settings />
+        </div>
+      </div>
+    </section>
+  );
+
+  const chat = (
+    <section className="odn-chat" aria-label={`Chat with ${theme.product}`}>
+      <div className={`odn-chat-toolbar${IS_DEV ? " odn-chat-toolbar--dev" : ""}`}>
+        <div className="odn-chat-toolbar-actions">
+          {!panelOpen && (
+            <button type="button" className="odn-btn odn-btn--outline odn-btn--small" onClick={() => showPanel(true)}>
+              Show side panel
+            </button>
+          )}
+        </div>
+        <div className="odn-chat-toolbar-actions">
+          <AgentStepsToggle />
+          <button type="button" className="odn-btn odn-btn--small" onClick={startNewConversation}>
+            New conversation
+          </button>
+        </div>
+      </div>
+      <TrialBanner
+        onOpenSettings={() => {
+          showPanel(true);
+          selectTab("settings");
+        }}
+      />
+      {scope && (
+        <div className="odn-scope-chip">
+          Scoped to <code>{scope.path.join(".")}</code>
+          <button type="button" aria-label="Clear table scope" onClick={() => setScope(null)}>
+            ✕
+          </button>
+        </div>
+      )}
+      <div className="odn-chat-body">
+        <div className="odn-chat-messages" aria-live="polite" aria-atomic="false">
+          <CopilotChat
+            attachments={{
+              enabled: Boolean(sessionId),
+              accept: CHAT_ATTACH_ACCEPT,
+              maxSize: UPLOAD_MAX_BYTES,
+              onUpload: (file: File) => uploadChatAttachment(sessionId, file),
+            }}
+            icons={{
+              uploadIcon: (
+                <>
+                  <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+                  </svg>
+                  <span className="sr-only">Attach a file (CSV/XLSX become tables you can ask about)</span>
+                </>
+              ),
+            }}
+            labels={{
+              title: theme.product,
+              initial: "Ask anything about your data, e.g. “How many businesses per status in CA?”",
+            }}
+          />
+        </div>
+        <div ref={setWorkbenchHost} className="odn-workbench-host" />
+      </div>
+    </section>
+  );
+
+  if (!threadId) return null;
+
+  return (
+    <CopilotKit runtimeUrl="/api/copilotkit" agent={AGENT_ID} threadId={threadId}>
+      <ShowResultsContext.Provider value={showResults}>
+        <HistoryHydrator threadId={threadId} />
+        <RunWatcher onNew={onNewResult} onRunEnd={bump} />
+        <ScopeContext scope={scope} />
+        <UploadsContext sessionId={sessionId} revision={revision} />
+        <ChatRenderers />
+        <SplitPane
+          className={`odn-main${panelOpen ? "" : " odn-main--collapsed"}`}
+          storageKey="odn.split.shell"
+          defaultFraction={0.38}
+          minLeft={360}
+          minRight={420}
+          label="Resize side panel"
+          left={panel}
+          right={chat}
+        />
+      </ShowResultsContext.Provider>
+    </CopilotKit>
+  );
+}

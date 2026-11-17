@@ -27,14 +27,17 @@ async function proxy(req: NextRequest, { params }: Params) {
       authorization: `Bearer ${session.accessToken}`,
       "content-type": req.headers.get("content-type") ?? "application/json",
     },
-    body: req.method === "GET" || req.method === "DELETE" ? undefined : await req.text(),
+    // Raw bytes so file uploads pass through unchanged (JSON bodies too).
+    body: req.method === "GET" || req.method === "DELETE" ? undefined : await req.arrayBuffer(),
     cache: "no-store",
   });
   const headers: Record<string, string> = {
     "content-type": upstream.headers.get("content-type") ?? "application/json",
   };
-  const disposition = upstream.headers.get("content-disposition");
-  if (disposition) headers["content-disposition"] = disposition;
+  for (const name of ["content-disposition", "x-content-type-options", "content-security-policy"]) {
+    const value = upstream.headers.get(name);
+    if (value) headers[name] = value;
+  }
   return new NextResponse(upstream.body, { status: upstream.status, headers });
 }
 

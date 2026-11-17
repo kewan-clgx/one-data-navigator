@@ -6,7 +6,8 @@ from typing import Annotated, Any
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from google.api_core import exceptions as gexc
 from pydantic import BaseModel, Field
@@ -27,6 +28,8 @@ from odn.platform.workspace.service import (
     run_warehouse_query,
     run_workspace_query,
 )
+from odn.platform.workspace.store import UploadResult, save_upload
+from odn.platform.workspace.uploads import MAX_UPLOAD_BYTES, UnsupportedUpload
 
 router = APIRouter(prefix="/v1/workspace")
 
@@ -131,3 +134,28 @@ def rows(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "artifact not found") from None
     except httpx.HTTPStatusError as exc:
         raise HTTPException(exc.response.status_code, exc.response.json().get("detail")) from None
+
+
+@router.post("/{session_id}/files", status_code=status.HTTP_201_CREATED)
+async def upload_file(
+    session_id: str,
+    request: Request,
+    ctx: Context,
+    filename: Annotated[str, Query(min_length=1, max_length=255)],
+) -> UploadResult:
+    """Raw-body upload (the file bytes are the request body). CSV/XLSX also become a workspace table."""
+    data = bytearray()
+    async for chunk in request.stream():
+        data.extend(chunk)
+        if len(data) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, f"files are limited to {MAX_UPLOAD_BYTES // 2**20} MB"
+            )
+    if not data:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "the file is empty")
+    try:
+        return await run_in_threadpool(save_upload, ctx, session_id, filename, bytes(data))
+    except UnsupportedUpload as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from None
+    except InvalidSession as exc:
+        raise _errors(exc) from None

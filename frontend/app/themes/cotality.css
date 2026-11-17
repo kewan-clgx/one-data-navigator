@@ -1,0 +1,101 @@
+/* Theme A — Cotality. Sampled from cotality.com: ink/cream flat palette, coral + orange accents,
+   square corners. Only sets semantic tokens (see globals.css) plus brand-only decoration. */
+[data-theme="cotality"] {
+  --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --radius: 0;
+
+  /* App frame */
+  --app-bg: #f7efe2;
+  --chrome-bg: #1e1405;
+  --chrome-fg: #f7efe2;
+  --chrome-border: #2b1d10;
+
+  /* Dark side panel */
+  --panel-bg: #1e1405;
+  --panel-fg: #f7efe2;
+  --panel-muted: rgba(247, 239, 226, 0.72);
+  --panel-border: rgba(247, 239, 226, 0.2);
+  --panel-border-strong: rgba(247, 239, 226, 0.45);
+  --panel-hover: rgba(247, 239, 226, 0.06);
+  --panel-selected: rgba(242, 115, 94, 0.18);
+  --panel-input-bg: rgba(247, 239, 226, 0.08);
+  /* Warm orange focus on the dark panel: ~8:1 against ink, gentler than coral. */
+  --panel-focus: #f4a259;
+
+  /* Light working surfaces (chat, results, settings, SQL workbench) */
+  --surface: #ffffff;
+  --surface-alt: #fbf6ee;
+  --fg: #1e1405;
+  --fg-muted: rgba(30, 20, 5, 0.62);
+  --border: rgba(30, 20, 5, 0.14);
+
+  /* Actions and accents */
+  --primary: #1e1405;
+  --primary-fg: #ffffff;
+  --accent: #f2735e;
+  /* Darker coral: meets 3:1 non-text contrast on white, unlike --accent. Used for focus rings. */
+  --accent-strong: #d9492f;
+  --accent-2: #f4a259;
+  --on-accent: #1e1405;
+  --mark-bg: #f4a259;
+  --mark-fg: #1e1405;
+
+  /* Status */
+  --danger: #b8361f;
+  --danger-bg: #fbe9e5;
+  --success: #3d5a1e;
+  --success-bg: #eef3e3;
+  --warning-bg: #fdf0df;
+  --warning-border: #f4a259;
+
+  /* Charts: brand-led, then distinguishable supporting hues */
+  --chart-1: #1e1405;
+  --chart-2: #f2735e;
+  --chart-3: #f4a259;
+  --chart-4: #6b8f71;
+  --chart-5: #8c5a3c;
+  --chart-6: #4a6fa5;
+  --chart-7: #b8a07a;
+  --chart-8: #7d6b5d;
+}
+
+/* Brand mark: coral dot before the wordmark. */
+[data-theme="cotality"] .odn-brand-mark {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* About tab and sign-in: triangle motif echoing cotality.com. */
+[data-theme="cotality"] .odn-decor::before,
+[data-theme="cotality"] .odn-decor::after {
+  content: "";
+  position: absolute;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+[data-theme="cotality"] .odn-decor::before {
+  top: 18px;
+  right: -20px;
+  border-left: 70px solid transparent;
+  border-bottom: 110px solid var(--accent);
+  opacity: 0.85;
+  transform: rotate(18deg);
+}
+
+[data-theme="cotality"] .odn-decor::after {
+  bottom: -40px;
+  right: 40px;
+  border-right: 50px solid transparent;
+  border-top: 80px solid var(--accent-2);
+  opacity: 0.7;
+  transform: rotate(-12deg);
+}
+
+@media (max-width: 860px) {
+  [data-theme="cotality"] .odn-decor::before { display: none; }
+}

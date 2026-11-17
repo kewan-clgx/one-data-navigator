@@ -24,6 +24,8 @@ api = [
     "google-cloud-storage>=2.19",
     "google-cloud-secret-manager>=2.21",
     "pyarrow>=18",
+    # XLSX uploads become workspace tables.
+    "openpyxl>=3.1",
 ]
 agent = [
     "google-adk>=1.25.0",

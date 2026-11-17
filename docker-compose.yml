@@ -183,6 +183,8 @@ services:
       ODN_OIDC_CLIENT_SECRET: local-dev-only
       # 32 random bytes, base64url. Local default only; set your own in .env.
       ODN_SESSION_SECRET: ${ODN_SESSION_SECRET:-aFvY2Uq6JklszAz8Ydu4NrTOYFMRwq5gkAJFMpZ0Ct0}
+      # UI theme (frontend/app/themes): brand copy + design tokens. Unknown values fall back to cotality.
+      ODN_THEME: ${ODN_THEME:-cotality}
     volumes:
       - ./frontend:/app
       - /app/node_modules

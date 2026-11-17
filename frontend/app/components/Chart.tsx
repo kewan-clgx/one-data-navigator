@@ -25,7 +25,8 @@ export type ChartData = {
 const W = 680;
 const H = 340;
 const M = { top: 16, right: 16, bottom: 70, left: 64 };
-const PALETTE = ["#1f5fbf", "#e07b39", "#2e9e6b", "#b8427a", "#7a5cc4", "#c9a227", "#3aa0b8", "#6b6b6b"];
+// Series colours come from the active theme (--chart-1 … --chart-8).
+const PALETTE = Array.from({ length: 8 }, (_, i) => `var(--chart-${i + 1})`);
 
 function label(v: unknown): string {
   if (v === null || v === undefined) return "(null)";
@@ -134,7 +135,7 @@ export default function Chart({ data }: { data: ChartData }) {
                 width={Math.max(bw - 1, 1)}
                 y={Math.min(yPos(y), yPos(0))}
                 height={Math.abs(yPos(y) - yPos(0))}
-                fill={color(p.series)}
+                style={{ fill: color(p.series) }}
               >
                 <title>{`${label(p.x)}${hasSeries ? ` · ${label(p.series)}` : ""}: ${label(p.y)}`}</title>
               </rect>
@@ -147,12 +148,12 @@ export default function Chart({ data }: { data: ChartData }) {
               <g key={s}>
                 <polyline
                   fill="none"
-                  stroke={color(s)}
+                  style={{ stroke: color(s) }}
                   strokeWidth={2}
                   points={pts.map((p) => `${xPos(p.x)},${yPos(Number(p.y))}`).join(" ")}
                 />
                 {pts.map((p, i) => (
-                  <circle key={i} cx={xPos(p.x)} cy={yPos(Number(p.y))} r={3} fill={color(s)}>
+                  <circle key={i} cx={xPos(p.x)} cy={yPos(Number(p.y))} r={3} style={{ fill: color(s) }}>
                     <title>{`${label(p.x)}${hasSeries ? ` · ${s}` : ""}: ${label(p.y)}`}</title>
                   </circle>
                 ))}
@@ -161,7 +162,7 @@ export default function Chart({ data }: { data: ChartData }) {
           })}
         {spec.type === "scatter" &&
           points.map((p, i) => (
-            <circle key={i} cx={xPos(p.x)} cy={yPos(Number(p.y))} r={4} fill={color(p.series)} opacity={0.75}>
+            <circle key={i} cx={xPos(p.x)} cy={yPos(Number(p.y))} r={4} style={{ fill: color(p.series) }} opacity={0.75}>
               <title>{`${label(p.x)}, ${label(p.y)}`}</title>
             </circle>
           ))}

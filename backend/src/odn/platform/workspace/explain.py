@@ -22,6 +22,9 @@ _MAX_ITEMS = 4
 
 
 def _short(table: str) -> str:
+    # Uploaded files keep their name (e.g. "counts.csv"); warehouse tables drop project and dataset.
+    if table.lower().endswith((".csv", ".xlsx")):
+        return table
     return table.split(".")[-1]
 
 
@@ -175,6 +178,9 @@ def explain_artifact(
     row_count: int,
     bytes_processed: int | None = None,
 ) -> str:
+    if kind == "upload":
+        name = source_tables[0] if source_tables else "a file"
+        return f"Imported from the uploaded file {name}: {row_count:,} rows. No warehouse scan."
     if kind == "warehouse":
         what = explain_sql(sql, "bigquery", [_short(t) for t in source_tables])
     else:

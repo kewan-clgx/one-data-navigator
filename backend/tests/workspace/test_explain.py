@@ -94,3 +94,11 @@ def test_chart_explanation() -> None:
         chart_type="bar", x="addr_state", y="business_count", agg="sum", series=None, sort="y_desc", limit=10,
         points=10, truncated=True, source="q2", source_truncated=False,
     ) == "Bar chart of sum of business_count by addr_state, from q2; the 10 highest values are shown."
+
+
+def test_upload_lineage_keeps_the_file_name() -> None:
+    from odn.platform.workspace.explain import explain_lineage
+
+    text = explain_lineage(kind="workspace", source_tables=["business_counts.csv"], derived_from=["q1"],
+                           truncated=False, row_count=5, bytes_processed=None)
+    assert "business_counts.csv" in text
