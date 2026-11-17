@@ -108,11 +108,17 @@ def show(url: str) -> None:
     for t in tenants:
         print(f"tenant {t['slug']}  id={t['id']}  issuer={t['oidc_issuer']}  name={t['name']!r}")
         with _conn(url) as conn:
-            _tenant_id(conn, t["slug"])
-            for c in conn.execute("SELECT name, config, secret_ref, allowed_objects FROM connections ORDER BY name"):
+            # Filter explicitly: a superuser owner role bypasses RLS.
+            tid = _tenant_id(conn, t["slug"])
+            for c in conn.execute(
+                "SELECT name, config, secret_ref, allowed_objects FROM connections WHERE tenant_id = %s ORDER BY name",
+                (tid,),
+            ):
                 print(f"  connection {c['name']}  project={c['config'].get('project')}  secret_ref={c['secret_ref']}")
                 print(f"    allowed: {', '.join(c['allowed_objects'])}")
-            for u in conn.execute("SELECT email, role, last_login_at FROM users ORDER BY email"):
+            for u in conn.execute(
+                "SELECT email, role, last_login_at FROM users WHERE tenant_id = %s ORDER BY email", (tid,)
+            ):
                 print(f"  user {u['email']}  role={u['role']}  last_login={u['last_login_at']}")
 
 
