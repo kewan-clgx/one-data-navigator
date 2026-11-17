@@ -40,7 +40,7 @@ def _check_name(v: str) -> str:
 
 class ConnectionInput(BaseModel):
     name: str
-    kind: Literal["bigquery"]
+    kind: Literal["bigquery", "postgres"]
     config: dict[str, Any] = Field(default_factory=dict)
     secret_ref: str
     allowed_objects: list[str] = Field(min_length=1)
@@ -54,6 +54,13 @@ class ConnectionInput(BaseModel):
     def _check(self) -> ConnectionInput:
         if self.kind == "bigquery" and not isinstance(self.config.get("project"), str):
             raise ValueError("bigquery config requires 'project'")
+        if self.kind == "postgres":
+            if not isinstance(self.config.get("host"), str):
+                raise ValueError("postgres config requires 'host'")
+            if "database" not in self.config or not isinstance(self.config.get("database"), str):
+                raise ValueError("postgres config requires 'database'")
+            if "user" not in self.config or not isinstance(self.config.get("user"), str):
+                raise ValueError("postgres config requires 'user'")
         for pattern in self.allowed_objects:
             SqlPolicy.validate_pattern(self.kind, pattern)
         return self
@@ -193,8 +200,52 @@ def resolve_credentials(profile: ConnectionProfile) -> Credentials:
     raise CredentialError("secret_ref is not a permitted reference for this tenant")
 
 
+def resolve_postgres_credentials(profile: ConnectionProfile) -> str | None:
+    """Resolve Postgres database password from encrypted storage.
+    
+    Returns:
+        Password string or None if not set (will use connection without password).
+        
+    Raises:
+        CredentialError: If decryption fails
+    """
+    if profile.personal:
+        if profile.secret_ciphertext is None or profile.owner_user_id is None:
+            # No password stored; Postgres will attempt password-less auth
+            return None
+        try:
+            password = crypto.decrypt(
+                profile.secret_ciphertext, _secret_aad(profile.tenant_id, profile.owner_user_id, profile.id)
+            ).decode("utf-8")
+            return password
+        except (crypto.SecretsUnavailable, crypto.SecretDecryptionError) as exc:
+            raise CredentialError(str(exc)) from None
+
+    tenant_id, secret_ref = profile.tenant_id, profile.secret_ref or ""
+    if is_tenant_secret_ref(tenant_id, secret_ref):
+        from google.cloud import secretmanager
+
+        payload = secretmanager.SecretManagerServiceClient().access_secret_version(name=secret_ref).payload.data
+        return payload.decode("utf-8")
+
+    if secret_ref.startswith("file:"):
+        if settings.env != "local":
+            raise CredentialError("file: secret refs are only allowed in local development")
+        keys_dir = Path(settings.keys_dir).resolve()
+        path = (keys_dir / secret_ref.removeprefix("file:")).resolve()
+        if not path.is_relative_to(keys_dir) or not path.is_file():
+            raise CredentialError("credential file not found")
+        with open(path) as f:
+            return f.read().strip()
+
+    raise CredentialError("secret_ref is not a permitted reference for this tenant")
+
+
 def build_connector(profile: ConnectionProfile) -> BaseConnector:
-    return bigquery_connector(profile.config, resolve_credentials(profile))
+    if profile.kind == "postgres":
+        return postgres_connector(profile.config, resolve_postgres_credentials(profile))
+    else:
+        return bigquery_connector(profile.config, resolve_credentials(profile))
 
 
 def bigquery_connector(cfg: dict[str, Any], credentials: Credentials) -> BaseConnector:
@@ -207,6 +258,42 @@ def bigquery_connector(cfg: dict[str, Any], credentials: Credentials) -> BaseCon
         billing_project=cfg.get("billing_project"),
         default_dataset=cfg.get("default_dataset"),
     )
+
+
+def postgres_connector(cfg: dict[str, Any], password: str | None = None) -> BaseConnector:
+    """Create a PostgreSQL connector from configuration.
+    
+    Args:
+        cfg: Connection config with host, port, database, user, schema, ssl_mode, ssh_tunnel_config
+        password: Database password (optional)
+    
+    Returns:
+        PostgresConnector instance with optional SSH tunnel support
+    """
+    from odn.platform.connectors.postgres import PostgresConnector
+    from odn.platform.connectors.ssh_tunnel import SSHTunnelConfig, SSHTunnelManager
+
+    host = cfg["host"]
+    port = cfg.get("port", 5432)
+    database = cfg["database"]
+    user = cfg["user"]
+    schema = cfg.get("schema", "public")
+    ssl_mode = cfg.get("ssl_mode", "prefer")
+
+    # Create the PostgreSQL connector
+    connector = PostgresConnector(
+        host=host,
+        port=port,
+        database=database,
+        user=user,
+        password=password,
+        schema=schema,
+        ssl_mode=ssl_mode,
+    )
+
+    # Note: SSH tunnel is managed separately via SSHTunnelManager
+    # and would be opened before connection attempts in the API layer
+    return connector
 
 
 def build_policy(profile: ConnectionProfile, connector: BaseConnector) -> SqlPolicy:
