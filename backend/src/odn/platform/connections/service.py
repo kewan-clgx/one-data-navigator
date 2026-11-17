@@ -113,30 +113,63 @@ def _qualify(entry: str, project: str) -> str:
 
 
 class PersonalConnectionInput(BaseModel):
-    """A user's own BigQuery connection. On update, an omitted key keeps the stored one."""
+    """A user's own data connection (BigQuery or Postgres). On update, an omitted key keeps the stored one."""
 
     name: str
-    kind: Literal["bigquery"] = "bigquery"
+    kind: Literal["bigquery", "postgres"] = "bigquery"
+    # BigQuery fields
     project: str | None = None
     location: str | None = None
     billing_project: str | None = None
     default_dataset: str | None = None
-    # Empty = every dataset the key can read in the project.
-    allowed_objects: list[str] = Field(default_factory=list, max_length=500)
     credentials_json: str | None = Field(default=None, repr=False)
+    # Postgres fields
+    host: str | None = None
+    port: int | None = None
+    database: str | None = None
+    user: str | None = None
+    password: str | None = Field(default=None, repr=False)
+    ssl_mode: str | None = None
+    schema: str | None = None
+    ssh_tunnel: dict[str, Any] | None = None
+    # Both
+    allowed_objects: list[str] = Field(default_factory=list, max_length=500)
 
     @field_validator("name")
     @classmethod
     def _name(cls, v: str) -> str:
         return _check_name(v.strip())
 
-    @field_validator("project", "location", "billing_project", "default_dataset", mode="before")
+    @field_validator("project", "location", "billing_project", "default_dataset", "host", "database", "user", mode="before")
     @classmethod
     def _blank_is_none(cls, v: Any) -> Any:
         return v.strip() or None if isinstance(v, str) else v
 
+    @field_validator("port")
+    @classmethod
+    def _port(cls, v: int | None) -> int | None:
+        if v is not None:
+            if not (1 <= v <= 65535):
+                raise ValueError("port must be 1-65535")
+        return v
+
+    @field_validator("ssl_mode")
+    @classmethod
+    def _ssl_mode(cls, v: str | None) -> str | None:
+        if v and v not in ("disable", "allow", "prefer", "require", "verify-ca", "verify-full"):
+            raise ValueError("ssl_mode must be one of: disable, allow, prefer, require, verify-ca, verify-full")
+        return v
+
     def resolved(self, key: dict[str, Any] | None, current: ConnectionProfile | None = None) -> ConnectionInput:
-        """Validated tenant-agnostic settings (project defaults to the key's project)."""
+        """Validated tenant-agnostic settings."""
+        if self.kind == "bigquery":
+            return self._resolved_bigquery(key, current)
+        elif self.kind == "postgres":
+            return self._resolved_postgres(current)
+        raise ValueError(f"unknown connection kind: {self.kind}")
+
+    def _resolved_bigquery(self, key: dict[str, Any] | None, current: ConnectionProfile | None = None) -> ConnectionInput:
+        """BigQuery: project defaults to the key's project."""
         project = self.project or (key or {}).get("project_id") or (current.config.get("project") if current else None)
         if not isinstance(project, str) or not _PROJECT_RE.match(project):
             raise ValueError("a valid BigQuery project id is required")
@@ -152,6 +185,34 @@ class PersonalConnectionInput(BaseModel):
             if getattr(self, k):
                 config[k] = getattr(self, k)
         allowed = [_qualify(a.strip(), project) for a in self.allowed_objects if a.strip()] or [f"{project}.*.*"]
+        return ConnectionInput(
+            name=self.name, kind=self.kind, config=config, secret_ref="(personal)", allowed_objects=allowed
+        )
+
+    def _resolved_postgres(self, current: ConnectionProfile | None = None) -> ConnectionInput:
+        """Postgres: requires host, port, database, user. Password and SSH config are stored separately."""
+        host = self.host or (current.config.get("host") if current else None)
+        database = self.database or (current.config.get("database") if current else None)
+        user = self.user or (current.config.get("user") if current else None)
+        
+        if not isinstance(host, str) or not host:
+            raise ValueError("host is required")
+        if not isinstance(database, str) or not database:
+            raise ValueError("database is required")
+        if not isinstance(user, str) or not user:
+            raise ValueError("user is required")
+        
+        port = self.port or (current.config.get("port") if current else None) or 5432
+        schema = self.schema or (current.config.get("schema") if current else None) or "public"
+        ssl_mode = self.ssl_mode or (current.config.get("ssl_mode") if current else None) or "prefer"
+        
+        config: dict[str, Any] = {"host": host, "port": port, "database": database, "user": user, "schema": schema, "ssl_mode": ssl_mode}
+        if self.ssh_tunnel or (current and current.config.get("ssh_tunnel")):
+            config["ssh_tunnel"] = self.ssh_tunnel or current.config.get("ssh_tunnel")
+        
+        # Allowlist: for Postgres, use schema.table format (not project.dataset.table)
+        allowed = [a.strip() for a in self.allowed_objects if a.strip()] or ["*.*"]
+        
         return ConnectionInput(
             name=self.name, kind=self.kind, config=config, secret_ref="(personal)", allowed_objects=allowed
         )
@@ -329,21 +390,36 @@ class DuplicateName(Exception):
 def save_personal_connection(
     tenant_id: UUID, user_id: UUID, data: PersonalConnectionInput, connection_id: UUID | None = None
 ) -> ConnectionProfile:
-    """Create (connection_id None) or update one of the user's own connections."""
+    """Create (connection_id None) or update one of the user's own connections (BigQuery or Postgres)."""
     import psycopg
     from psycopg.types.json import Jsonb
 
     current = get_connection(tenant_id, user_id, connection_id) if connection_id else None
     if connection_id and (current is None or current.owner_user_id != user_id):
         raise LookupError("connection not found")
-    key = parse_service_account_key(data.credentials_json) if data.credentials_json else None
-    if key is None and current is None:
-        raise ValueError("a service-account JSON key is required")
+    
+    # Validate and extract credentials/secrets based on kind
+    if data.kind == "bigquery":
+        key = parse_service_account_key(data.credentials_json) if data.credentials_json else None
+        if key is None and current is None:
+            raise ValueError("a service-account JSON key is required for BigQuery")
+        secret_to_encrypt = json.dumps(key).encode() if key is not None else None
+    elif data.kind == "postgres":
+        # For Postgres, encrypt the password if provided
+        secret_to_encrypt = data.password.encode() if data.password else None
+        if secret_to_encrypt is None and current is None:
+            # Password is optional for some Postgres auth methods
+            pass
+        key = None  # No key dict for Postgres
+    else:
+        raise ValueError(f"unsupported connection kind: {data.kind}")
+    
     spec = data.resolved(key, current)
     cid = connection_id or uuid4()
     ciphertext = (
-        crypto.encrypt(json.dumps(key).encode(), _secret_aad(tenant_id, user_id, cid)) if key is not None else None
+        crypto.encrypt(secret_to_encrypt, _secret_aad(tenant_id, user_id, cid)) if secret_to_encrypt is not None else None
     )
+    
     try:
         with tenant_transaction(tenant_id, user_id) as conn:
             if current is None:
@@ -384,16 +460,30 @@ def delete_personal_connection(tenant_id: UUID, user_id: UUID, connection_id: UU
 
 
 def unsaved_connector(data: PersonalConnectionInput, current: ConnectionProfile | None) -> BaseConnector:
-    """Connector for 'Test connection' before saving: the submitted key, or the stored one when editing."""
-    key = parse_service_account_key(data.credentials_json) if data.credentials_json else None
-    spec = data.resolved(key, current)
-    if key is not None:
-        credentials: Credentials = service_account.Credentials.from_service_account_info(key, scopes=_SCOPES)
-    elif current is not None:
-        credentials = resolve_credentials(current)
+    """Connector for 'Test connection' before saving: the submitted credentials, or the stored ones when editing."""
+    spec = None
+    
+    if data.kind == "bigquery":
+        key = parse_service_account_key(data.credentials_json) if data.credentials_json else None
+        spec = data.resolved(key, current)
+        if key is not None:
+            credentials: Credentials = service_account.Credentials.from_service_account_info(key, scopes=_SCOPES)
+        elif current is not None:
+            credentials = resolve_credentials(current)
+        else:
+            raise ValueError("a service-account JSON key is required for BigQuery")
+        return bigquery_connector(spec.config, credentials)
+    
+    elif data.kind == "postgres":
+        # For Postgres: use submitted password or the stored one when editing
+        password = data.password
+        if password is None and current is not None:
+            password = resolve_postgres_credentials(current)
+        spec = data.resolved(None, current)
+        return postgres_connector(spec.config, password)
+    
     else:
-        raise ValueError("a service-account JSON key is required")
-    return bigquery_connector(spec.config, credentials)
+        raise ValueError(f"unsupported connection kind: {data.kind}")
 
 
 def create_connection(tenant_id: UUID, user_id: UUID, data: ConnectionInput) -> ConnectionProfile:

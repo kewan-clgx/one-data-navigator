@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
 
 import { api, CONNECTIONS_CHANGED, LLM_CHANGED, notify, type Budget, type Connection } from "@/lib/client-api";
+import PostgresConnectionForm, { EMPTY_POSTGRES_DRAFT, draftOfPostgres } from "./PostgresConnectionForm";
 
 // ---------------------------------------------------------------------------------------------
 // AI model (bring your own key)
@@ -378,7 +379,8 @@ function ConnectionForm({ initial, onDone }: { initial: Draft; onDone: (saved: b
 function ConnectionsSection() {
   const ids = useId();
   const [connections, setConnections] = useState<Connection[]>([]);
-  const [editing, setEditing] = useState<Draft | null>(null);
+  const [editing, setEditing] = useState<{ kind: string; draft: any } | null>(null);
+  const [showKindPicker, setShowKindPicker] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -397,25 +399,60 @@ function ConnectionsSection() {
     }
   }
 
+  function startEdit(c: Connection) {
+    if (c.kind === "postgres") {
+      setEditing({ kind: "postgres", draft: draftOfPostgres(c) });
+    } else {
+      setEditing({ kind: "bigquery", draft: draftOf(c) });
+    }
+  }
+
+  function startNew(kind: string) {
+    if (kind === "postgres") {
+      setEditing({ kind: "postgres", draft: EMPTY_POSTGRES_DRAFT });
+    } else {
+      setEditing({ kind: "bigquery", draft: EMPTY });
+    }
+    setShowKindPicker(false);
+  }
+
   const shared = connections.filter((c) => c.scope === "shared");
   const personal = connections.filter((c) => c.scope === "personal");
+
+  const connectionDisplay = (c: Connection) => {
+    if (c.kind === "postgres") {
+      return (
+        <>
+          <strong>{c.name}</strong> <span className="badge">PostgreSQL</span>{" "}
+          <span className="muted">
+            {c.config.host}:{c.config.port}/{c.config.database} · {c.allowed_objects.length} allowlist entr
+            {c.allowed_objects.length === 1 ? "y" : "ies"}
+          </span>
+        </>
+      );
+    } else {
+      return (
+        <>
+          <strong>{c.name}</strong> <span className="badge">BigQuery</span>{" "}
+          <span className="muted">{c.config.project} · {c.allowed_objects.length} allowlist entr{c.allowed_objects.length === 1 ? "y" : "ies"}</span>
+        </>
+      );
+    }
+  };
 
   return (
     <section className="settings-card" aria-labelledby={`${ids}-h`}>
       <h2 id={`${ids}-h`}>Data connections</h2>
       <p className="muted">
-        Connect your own BigQuery projects. Your connections and keys are visible only to you; queries still go through
-        read-only checks and cost limits. Postgres and other sources are coming.
+        Connect your own BigQuery or PostgreSQL databases. Your connections and keys are visible only to you; queries
+        still go through read-only checks and cost limits.
       </p>
       {shared.length > 0 && (
         <>
           <h3>Shared by your organization</h3>
           <ul className="connection-list">
             {shared.map((c) => (
-              <li key={c.id}>
-                <strong>{c.name}</strong> <span className="badge">{c.kind}</span>{" "}
-                <span className="muted">{c.config.project}</span>
-              </li>
+              <li key={c.id}>{connectionDisplay(c)}</li>
             ))}
           </ul>
         </>
@@ -425,24 +462,55 @@ function ConnectionsSection() {
       <ul className="connection-list">
         {personal.map((c) => (
           <li key={c.id}>
-            <strong>{c.name}</strong> <span className="badge">{c.kind}</span>{" "}
-            <span className="muted">{c.config.project} · {c.allowed_objects.length} allowlist entr{c.allowed_objects.length === 1 ? "y" : "ies"}</span>{" "}
-            <button type="button" className="link" onClick={() => setEditing(draftOf(c))}>Edit</button>{" "}
-            <button type="button" className="link danger" onClick={() => remove(c)}>Delete</button>
+            {connectionDisplay(c)}{" "}
+            <button type="button" className="link" onClick={() => startEdit(c)}>
+              Edit
+            </button>{" "}
+            <button type="button" className="link danger" onClick={() => remove(c)}>
+              Delete
+            </button>
           </li>
         ))}
       </ul>
       {editing ? (
-        <ConnectionForm
-          key={editing.id ?? "new"}
-          initial={editing}
-          onDone={(saved) => {
-            setEditing(null);
-            if (saved) load();
-          }}
-        />
+        editing.kind === "postgres" ? (
+          <PostgresConnectionForm
+            key={editing.draft.id ?? "new"}
+            initial={editing.draft}
+            onDone={(saved) => {
+              setEditing(null);
+              if (saved) load();
+            }}
+          />
+        ) : (
+          <ConnectionForm
+            key={editing.draft.id ?? "new"}
+            initial={editing.draft}
+            onDone={(saved) => {
+              setEditing(null);
+              if (saved) load();
+            }}
+          />
+        )
+      ) : showKindPicker ? (
+        <div className="connection-kind-picker">
+          <p>Select a data source type:</p>
+          <div className="settings-actions">
+            <button type="button" onClick={() => startNew("bigquery")}>
+              BigQuery
+            </button>
+            <button type="button" onClick={() => startNew("postgres")}>
+              PostgreSQL
+            </button>
+            <button type="button" onClick={() => setShowKindPicker(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
       ) : (
-        <button type="button" onClick={() => setEditing(EMPTY)}>+ New BigQuery connection</button>
+        <button type="button" onClick={() => setShowKindPicker(true)}>
+          + Add data source
+        </button>
       )}
       {error && <p className="error" role="alert">{error}</p>}
     </section>
