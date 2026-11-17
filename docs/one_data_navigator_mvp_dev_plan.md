@@ -151,9 +151,9 @@ flowchart LR
 
 Each phase ends with an **Exit Check**. A phase is not closed until its Exit Check passes; slipped items roll forward explicitly rather than silently.
 
-### Progress Summary (2026-11-15)
+### Progress Summary (updated 2026-11-17)
 
-**Where it runs:** local Docker Compose stack (`docker-compose.yml`; `docker-compose.gcs.yml` switches the workspace to the real `gs://datahop` bucket under `odn/`) — frontend, API/BFF, ADK agent, isolated DuckDB worker, Postgres + pgvector, mock OIDC IdP and fake GCS. Real BigQuery (`clgx-idap-bigquery-int-278e`) via a service-account key; LLM via the LiteLLM proxy (`llm-uat.cotality.com`). 188 backend tests passing; ruff clean; frontend type-checks in the Docker build.
+**Where it runs:** production at `https://odn.datahop.ai` since 2026-11-16 (one GCP VM, Docker Compose + Caddy, Google sign-in, Gemini via LiteLLM). Development uses the local Docker Compose stack (`docker-compose.yml`; `docker-compose.gcs.yml` switches the workspace to the real `gs://datahop` bucket under `odn/`): frontend, API/BFF, ADK agent, isolated DuckDB worker, Postgres + pgvector, mock OIDC IdP and fake GCS, with real BigQuery (`clgx-idap-bigquery-int-278e`) via a service-account key. As of 2026-11-17: 255 backend tests passing, ruff clean, frontend type-check and production build passing. The 2026-11-17 work below is verified locally only and is **not yet committed or deployed** to `odn.datahop.ai`.
 
 **Done**
 
@@ -171,16 +171,44 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 | Data dictionary | Live source descriptions + tenant-curated definitions (draft/approved/deprecated, history, data-lead edit only, allowlist-enforced). |
 | Local connection config | `.env` drives the local connection allowlist: `BQ_DATASET_IDS` (list, multi-line block with `#` comments, or `*`; empty = all datasets) and `BQ_TABLES` (`dataset.table`; a dataset listed there is limited to those tables). |
 | Telemetry & LLM budgets | `GET /v1/telemetry` (latency, bytes, DuckDB time, LLM tokens per tenant); per-tenant daily LLM token budget enforced before every model call with a user-facing stop message. |
+| Hosting (2026-11-16) | Live on `odn.datahop.ai`: VM `odn-prod`, Let's Encrypt TLS, tenants `datahop` and `cotality`, Cotality BigQuery connection `idap-int`, durable ADK sessions in Postgres (`adk` schema). |
 | User settings (2026-11-16) | **Settings** tab: bring-your-own LLM key (Gemini, OpenAI, Anthropic, OpenAI-compatible; tested by listing models) used for that user's chat, with a per-user daily trial on the platform key (`ODN_LLM_TRIAL_USER_DAILY_TOKENS`) and a prompt to add a key once it runs out. Personal BigQuery connections (service-account JSON, Test connection, optional dataset/table allowlist) visible only to their owner via RLS (migration `0007`); tenant-shared connections remain. User keys are encrypted at rest (AES-256-GCM, `ODN_SECRETS_KEY`, bound to owner); OpenAI-compatible endpoints must be public https (SSRF guard). |
+| UI redesign (2026-11-17) | Chat-first layout after the Google ADK web UI and the `navigator_docker_env` reference: brand bar, resizable/collapsible dark side panel (About, Chats, Explorer, Results, Artifacts, Settings) and an always-visible chat. Explorer tree/search lives in the panel; selecting a table scopes the chat ("Scoped to …" chip) and **Details & SQL** opens the dictionary and SQL editor as a workbench over the chat. New results open the Results tab automatically. Agent tool calls render as step cards with a **Show agent steps** toggle (failures and approvals always show). |
+| Themes (2026-11-17) | Cotality look is theme A (`frontend/app/themes/cotality.css` + `themes/index.ts`). Components use only semantic CSS tokens, so a client theme is one CSS file plus one entry; the deployment picks it with `ODN_THEME` (default `cotality`). Charts take their colours from the theme. |
+| Conversation history (2026-11-17) | **Chats** tab lists the user's conversations (agent `GET /conversations`, scoped to the signed-in user), titled from the first question; opening one restores its messages, step cards and latest result (ag_ui_adk `/agents/state`); delete with confirmation (`DELETE /conversations/{thread}`; its tables and charts stay in Artifacts); a reload reopens the last conversation. New threads use the thread id as the ADK session id. |
+| Artifacts store (2026-11-17) | Migration `0008`: charts are saved automatically (`c1..cN` per conversation, `workspace_charts`) and uploaded files are stored (`workspace_files`), both owner-only via RLS. **Artifacts** tab lists every table, chart and file across conversations with type filters, a "this conversation" switch, previews (paged table, chart, image), CSV/file/PNG downloads and links back to the source conversation. API `GET /v1/artifacts`, `/v1/artifacts/{charts,tables,files}/{id}`; files download as attachments except raster images (`nosniff`, sandbox CSP). |
+| File uploads & chat attachments (2026-11-17) | Paperclip in the chat input (and **Upload files** in Artifacts): files up to 20 MB (CSV, XLSX, images, PDF, TXT, MD, JSON) go to the Artifacts store; CSV/XLSX become queryable workspace tables (kind `upload`). The message carries only a reference; an agent `before_model_callback` replaces it with a short note (table, columns, first 5 rows, plus any text written above the header), so file contents are not sent to the model. The importer detects the real header row below title/instruction lines and makes SQL-friendly column names. `openpyxl` added for XLSX. |
+| Agent guardrails (2026-11-17) | App context (selected table, uploaded files) now reaches the prompt: ag_ui_adk only stored it in session state, so the instruction appends it on every call. The agent is told to use DuckDB double-quote identifiers in workspace SQL, to say up front when a request needs a system it cannot reach (e.g. Collibra), and never to present invented definitions, scores or environments as facts. Found while testing a Collibra field-mapping template (see Phase 5). |
+
+**Results so far (verified)**
+
+- Hosted login, browse and chat query on `odn.datahop.ai` (2026-11-16) with personal and `cotality.com` Google accounts.
+- Workspace flow (locally): 1 BigQuery scan → 3 DuckDB follow-ups + a chart with zero further warehouse scans in the audit log.
+- 2026-11-17, locally with real BigQuery and the shared trial model:
+  - A chat count query ran with step cards and the Results tab opening on its own.
+  - An uploaded CSV was charted by the agent without being told the table name; the chart was saved as `c1`, previewed, and exported as PNG.
+  - A reopened conversation restored its messages, steps and result.
+  - A deleted conversation's artifacts remained, labelled as from a deleted conversation.
+  - A user's 5-field Collibra mapping XLSX now imports with the header on row 2 and its instructions kept as notes.
 
 **Left to do (in priority order)**
 
-1. **Hosting (Phase 1 blocker):** *decided 2026-11-16* — one GCP Compute Engine VM (`datahop-514819`) running the same Docker Compose stack plus `docker-compose.prod.yml` at `https://odn.datahop.ai`: Caddy TLS, Google sign-in (`cotality.com` → `cotality` tenant, other accounts → `datahop`), `gs://datahop` via the VM service account, enterprise client BigQuery keys in Secret Manager (per tenant), Gemini API via LiteLLM. Deploys run from the Mac with `deploy/deploy.sh` (no CI/CD for now). **Live 2026-11-16:** VM `odn-prod` (`us-central1-a`, static IP `136.71.108.203`), Let's Encrypt TLS, tenants `datahop` and `cotality`, Cotality BigQuery connection `idap-int` (key in Secret Manager); Google sign-in verified for a personal account and a `cotality.com` account. CI (policy suite, RLS isolation tests, lint, image builds) is deferred.
-2. ~~**Alpha telemetry & budgets (Phase 2)**~~ — done 2026-11-16 (telemetry API + per-tenant daily LLM token budget with hard stop). Optional: a small usage view in the UI.
-3. **Gold benchmark (Phase 1):** draft 25 BigQuery questions with the pilot data owners and record baseline execution accuracy.
-4. **Production hardening of what exists:** ~~durable ADK sessions~~ (done 2026-11-16: Postgres `adk` schema, `odn_agent` role), OIDC token refresh (prod sessions end after the 1-hour Google ID token), summary stats for the LLM, keyboard-accessibility tests for the explorer/dictionary, run the Phase 1 and Phase 2 exit checks on the hosted URL.
+1. **Ship the 2026-11-17 work:** commit; deploy with an API image rebuild (new `openpyxl` dependency); migration `0008` runs when the API starts; set `ODN_THEME` if a non-default theme is wanted; smoke-test Chats, Artifacts and attachments on `odn.datahop.ai`.
+2. **Gold benchmark (Phase 1):** draft 25 BigQuery questions with the pilot data owners and record baseline execution accuracy.
+3. **Production hardening:**
+   - OIDC token refresh (prod sessions end after the 1-hour Google ID token).
+   - Summary stats for the LLM.
+   - Keyboard-accessibility tests for the explorer, dictionary and the new panel tabs.
+   - Run the Phase 1 and Phase 2 exit checks on the hosted URL.
+   - CI (policy suite, RLS isolation tests, lint, image builds).
+4. **Workspace retention:** decide the Parquet/upload TTL and whether users can delete individual artifacts (only whole conversations can be deleted today; their artifacts are kept).
 5. **Architecture sign-off:** close the [Open Decisions](#6-open-decisions-to-close-at-spike-sign-off).
 6. **Phases 3–4:** unchanged (Postgres connector, context layer, Skills v2, governance, release gate).
+7. **Phase 5 (post-v1):** Collibra catalog integration.
+8. **Later options:**
+   - Pass attached images to vision-capable models; today the agent knows an image was attached but cannot see it.
+   - Additional enterprise themes (B, C, D) as clients onboard.
+   - A small usage view for telemetry.
 
 ### Pre-Build: 1-Week Technical Spike (Week 0, Gate to Phase 1)
 
@@ -239,6 +267,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
   - [x] Lock down DuckDB (external access disabled, configuration locked, tenant/session-scoped file access, per-query timeout and memory limit) and run DuckDB SQL through the same AST read-only validator.
     - *Done:* worker `/v1/query` + `/v1/rows` (shared-token auth, object keys confined to the workspace prefix, only the referenced artifacts loaded, policy re-checked against exactly those inputs, interrupt-based timeout, row/byte caps). The API validates first and audits every workspace query (`source=workspace`, `dialect=duckdb`).
   - [x] Add `query_workspace` (DuckDB) and `generate_chart` (typed chart spec) tools to the ADK Analysis sub-agent. *(`query_workspace`, `list_workspace`, `generate_chart` done. Charts: typed spec → worker aggregates with schema-validated identifiers → dependency-free accessible SVG (bar/line/scatter, series, tooltips, data table + CSV fallback). Verified live: "top 10 states" bar chart from `q2` with no warehouse re-scan.)*
+  - [x] Persist charts and uploaded files alongside result tables in a per-user artifacts store, browsable across conversations. *(Done 2026-11-17 — see Progress Summary: Artifacts store, File uploads & chat attachments.)*
   - [x] Implement session workspace state tracking so follow-up prompts ("break that down by week", "remove nulls and plot bar chart") automatically target the active Parquet artifact, with lineage back to the source query.
     - *Verified live:* 1 BigQuery scan (656 MB) → `q1`; 3 DuckDB follow-ups (321/54/10 rows, ~0.3–1.4 s) with zero further warehouse scans in the audit log; a two-turn chat answered the follow-up with `query_workspace` only. Chat results panel shows the artifact name, warehouse-vs-workspace badge, derived-from and source tables.
 - [x] **Data Lineage & Logic for PMs:**
@@ -315,6 +344,26 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
   - [ ] Publish pilot onboarding guide (static egress IPs, least-privilege role setup for BigQuery/Postgres, SSH bastion setup).
 - [ ] **Exit Check:** Security sign-off complete with no open high/critical findings; onboard first external pilot organization.
 
+### Phase 5: Collibra Catalog Integration (Post-v1, Not Yet Scheduled)
+
+*Goal: Let users and the agent search the Collibra data catalog (PRD and INT) for business definitions, field mappings and lineage, so catalog tasks such as "find the best Collibra field for each requested field name" are answered from Collibra evidence instead of the agent's own guesses.*
+
+*Background (2026-11-17):* a user attached a field-mapping template asking for a Collibra search across PRD and INT. With no catalog tool, the agent mapped the fields against the allowlisted BigQuery schemas only and presented invented definitions, confidence scores and environments as catalog facts. The agent is now instructed to say when a requested system is unavailable and to label its own matches as suggestions; this phase adds the real capability. The `navigator_docker_env` reference repo has a working Collibra tab (status, login, search) and agent tools to port from.
+
+- [ ] **Collibra Connector & Access:**
+  - [ ] Read-only Collibra REST client in the API: asset search, asset details/attributes, relations and lineage, configured per tenant and per environment (PRD, INT).
+  - [ ] Decide the auth model (per-user login as in the reference repo vs. a scoped service identity) so Collibra permissions are respected; store credentials encrypted like BYO connections and LLM keys.
+  - [ ] Timeouts, rate limiting, a status endpoint, and no catalog content shared across tenants or users.
+- [ ] **Agent Tools & Field-Mapping Workflow:**
+  - [ ] Add `collibra_search` (text, environment, asset types), `collibra_get_asset` (definition, attributes, physical column → BigQuery dataset/table) and `collibra_lineage` tools.
+  - [ ] Field mapping: for each requested field (e.g. rows of an uploaded template), search Collibra, prefer BigQuery-backed assets, and return the best match plus runner-ups with evidence (asset link, definition, dataset · project · environment). Ranking scores are labelled as heuristics, unmatched fields are labelled, and the completed mapping is saved as a workspace table downloadable from Artifacts.
+  - [ ] Cross-check matched columns against the user's connections: confirm the schema when the table is allowlisted, otherwise flag it as "cataloged, not queryable here".
+- [ ] **UI:**
+  - [ ] Collibra side-panel tab: search, asset detail, and selecting an asset scopes the chat (like Explorer tables).
+  - [ ] Show Collibra definitions in the Explorer dictionary with provenance (e.g. "Collibra · PRD") alongside source and curated definitions.
+  - [ ] Settings: connect and test Collibra per environment.
+- [ ] **Exit Check:** The 2026-11-17 mapping template (business name, business type, corporate revenue, location sales, employee numbers) is completed for PRD and INT with a Collibra asset link, definition and dataset · project · environment for every match; every definition traces to a Collibra asset, unmatched fields are labelled, and nothing is invented.
+
 ## 4. MVP Success Metrics (v1 Release Targets)
 
 | Area | Target |
@@ -349,5 +398,6 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 - [ ] Final worker RAM size and result cap (from Spike 2 results).
 - [x] OIDC identity provider(s) supported for the pilot. *Google sign-in: the Workspace `hd` claim maps a domain to a tenant (`ODN_OIDC_TENANT_DOMAINS`, e.g. `cotality.com=cotality`); other Google accounts go to the default tenant (`ODN_OIDC_DEFAULT_TENANT`), optionally limited by `ODN_OIDC_DEFAULT_TENANT_EMAILS`.*
 - [ ] Pilot organization and its target BigQuery/Postgres sources.
+- [ ] Phase 5 Collibra access: auth model (per-user login vs. scoped service identity) and which environments (PRD, INT) each tenant may search.
 - [x] Deploy target and CI path. *Decided 2026-11-16: one GCP VM (`datahop-514819`, `e2-standard-4`) running Docker Compose, deployed manually with `deploy/deploy.sh`; no CI/CD for the MVP. GCP over AWS because BigQuery and `gs://datahop` are on GCP (no egress fees, VM service account instead of key files). Earlier options: (A) Jenkins + Helm on CNTV GKE; (B) Cloud Run + `-iac` Terraform repo.*
 - [ ] Cost guardrails per tenant: confirmation threshold (now 10 GiB) and hard `maximum_bytes_billed` cap (now 100 GiB). Note: some approved views (e.g. `vw_edr_sdp_address_universe`, ~17–30 GB minimum per query because of a whole-table dedup) can never get cheaper; consider asking data owners for materialized/clustered copies of heavily used tables.
