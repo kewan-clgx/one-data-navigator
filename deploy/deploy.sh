@@ -41,7 +41,7 @@ cmd_up() {
     cd $CURRENT && $COMPOSE up -d --build --remove-orphans
     sudo docker image prune -f >/dev/null
     cd $ODN_REMOTE_DIR/releases && ls -1t | tail -n +6 | xargs -r sudo rm -rf
-    $COMPOSE ps"
+    cd $CURRENT && $COMPOSE ps"
 }
 
 case "${1:-}" in
