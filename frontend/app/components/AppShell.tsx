@@ -13,7 +13,7 @@ import AboutSlides from "./AboutSlides";
 import { AgentStepsToggle, ShowResultsContext, useAgentStepRenderers } from "./AgentSteps";
 import ArtifactsPanel from "./ArtifactsPanel";
 import ChatsPanel, { useConversations } from "./Conversations";
-import Explorer, { type TableScope } from "./Explorer";
+import Explorer, { type ActiveConnection, type TableScope } from "./Explorer";
 import ResultsPanel, { AGENT_ID, type AgentState } from "./Results";
 import Settings from "./Settings";
 import SplitPane from "./SplitPane";
@@ -148,15 +148,26 @@ function UploadsContext({ sessionId, revision }: { sessionId: string; revision: 
   return null;
 }
 
-/** Tells the agent which table the user picked in Explorer (AG-UI context reaches the ADK agent). */
-function ScopeContext({ scope }: { scope: TableScope | null }) {
-  useCopilotReadable({
-    description: "The table the user selected in the Explorer tab, if any",
-    value: scope
-      ? `Scoped to table ${scope.path.join(".")} in connection "${scope.connectionName}" (connection_id ${scope.connectionId}). ` +
-        "Answer about this table unless the user clearly asks about something else; no need to list other tables first."
-      : "No table is selected in Explorer.",
-  });
+/** Tells the agent which connection/table the user picked in Explorer (AG-UI context reaches the ADK agent). */
+function ScopeContext({ scope, connection }: { scope: TableScope | null; connection: ActiveConnection | null }) {
+  let value: string;
+  if (scope) {
+    value =
+      `Scoped to table ${scope.path.join(".")} in connection "${scope.connectionName}" (connection_id ${scope.connectionId}). ` +
+      "Answer about this table unless the user clearly asks about something else; no need to list other tables first.";
+  } else if (connection?.chosen) {
+    value =
+      `Active connection "${connection.name}" (${connection.kind}, connection_id ${connection.id}), chosen by the user; ` +
+      "no table is selected. Find tables only in this connection; do not call list_connections or use other " +
+      "connections unless the user asks.";
+  } else if (connection) {
+    value =
+      `No table is selected. Explorer shows connection "${connection.name}" (${connection.kind}, connection_id ` +
+      `${connection.id}) only by default; the user has not chosen a connection.`;
+  } else {
+    value = "No connection or table is selected in Explorer.";
+  }
+  useCopilotReadable({ description: "The connection and table the user selected in the Explorer tab, if any", value });
   return null;
 }
 
@@ -173,6 +184,7 @@ export default function AppShell({ theme }: { theme: Theme }) {
   const [revision, setRevision] = useState(0);
   const { items: conversations, error: conversationsError, remove: forgetConversation } = useConversations(revision);
   const [scope, setScope] = useState<TableScope | null>(null);
+  const [connection, setConnection] = useState<ActiveConnection | null>(null);
   const [workbenchOpen, setWorkbenchOpen] = useState(false);
   const [workbenchHost, setWorkbenchHost] = useState<HTMLDivElement | null>(null);
   const tabRefs = useRef<Partial<Record<TabId, HTMLButtonElement | null>>>({});
@@ -299,6 +311,7 @@ export default function AppShell({ theme }: { theme: Theme }) {
         <Explorer
           scope={scope}
           onScopeChange={setScope}
+          onConnectionChange={setConnection}
           workbenchHost={workbenchHost}
           workbenchOpen={workbenchOpen}
           onWorkbenchOpenChange={setWorkbenchOpen}
@@ -395,7 +408,7 @@ export default function AppShell({ theme }: { theme: Theme }) {
       <ShowResultsContext.Provider value={showResults}>
         <HistoryHydrator threadId={threadId} />
         <RunWatcher onNew={onNewResult} onRunEnd={bump} />
-        <ScopeContext scope={scope} />
+        <ScopeContext scope={scope} connection={connection} />
         <UploadsContext sessionId={sessionId} revision={revision} />
         <ChatRenderers />
         <SplitPane

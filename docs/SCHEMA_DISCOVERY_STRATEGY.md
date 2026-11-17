@@ -34,25 +34,27 @@ When users don't scope to a specific table in Explorer, the agent wastes 20-50 t
    └─> Even then, page results (10 at a time)
 ```
 
-### What the UI shares today (and the open gap)
+### What the UI shares with the agent
 
 The agent learns about the user's Explorer selection only through AG-UI context
 (`useCopilotReadable` → `CONTEXT_STATE_KEY` → appended to the instruction under
-"What the user currently has open in the app").
+"What the user currently has open in the app"). `ScopeContext` in `frontend/app/components/AppShell.tsx`
+sends one of:
 
 | Explorer state | Context the agent receives | Level 1 applies? |
 |---|---|---|
 | Table selected | `Scoped to table public.businesses in connection "devindulge_aws" (connection_id …)` | ✅ yes |
-| Only a connection picked in the dropdown | `No table is selected in Explorer.` | ❌ no — agent falls to Level 2 |
+| Connection picked in the dropdown (remembered across reloads), or the only connection | `Active connection "devindulge_aws" (postgres, connection_id …), chosen by the user; no table is selected. …` | ✅ yes — search only this connection |
+| Nothing picked; Explorer auto-selected the first connection | `… Explorer shows connection "idap-int" … only by default; the user has not chosen a connection.` | ❌ no — Level 2 (ask which connection) |
+| No connections | `No connection or table is selected in Explorer.` | ❌ no |
 
-**Observed (2026-11-17)**: with `devindulge_aws` picked but no table selected, the agent called
-`list_connections`, then `get_my_tables` / `get_table_schema` / `search_tables_by_keyword` against the
-BigQuery `idap-int` connection, and only reached `public.businesses` at q6. Commit 0b11adb made the
-instructions enforce the scoped connection, but that only helps once the connection is actually in context.
+**Why "default" isn't a scope:** Explorer auto-selects the first connection (the shared BigQuery one).
+Treating that as the user's choice would lock users who never touched the dropdown to BigQuery.
 
-**Fix needed**: lift the Explorer's selected `connectionId` to `AppShell` and share it via
-`useCopilotReadable` even when no table is selected (changing the dropdown currently calls
-`onScopeChange(null)` in `frontend/app/components/Explorer.tsx`).
+**History (2026-11-17)**: before this, only a selected table was shared. With `devindulge_aws` picked but
+no table selected, the agent called `list_connections`, then `get_my_tables` / `get_table_schema` /
+`search_tables_by_keyword` against the BigQuery `idap-int` connection, and only reached
+`public.businesses` at q6.
 
 ### Implementation Details
 
@@ -95,17 +97,17 @@ Agent Steps:
 Result: 2 tool calls ✅
 ```
 
-#### Example 1b: Only a Connection Scoped (requires the UI fix above)
+#### Example 1b: Only a Connection Scoped
 ```
 User: "How many businesses in Las Vegas and San Diego by status and published?"
-UI Context: "Active connection devindulge_aws (postgres, connection_id b802…)"  ← not sent yet
+UI Context: "Active connection "devindulge_aws" (postgres, connection_id b802…), chosen by the user; …"
 Agent Steps:
   1. Connection is scoped → no list_connections, no BigQuery
   2. get_my_tables(b802…) → no hit
   3. search_tables_by_keyword(b802…, "business status published") → public.businesses
   4. get_table_schema(b802…, public.businesses)
   5. run_sql(b802…)
-Result: 4 tool calls, all on the scoped connection ✅ (today: 6 queries, BigQuery detour ❌)
+Result: 4 tool calls, all on the scoped connection ✅ (before the fix: 6 queries, BigQuery detour ❌)
 ```
 
 #### Example 2: Multiple Connections, No Selection
@@ -160,7 +162,8 @@ Result: 2-3 tool calls (no semantic search needed) ✅
 ✅ Prioritize UI-scoped table context
 ✅ Add "ask user" red flags
 ✅ Enforce scoped connection exclusively; red flags for cross-connection calls (commit 0b11adb)
-🔲 Share the active connection (no table selected) from Explorer to the agent context
+✅ Share the active connection (no table selected) from Explorer to the agent context; a default
+   (not chosen) connection is not a scope
 
 ### Phase 2: Next Sprint (Recommended)
 🔲 **Add `search_tables_by_keyword` tool** (backend/src/odn/agent/tools.py)

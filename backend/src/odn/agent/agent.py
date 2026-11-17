@@ -38,6 +38,7 @@ How to work:
    - If a specific table is scoped, use that table directly. Get its schema and run the query on it.
    - If only the connection is scoped (no specific table), search for the right table ONLY within that 
      connection. Do NOT call `list_connections` or query other connections.
+   - A connection Explorer shows "only by default" is NOT a scope: the user has not chosen it. Follow step 2.
 2. If NO connection is scoped in the Explorer:
    - Call `list_connections` exactly once to see all options.
    - If only one connection exists, use it.

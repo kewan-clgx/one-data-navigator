@@ -4,9 +4,7 @@
 1. ✅ **Commit 3502345**: Optimized agent instructions to prioritize UI context and reduce exploration
 2. ✅ **Commit 73b9cc7**: Added `search_tables_by_keyword()` tool with semantic relevance scoring
 3. ✅ **Commit 0b11adb**: Instructions enforce the scoped (active) connection exclusively
-
-> ⚠️ Only a selected **table** reaches the agent today. Picking just a connection in the Explorer dropdown
-> is not shared, so the agent treats it as "nothing scoped" (see Test 1b).
+4. ✅ **Follow-up**: Explorer shares the user's chosen connection with the agent, not only a selected table (see Test 1b)
 
 ## What Changed
 
@@ -93,22 +91,25 @@
 
 ---
 
-### Test 1b: Only a Connection Picked (Known Gap)
+### Test 1b: Only a Connection Picked
 **Setup**: Pick `devindulge_aws` (Postgres) in the Explorer connection dropdown; do not select a table.
 Keep the BigQuery `idap-int` connection available.
 
 **Query**: "How many businesses in Las Vegas and San Diego, breakdown by status and published?"
 
-**Current behavior (2026-11-17)**: agent calls `list_connections`, then `get_my_tables`,
-`get_table_schema` and `search_tables_by_keyword` against `idap-int` (BigQuery) before landing on
-`public.businesses` at q6 — because the UI context says "No table is selected in Explorer".
-
-**Expected after the UI fix** (share active connection via `useCopilotReadable`):
+**Expected**:
 - No `list_connections`; no BigQuery `connection_id` in any call
 - `get_my_tables` → `search_tables_by_keyword` → `get_table_schema` → `run_sql`, all on `devindulge_aws`
 - Result at q1
+- Reload the page: the dropdown still shows `devindulge_aws` and the behavior is the same
 
-**Workaround today**: select `public.businesses` in Explorer (Test 1 path).
+**Before the fix (2026-11-17)**: the agent called `list_connections`, then `get_my_tables`,
+`get_table_schema` and `search_tables_by_keyword` against `idap-int` (BigQuery) before landing on
+`public.businesses` at q6, because the UI context said "No table is selected in Explorer".
+
+**Counter-check (default isn't a scope)**: clear `odn.explorer.connection` in the browser's localStorage
+and reload, leaving the default connection selected. With several connections, the agent should ask
+which one to query rather than assume the default.
 
 ---
 

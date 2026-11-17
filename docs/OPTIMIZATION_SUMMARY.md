@@ -31,11 +31,13 @@ and only reached `public.businesses` at q6.
 - New red flags: calling `list_connections` / touching another connection while one is scoped, or calling
   `get_table_schema` across multiple connections.
 
-> ⚠️ **Known gap (open)**: the frontend only shares a *table* scope with the agent
-> (`ScopeContext` in `frontend/app/components/AppShell.tsx`). Choosing a connection in the Explorer
-> dropdown resets the scope to `null`, so the agent is told "No table is selected in Explorer" and does
-> not know the active connection. Until the active connection is also shared via `useCopilotReadable`,
-> Phase 1b only takes effect when a **table** is selected.
+> ✅ **Active connection now shared (2026-11-17, follow-up commit)**: before, the frontend only shared a
+> *table* scope, so picking just a connection told the agent "No table is selected in Explorer". Explorer
+> now reports the connection to `AppShell`, and `ScopeContext` tells the agent "Active connection …,
+> chosen by the user" when the user explicitly picked it in the dropdown (remembered in `localStorage`)
+> or when it is the only connection. The first connection Explorer selects automatically is reported as
+> "only by default" and is **not** a scope, so a user who never touched the dropdown isn't locked to
+> BigQuery.
 
 #### Phase 2: Semantic Search Tool (Commit 73b9cc7) ⭐
 - **New tool**: `search_tables_by_keyword(connection_id, keywords)`
@@ -137,8 +139,7 @@ changes (`pyproject.toml` / `uv.lock`).
 | Explorer shows "No data connections yet" although rows exist in `connections`; frontend logs `HeadersTimeoutError` | `api` hung during a `--reload` triggered by a source edit (`Waiting for background tasks to complete`) | `docker compose restart api` |
 
 ### Frontend
-No changes needed for the table-scoped flow (UI passes table scope via `useCopilotReadable`).
-Sharing the active *connection* (no table) still needs a frontend change — see Known gap above.
+No backend changes are needed for the table or connection scope; both reach the agent via `useCopilotReadable`.
 
 ### Production
 Push commits to main, deploy as usual. No database migrations required.
@@ -146,10 +147,6 @@ Push commits to main, deploy as usual. No database migrations required.
 ## Future Enhancements
 
 ### Phase 3 (Recommended for Next Sprint)
-0. **Share the active connection with the agent** (fixes the Known gap)
-   - Lift the Explorer's selected connection to `AppShell` and add it to the `useCopilotReadable` context
-     (e.g. "Active connection devindulge_aws (postgres, connection_id …)") even when no table is selected
-
 1. **Semantic similarity** using embeddings (not just keyword match)
    - Would catch synonyms: "user" → "customer", "product" → "item"
    - Requires: LLM embeddings endpoint or Postgres pgvector

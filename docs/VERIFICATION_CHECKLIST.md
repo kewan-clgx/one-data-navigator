@@ -29,8 +29,8 @@
 - [x] Commit 0b11adb: "refactor: Enforce active connection priority in agent instructions"
   - [x] Scoped table/connection used exclusively (no `list_connections`, no other connections)
   - [x] Red flags for cross-connection tool calls
-  - [ ] Frontend shares the active connection when no table is selected (open — see
-        [SCHEMA_DISCOVERY_STRATEGY.md](./SCHEMA_DISCOVERY_STRATEGY.md#what-the-ui-shares-today-and-the-open-gap))
+  - [x] Frontend shares the user's chosen connection when no table is selected; a default connection is
+        not a scope (see [SCHEMA_DISCOVERY_STRATEGY.md](./SCHEMA_DISCOVERY_STRATEGY.md#what-the-ui-shares-with-the-agent))
 
 ## Runtime Validation
 

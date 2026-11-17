@@ -21,6 +21,9 @@ import DictionaryPanel from "./DictionaryPanel";
 /** The table the user picked; the chat is scoped to it. */
 export type TableScope = { connectionId: string; connectionName: string; path: string[] };
 
+/** The connection shown in Explorer; `chosen` is false while it is only the default (first) connection. */
+export type ActiveConnection = { id: string; name: string; kind: string; chosen: boolean };
+
 type CuratedRow = { table_path: string; field_path: string; definition: string; status: string };
 
 /** Curated field definitions become searchable alongside source descriptions. */
@@ -43,6 +46,7 @@ function withCuratedDefinitions(index: SearchIndex, defs: CuratedRow[]): SearchI
 }
 
 const HIDE_SNAPSHOTS_KEY = "odn.explorer.hideSnapshots";
+const CONNECTION_KEY = "odn.explorer.connection";
 const MY_TABLES_SHOWN = 8;
 const PREVIEW_ROWS = 20;
 // BigQuery checks the bytes-billed cap against the UNSAMPLED size of the columns read, so avoid SELECT *.
@@ -123,12 +127,14 @@ function cell(v: unknown): string {
 export default function Explorer({
   scope,
   onScopeChange,
+  onConnectionChange,
   workbenchHost,
   workbenchOpen,
   onWorkbenchOpenChange,
 }: {
   scope: TableScope | null;
   onScopeChange: (scope: TableScope | null) => void;
+  onConnectionChange?: (connection: ActiveConnection | null) => void;
   /** Element in the chat pane that the SQL workbench overlay renders into. */
   workbenchHost: HTMLElement | null;
   workbenchOpen: boolean;
@@ -167,11 +173,34 @@ export default function Explorer({
     api<Connection[]>("connections")
       .then((cs) => {
         setConnections(cs);
-        // Keep the current selection if it still exists (e.g. after adding a connection in Settings).
-        setConnectionId((id) => (cs.some((c) => c.id === id) ? id : cs[0]?.id ?? ""));
+        // Keep the current selection if it still exists (e.g. after adding a connection in Settings),
+        // else restore the user's last explicit choice, else default to the first connection.
+        const stored = localStorage.getItem(CONNECTION_KEY);
+        setConnectionId((id) =>
+          cs.some((c) => c.id === id) ? id : stored && cs.some((c) => c.id === stored) ? stored : cs[0]?.id ?? "",
+        );
       })
       .catch((e: Error) => setError(e.message));
   }, []);
+
+  useEffect(() => {
+    const c = connections.find((x) => x.id === connectionId);
+    onConnectionChange?.(
+      c
+        ? {
+            id: c.id,
+            name: c.name,
+            kind: c.kind,
+            chosen: connections.length === 1 || localStorage.getItem(CONNECTION_KEY) === c.id,
+          }
+        : null,
+    );
+  }, [connectionId, connections, onConnectionChange]);
+
+  const chooseConnection = (id: string) => {
+    localStorage.setItem(CONNECTION_KEY, id);
+    setConnectionId(id);
+  };
 
   useEffect(() => {
     loadConnections();
@@ -398,7 +427,7 @@ export default function Explorer({
         )}
         <label>
           Connection
-          <select value={connectionId} onChange={(e) => setConnectionId(e.target.value)}>
+          <select value={connectionId} onChange={(e) => chooseConnection(e.target.value)}>
             {connections.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} ({c.kind}{c.scope === "personal" ? ", yours" : ""})
