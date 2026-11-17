@@ -80,6 +80,80 @@ async def get_my_tables(connection_id: str) -> dict[str, Any]:
     }
 
 
+def _keyword_relevance(table_name: str, keywords: list[str]) -> float:
+    """Score table relevance to keywords (0.0 to 1.0). Higher = better match."""
+    name_lower = table_name.lower()
+    total_matches = 0
+    max_possible = len(keywords)
+    
+    for keyword in keywords:
+        keyword_lower = keyword.lower()
+        if keyword_lower in name_lower:
+            # Exact substring match in name
+            total_matches += 1
+        elif keyword_lower in name_lower.replace("_", " "):
+            # Fuzzy match (treating underscores as word breaks)
+            total_matches += 0.5
+    
+    if max_possible == 0:
+        return 0.0
+    return min(total_matches / max_possible, 1.0)
+
+
+async def search_tables_by_keyword(connection_id: str, keywords: str, limit: int = 5) -> dict[str, Any]:
+    """Searches for tables by keyword match on table names and descriptions.
+
+    Use this to find relevant tables without exploring all catalogs. Avoids expensive schema scanning.
+
+    Args:
+        connection_id: The connection id from `list_connections`.
+        keywords: Space-separated keywords from the user's question (e.g., "businesses Las Vegas status").
+        limit: Maximum number of results to return (default 5).
+
+    Returns:
+        A dict with `tables`: list of matching tables sorted by relevance, each with:
+        - `path`: fully qualified table name
+        - `name`: table name only
+        - `kind`: "table" or "view"
+        - `relevance`: score from 0.0 (no match) to 1.0 (perfect match)
+    """
+    keyword_list = [k.strip() for k in keywords.split() if k.strip()]
+    if not keyword_list:
+        return {"tables": [], "note": "No keywords provided"}
+    
+    resp = await _api("GET", f"connections/{connection_id}/catalog")
+    if resp.status_code != 200:
+        return {"error": _detail(resp), "tables": []}
+    
+    nodes = resp.json()
+    tables = []
+    
+    # Collect all tables and score them
+    for node in nodes:
+        if node.get("kind") in ("table", "view"):
+            path_str = ".".join(node["path"])
+            name = node["name"]
+            relevance = _keyword_relevance(name, keyword_list)
+            
+            if relevance > 0:  # Only include matches
+                tables.append({
+                    "path": path_str,
+                    "name": name,
+                    "kind": node.get("kind", "table"),
+                    "relevance": round(relevance, 2),
+                })
+    
+    # Sort by relevance descending, then by name
+    tables.sort(key=lambda t: (-t["relevance"], t["name"]))
+    
+    return {
+        "tables": tables[:limit],
+        "total_matches": len(tables),
+        "truncated": len(tables) > limit,
+        "keywords": keyword_list,
+    }
+
+
 def _rank_items(items: list[dict[str, Any]], mine: dict[str, Any]) -> list[dict[str, Any]]:
     """Favorites first, then recently queried, then the rest in catalog order."""
     favorites = {f["path"] for f in mine["favorites"]}

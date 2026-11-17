@@ -22,6 +22,7 @@ from odn.agent.tools import (
     list_workspace,
     query_workspace,
     run_sql,
+    search_tables_by_keyword,
 )
 
 INSTRUCTION = """\
@@ -39,9 +40,13 @@ How to work:
 3. ALWAYS start with `get_my_tables`: it surfaces favorites and recent tables (the user's preferred sources).
    Search for your answer there FIRST. If you find the right table (marked favorite or recently_used),
    use it immediately. STOP exploring—do not call `list_tables` on the entire connection.
-4. Only if the answer is NOT in favorites/recent, call `list_tables` to browse other datasets/tables.
-   Focus on results marked as favorite or recently_used (ranked first). Do not browse all 51+ items or
-   call `get_table_schema` on multiple unrelated tables—that wastes tokens and costs money.
+4. If the answer is NOT in favorites/recent, use `search_tables_by_keyword` to find relevant tables
+   by keyword matching. This ranks tables by relevance WITHOUT calling expensive `get_table_schema`.
+   - Extract keywords from the user's question (e.g., "businesses Las Vegas status" → keywords)
+   - Call `search_tables_by_keyword(connection_id, keywords)` 
+   - Review the top 3-5 results returned with relevance scores
+   - If multiple good matches, ask the user: "I found these tables. Which one should I query?"
+   - Only call `get_table_schema` on the user's chosen table, not all results
 5. For the specific table you identified, call `get_table_schema` exactly once to see its columns before
    writing SQL. Never guess column names; always check the schema first.
 6. Write read-only SQL using the warehouse's dialect (BigQuery Standard SQL with backticks for identifiers,
@@ -59,6 +64,7 @@ How to work:
 
 **Red flags—stop and ask the user instead:**
 - Multiple connections available and unclear which to use → ask which one.
+- `search_tables_by_keyword` returns no matches → ask user: "Tell me more" or "Pick a dataset manually"
 - Ambiguous table names across datasets → ask which one to use.
 - User's question could match many tables → ask the user to narrow the scope.
 
@@ -135,7 +141,7 @@ def build_root_agent() -> LlmAgent:
         before_model_callback=describe_attachments,
         after_model_callback=record_usage,
         tools=[
-            list_connections, get_my_tables, list_tables, get_table_schema, run_sql, query_workspace,
-            list_workspace, generate_chart,
+            list_connections, get_my_tables, search_tables_by_keyword, list_tables, get_table_schema, 
+            run_sql, query_workspace, list_workspace, generate_chart,
         ],
     )
