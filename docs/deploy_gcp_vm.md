@@ -68,14 +68,15 @@ Prerequisites: `gcloud` authenticated as an owner/editor of `datahop-514819`, an
    deploy/deploy.sh provision show        # prints tenant ids
    ```
 
-7. **Cotality BigQuery connection.** The VM service account cannot be granted access to the Cotality
-   project, so the connection uses the Cotality service-account key stored in Secret Manager in
-   `datahop-514819`. The secret name must start with `odn-<cotality tenant id>-`:
+7. **Enterprise client BigQuery connection** (e.g. tenant `cotality`). The VM service account cannot be
+   granted access to a client's project in another organization, so the connection uses the client's
+   service-account key stored in Secret Manager in `datahop-514819`. The secret name must start with
+   `odn-<tenant id>-`:
 
    ```sh
    TID=<cotality tenant id from "provision show">
    gcloud --project datahop-514819 secrets create "odn-$TID-bq-idap" --replication-policy automatic
-   gcloud --project datahop-514819 secrets versions add "odn-$TID-bq-idap" --data-file keys/<cotality-sa>.json
+   gcloud --project datahop-514819 secrets versions add "odn-$TID-bq-idap" --data-file keys/<client-sa>.json
    deploy/deploy.sh provision connection cotality idap-int \
      --project clgx-idap-bigquery-int-278e \
      --secret-ref "projects/datahop-514819/secrets/odn-$TID-bq-idap/versions/latest" \
@@ -83,7 +84,7 @@ Prerequisites: `gcloud` authenticated as an owner/editor of `datahop-514819`, an
    ```
 
    Repeat `--allow` for each approved dataset (`project.dataset.*`) or table (`project.dataset.table`).
-   Confirm with Cotality that storing this key outside their organization is permitted.
+   Confirm with the enterprise client that storing their key outside their organization is permitted.
 
 8. **Roles**: users are created on first sign-in as `member`. Promote data leads after they have signed in:
 
@@ -117,7 +118,7 @@ release), `/opt/odn/shared/.env` (settings, mode 600). Data lives in Docker volu
   later, run `ALTER ROLE ... PASSWORD` through `deploy/deploy.sh ssh`, then update `.env`.
 - **Shared VM identity**: every container can reach the metadata server, so the worker and agent can also
   act as the VM service account, which can read the bucket and the Secret Manager secrets, including the
-  Cotality key. The worker runs only policy-checked DuckDB SQL, and the agent reaches data only through the
+  enterprise client keys. The worker runs only policy-checked DuckDB SQL, and the agent reaches data only through the
   API, so this is accepted for the single-VM MVP. To narrow it, grant `secretAccessor` on the individual
   secret instead of the project. The Cloud Run design gives each service its own identity.
 - **Restore**: create a disk from a snapshot of the boot disk and recreate the VM from it.

@@ -65,7 +65,7 @@ Other decisions made during the session:
 | Domain | `odn.datahop.ai` | Domain owned by the user |
 | LLM | Gemini API (AI Studio key) | The corporate LiteLLM proxy (`llm-uat.cotality.com`) needs the corporate network or VPN |
 | `gs://datahop` credentials | VM service account | Same project, so no key file is needed |
-| BigQuery credentials | Cotality service-account key in Secret Manager | The Cotality project belongs to a different organization, so the VM service account cannot be granted access |
+| BigQuery credentials | Enterprise client's service-account key in Secret Manager | The client's BigQuery project belongs to a different organization, so the VM service account cannot be granted access |
 
 ## 3. Code and configuration built (commit `ffb97c8`)
 
@@ -230,16 +230,16 @@ service-account key that has owner-level access. If a key is used, remove `proje
       with the same parser as local seeding. It has 25 datasets (`project.dataset.*`) plus 2 tables in
       `edr_pmd_property_pipeline`, and default dataset `stg_property_firmographics`.
     - A one-off script (kept outside the repo) ran
-      `deploy/deploy.sh provision connection cotality idap-int --project clgx-idap-bigquery-int-278e --secret-ref projects/datahop-514819/secrets/odn-<cotality tenant id>-bq-idap/versions/latest --default-dataset ... --allow ...`.
+      `deploy/deploy.sh provision connection cotality idap-int --project clgx-idap-bigquery-int-278e --secret-ref projects/datahop-514819/secrets/odn-<tenant id>-bq-idap/versions/latest --default-dataset ... --allow ...`.
       It created connection `1d65fa94-e6d1-450e-a77c-0eabd69923c5`.
 12. **Missing secret, then fixed**: a test from the VM failed with Secret Manager `NotFound`, because the
     secret had not been created yet. The secret was then created:
     ```sh
     TID=0a86ccd8-8d9b-45db-917e-9520f63ec989
     gcloud --project datahop-514819 secrets create "odn-$TID-bq-idap" --replication-policy automatic
-    gcloud --project datahop-514819 secrets versions add "odn-$TID-bq-idap" --data-file keys/<cotality-sa>.json
+    gcloud --project datahop-514819 secrets versions add "odn-$TID-bq-idap" --data-file keys/<client-sa>.json
     ```
-    The test was re-run inside the API container. The secret was read (Cotality ETL service account), all
+    The test was re-run inside the API container. The secret was read (the enterprise client's service account), all
     four connection checks passed (auth, network, metadata, read), and a dry-run succeeded. No redeploy was
     needed, because the connection reads `versions/latest`.
 13. **`provision show` fix** (`2ce28ec`): `show` listed every connection and user under every tenant. The
@@ -289,8 +289,8 @@ account as a test user.
 - **Shared VM identity**: every container can use the VM service account through the metadata server, so it
   can read the bucket and the project's secrets. To narrow this, grant `secretAccessor` on the individual
   secret instead of the project.
-- **Cotality key in `datahop-514819`**: confirm with Cotality that storing it outside their organization is
-  permitted.
+- **Enterprise client keys in `datahop-514819`**: confirm with each enterprise client that storing their
+  service-account key outside their organization is permitted.
 - **Database passwords** apply only on first init. Rotate with `ALTER ROLE ... PASSWORD` and update `.env`.
 - **Backups**: daily boot-disk snapshots (kept 14 days). To restore, create a disk from a snapshot.
 - **No CI**: run `cd backend && uv run pytest && uv run ruff check src tests` before `deploy.sh up`.
