@@ -28,6 +28,9 @@ from odn.platform.connectors.base import (
 _SCHEMA_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
 _TABLE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_$]*$")
 _MAX_LIST = 10_000
+# Every connection defaults to read-only transactions: the AST policy cannot see side effects inside
+# functions (nextval, user-defined functions), so the database must refuse writes as well.
+_READ_ONLY_OPTIONS = "-c default_transaction_read_only=on"
 
 # Standard PostgreSQL type name mappings to canonical names
 _TYPE_MAPPING = {
@@ -74,61 +77,39 @@ class PostgresQueryJob:
 
 
 class PostgresExecution(QueryExecution):
-    """Execute a Postgres query and stream results as Arrow RecordBatches."""
+    """Run a Postgres query on its own read-only connection and return it as Arrow RecordBatches.
+
+    The connection is closed once the batches have been consumed (or on error).
+    """
 
     def __init__(
-        self, conn: AsyncConnection, sql_text: str, job_id: str | None = None, timeout_s: int = 300
+        self, conn: psycopg.Connection, sql_text: str, job_id: str | None = None, timeout_s: int = 300
     ) -> None:
         self._conn = conn
         self._sql_text = sql_text
-        self.job_id = job_id  # Set from the backend_pid during execution
+        self.job_id = job_id  # backend_pid, used for cancellation
         self.bytes_processed: int | None = None
         self._timeout_s = timeout_s
 
     def batches(self) -> Iterator[pa.RecordBatch]:
-        """Fetch all rows and convert to Arrow RecordBatches synchronously (run() is sync)."""
-        import asyncio
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
         try:
-            batches_list = loop.run_until_complete(self._fetch_batches_async())
-            yield from batches_list
-        finally:
-            loop.close()
-
-    async def _fetch_batches_async(self) -> list[pa.RecordBatch]:
-        """Async fetch, return list of RecordBatches."""
-        batches = []
-        try:
-            async with self._conn.cursor() as cur:
-                await cur.execute(self._sql_text)
-                rows = await cur.fetchall()
-                # Get column info from cursor description
+            with self._conn.cursor() as cur:
+                cur.execute(self._sql_text)
+                rows = cur.fetchall()
                 columns = [desc[0] for desc in cur.description] if cur.description else []
+        finally:
+            self._conn.close()
 
-                if not rows:
-                    # Return empty batch with correct schema
-                    if columns:
-                        schema = pa.schema([(col, pa.string()) for col in columns])
-                        batches.append(pa.RecordBatch.from_pylist([], schema=schema))
-                    return batches
+        if not rows:
+            if columns:
+                schema = pa.schema([(col, pa.string()) for col in columns])
+                yield pa.RecordBatch.from_pylist([], schema=schema)
+            return
 
-                # Convert rows to Arrow RecordBatches
-                # psycopg returns rows as tuples or namedtuples; convert to list of dicts
-                records = [dict(zip(columns, row)) for row in rows]
-                table = pa.Table.from_pylist(records)
-
-                # Collect in batches of reasonable size
-                batch_size = max(1000, len(rows) // 10)  # At least 1000 rows per batch
-                for i in range(0, table.num_rows, batch_size):
-                    batches.append(table.slice(i, min(batch_size, table.num_rows - i)).to_batches()[0])
-        except psycopg.errors.QueryCanceled:
-            raise
-        except psycopg.errors.QueryTimedOut:
-            raise TimeoutError(f"Query timed out after {self._timeout_s}s") from None
-        
-        return batches
+        table = pa.Table.from_pylist([dict(zip(columns, row)) for row in rows])
+        batch_size = max(1000, len(rows) // 10)
+        for i in range(0, table.num_rows, batch_size):
+            yield table.slice(i, min(batch_size, table.num_rows - i)).to_batches()[0]
 
 
 class PostgresConnector(BaseConnector):
@@ -201,6 +182,7 @@ class PostgresConnector(BaseConnector):
                 min_size=self._min_size,
                 max_size=self._max_size,
                 check=AsyncConnectionPool.check_connection,
+                kwargs={"options": _READ_ONLY_OPTIONS},
             )
             # Open the pool to initialize it
             await self._pool.open()
@@ -498,42 +480,19 @@ class PostgresConnector(BaseConnector):
         return CostEstimate()
 
     def execute_paged(self, sql_text: str, limits: QueryLimits) -> QueryExecution:
-        """Execute query with limits enforcement."""
-        import asyncio
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        """Open a dedicated read-only connection for the query; the execution closes it."""
+        conn = psycopg.connect(self._conninfo, options=_READ_ONLY_OPTIONS)
         try:
-            # Execute the query async and get connection + job info
-            conn, job_id = loop.run_until_complete(self._execute_paged_async(sql_text, limits))
-            execution = PostgresExecution(conn, sql_text, job_id=job_id, timeout_s=limits.timeout_s)
-            return execution
-        except Exception:
-            loop.close()
+            # Explicit per transaction too, so the guarantee doesn't depend on the session default alone.
+            conn.execute("SET TRANSACTION READ ONLY")
+            conn.execute(sql.SQL("SET LOCAL search_path TO {}").format(sql.Identifier(self.schema)))
+            conn.execute(sql.SQL("SET LOCAL statement_timeout = {}").format(sql.Literal(limits.timeout_s * 1000)))
+            row = conn.execute("SELECT pg_backend_pid()").fetchone()
+            job_id = str(row[0]) if row else None
+        except BaseException:
+            conn.close()
             raise
-
-    async def _execute_paged_async(
-        self, sql_text: str, limits: QueryLimits
-    ) -> tuple[AsyncConnection, str | None]:
-        """Execute query and return connection + job ID for tracking."""
-        conn = await self._pool.getconn()
-
-        try:
-            # Set statement timeout
-            async with conn.cursor() as cur:
-                await cur.execute(f"SET statement_timeout = {limits.timeout_s * 1000}")
-
-            # Get backend PID for cancellation
-            async with conn.cursor(row_factory=dict_row) as cur:
-                await cur.execute("SELECT pg_backend_pid() as pid")
-                pid_result = await cur.fetchone()
-                job_id = str(pid_result["pid"]) if pid_result else None
-
-            return conn, job_id
-
-        except Exception:
-            await self._pool.putconn(conn)
-            raise
+        return PostgresExecution(conn, sql_text, job_id=job_id, timeout_s=limits.timeout_s)
 
     def cancel_job(self, job_id: str) -> None:
         """Cancel a running query by backend PID."""
