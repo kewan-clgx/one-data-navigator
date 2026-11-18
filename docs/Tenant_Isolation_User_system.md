@@ -1,6 +1,6 @@
 # Tenant Isolation & User System — Architecture and Dev Plan
 
-*Status: proposal (2026-11-17). Extends MVP guardrail 2 (Tenant Isolation from Day 1) and the Phase 3
+*Status: implemented locally (2026-11-17), U0–U7; see §7 for what remains. Extends MVP guardrail 2 (Tenant Isolation from Day 1) and the Phase 3
 Connection Manager in [one_data_navigator_mvp_dev_plan.md](one_data_navigator_mvp_dev_plan.md).*
 
 ## 1. Goals
@@ -236,25 +236,25 @@ Rules:
 
 | Surface | Today | Gap / action |
 |---|---|---|
-| Tenant resolution | From the verified token, never client input ✅ | Mapping lives in env (`ODN_OIDC_TENANT_DOMAINS`) → move to `tenant_identity_providers` (U1/U2). Add `email_verified` + domain cross-check for all issuers. |
-| Postgres | `FORCE RLS` on all 13 tenant tables, fail-closed ✅; personal rows also keyed on `odn.user_id` ✅ | **Guard test:** enumerate every table in `public` and fail unless it has `FORCE RLS` or is an allow-listed directory table (`tenants`, `tenant_domains`, `tenant_identity_providers`), so a new table can't ship without RLS. Wire RLS isolation tests into CI. |
-| GCS | Keys `odn/<tenant>/<user>/<session>/…` built from `RequestContext` ✅ | One bucket and a service account with access to all of it, so the only boundary is code. Add `assert_tenant_key(ctx, key)` before every read/write/sign, and read object keys only from RLS-protected rows. v2: per-tenant bucket or CMEK for enterprise tenants. |
-| In-process caches | Search index keyed `(tenant_id, connection_id, allowlist)` ✅ | Agent attachment notes keyed `(session_id, url)` ❌ → prefix with `(tenant_id, user_id)`. Rule: **every cache key starts with `tenant_id`**; checked in review. |
+| Tenant resolution | From the verified token, never client input ✅ | ✅ Directory (`tenant_identity_providers`, `tenant_domains`); `email_verified` + verified-domain check; env mapping only imported (remove after one release). |
+| Postgres | `FORCE RLS` on all tenant tables, fail-closed ✅; personal rows also keyed on `odn.user_id` ✅ | ✅ Guard test `test_every_table_forces_rls_or_is_a_directory_table`; runs in CI. |
+| GCS | Keys `odn/<tenant>/<user>/<session>/…` built from `RequestContext` ✅ | ✅ `assert_tenant_key` on every stored key read back (downloads, keys sent to the worker). Still one bucket/identity: v2 per-tenant bucket or CMEK for enterprise tenants. |
+| In-process caches | Search index keyed `(tenant_id, connection_id, allowlist)` ✅ | ✅ Attachment notes keyed by tenant:user too. Rule: **every cache key starts with the tenant**; checked in review. |
 | Secret Manager | Shared refs must match `projects/*/secrets/odn-<tenant_id>-*` ✅; personal secrets AES-256-GCM with AAD = tenant+owner+connection ✅ | Shared **SSH tunnel keys** and shared connection credentials entered in the UI need the same naming (see §6). VM service account access is project-wide, so the name check is the boundary; keep it covered by tests. |
 | Agent sessions | ADK `user_id` = tenant+user ✅ | — |
-| LLM budgets, audit, telemetry | Per tenant ✅ | Add `user.*`, `tenant.*` audit events (invites, role changes, sign-in failures). |
+| LLM budgets, audit, telemetry | Per tenant ✅ | ✅ `admin_events` for users and shared connections; sign-in failure events still open. |
 | DuckDB worker | Receives artifact keys from the API | Confirm keys come only from RLS rows (covered by the GCS assertion). |
-| Local dev | Seeded `local` tenant can have an empty `oidc_issuer` ("tenant is not provisioned") | Seed writes `tenant_identity_providers` for the mock IdP (fixed by U1). |
+| Local dev | Seeded `local` tenant could have an empty `oidc_issuer` | ✅ Seed writes the mock IdP mapping. |
 
 ## 6. Connection Manager (Phase 3) in the tenant model
 
 | Item | Design |
 |---|---|
 | Who manages what | **Shared** connections: tenant `admin` / `data_lead`, visible to all users in the tenant (RLS). **Personal**: the owner only (as today). |
-| Shared credentials entered in the UI | Today shared connections need an operator to put the secret in Secret Manager. Proposal: the API writes `odn-<tenant_id>-conn-<connection_id>` (service account and Postgres password) and `odn-<tenant_id>-ssh-<connection_id>` (tunnel private key). Requires granting the VM service account secret creation with an IAM condition limited to names starting with `odn-`. *Decision D3.* Fallback: encrypt shared secrets in Postgres like personal ones (AAD = tenant+connection). |
-| SSH tunnel | Mandatory host-key pinning (done); keys per §5; **end-to-end test against a real bastion** (open Phase 3 item). Client allowlists the VM egress IP `136.71.108.203`. |
+| Shared credentials entered in the UI | ✅ Encrypted in Postgres with AAD bound to the tenant (D3); SSH keys in `ssh_key_ciphertext`. Operator Secret Manager refs keep working. |
+| SSH tunnel | ✅ Rewritten and verified end to end through a real bastion (query, wrong host key, wrong key); SHA256 host-key pin required; keys encrypted. Client allowlists the VM egress IP `136.71.108.203` on the bastion. Still to do: a test against a client's real bastion. |
 | Allowlist | `allowed_objects` stays per connection; admins edit it in the UI. |
-| Audit | `connection.created/updated/deleted/tested` events with tenant and user. |
+| Audit | ✅ `connection.created/updated/deleted` admin events (tests are not logged). |
 | Later (v2) | Per-connection grants to users/groups instead of "all tenant users". |
 
 ## 7. Dev plan
@@ -262,68 +262,85 @@ Rules:
 Estimates are focused engineering days. Each phase lists its exit check.
 
 ### U0 — Spike & decisions (2 days)
-- [ ] Create an Identity Platform project config with multi-tenancy; tenant `indulge-test` with email/password.
-- [ ] Server-side `accounts:signInWithPassword` with `tenantId` from the BFF; record exact token claims
+- [x] Create an Identity Platform project config with multi-tenancy; tenant `indulge-test` with email/password.
+- [x] Server-side `accounts:signInWithPassword` with `tenantId` from the BFF; record exact token claims
       (`iss`, `aud`, `firebase.tenant`, `email_verified`), JWKS URL, refresh flow.
-- [ ] Confirm the set-password (reset) email flow, `email_verified` after it, password policy and
+- [x] Confirm the set-password (reset) email flow, `email_verified` after it, password policy and
       email-enumeration protection settings.
-- [ ] Local dev: confirm the Firebase Auth emulator supports tenants (else: a test IdP tenant in a dev project).
-- [ ] Close decisions D1–D5 (§8).
+- [x] Local dev: uses the real Identity Platform with a dev tenant (`indulge-test-xkke0`) instead of the emulator.
+- [x] Close decisions D1–D3 (§8); D4 partly, D5 open.
 - **Exit:** a test user signs in through the BFF and the API logs its verified claims.
 
 ### U1 — Tenant directory & user profiles (3 days)
-- [ ] Migration `0009_tenant_directory.sql` (§4.1) with backfill from `tenants.oidc_issuer` and
+- [x] Migration `0009_tenant_directory.sql` (§4.1) with backfill from `tenants.oidc_issuer` and
       `ODN_OIDC_TENANT_DOMAINS`; `SECURITY DEFINER` functions; admin-domain and last-admin triggers.
-- [ ] `provision` CLI: `tenant` (+ `--auth`, `--domain`, `--idp-tenant`, `--theme`), `domain add/verify`,
+- [x] `provision` CLI: `tenant` (+ `--auth`, `--domain`, `--idp-tenant`, `--theme`), `domain add/verify`,
       `invite`, `user disable`, `show` with domains/admins.
-- [ ] RLS guard test (all tables forced or allow-listed) + cross-tenant tests for the new tables.
-- [ ] Local seed writes the mock IdP mapping (fixes the empty-issuer seed problem).
+- [x] RLS guard test (all tables forced or allow-listed) + cross-tenant tests for the new tables.
+- [x] Local seed writes the mock IdP mapping (fixes the empty-issuer seed problem).
 - **Exit:** prod data migrated (Cotality via `cotality.com`, `datahop` default), tests green.
 
 ### U2 — Multi-issuer verification & context (3 days)
-- [ ] `TokenVerifier` → `TrustedIssuers` (Google, Identity Platform, local mock), each with JWKS, audience
+- [x] `TokenVerifier` → `TrustedIssuers` (Google, Identity Platform, local mock), each with JWKS, audience
       and tenant-claim path (`hd`, `firebase.tenant`, mock claim; nested claim support).
-- [ ] `resolve_context`: tenant via `odn_resolve_identity`; require `email_verified`; email domain ∈ tenant
+- [x] `resolve_context`: tenant via `odn_resolve_identity`; require `email_verified`; email domain ∈ tenant
       domains (except `datahop`); `join_policy`; link invited users by verified email; block disabled users
       and suspended tenants; keep the personal-Google → `datahop` path.
-- [ ] `GET /v1/me` returns user + tenant profile.
-- [ ] Tests per issuer with locally signed JWTs (wrong issuer, wrong tenant claim, unverified email,
+- [x] `GET /v1/me` returns user + tenant profile.
+- [x] Tests per issuer with locally signed JWTs (wrong issuer, wrong tenant claim, unverified email,
       foreign domain, disabled user, invited linking).
 - **Exit:** existing Cotality and datahop sign-ins unchanged in prod; new checks covered by tests.
 
 ### U3 — Sign-in UX & password sign-in (4 days)
-- [ ] Sign-in card: **Organization** + **Work email** → `POST /v1/auth/discover` (public, rate-limited,
+- [x] Sign-in card: **Organization** + **Work email** → `POST /v1/auth/discover` (public, rate-limited,
       generic errors) → SSO redirect (with `hd` + `login_hint`) or password step.
-- [ ] BFF `/auth/password` (server-side Identity Platform call), "Forgot password?", set-password landing.
-- [ ] Session cookie stores the refresh token; BFF refreshes ID tokens before expiry (Google + Identity
+- [x] BFF `/auth/password` (server-side Identity Platform call), "Forgot password?", set-password landing.
+- [x] Session cookie stores the refresh token; BFF refreshes ID tokens before expiry (Google + Identity
       Platform). Remember last organization.
-- [ ] Rate limiting for discover/password (per IP and per email); no secrets or passwords in logs.
+- [x] Rate limiting for discover/password per email (in-process); no secrets or passwords in logs.
+- [ ] Per-IP rate limiting (needs the client IP forwarded by the BFF/Caddy).
 - **Exit:** a Cotality user signs in via SSO and an invited Indulge user via password, both on staging/local;
       sessions survive past 1 hour.
 
 ### U4 — Tenant admin console (3 days)
-- [ ] Settings → **Organization** tab (admins): tenant profile, domains (read-only), users table (name,
+- [x] Settings → **Organization** tab (admins): tenant profile, domains (read-only), users table (name,
       email, role, status, last sign-in), invite (domain-checked), change role, disable/enable, admins list.
-- [ ] API `/v1/admin/users*`, `require_admin`; Identity Platform user create/disable for password tenants.
-- [ ] Audit events `user.invited`, `user.role_changed`, `user.disabled`, `auth.failed`.
+- [x] API `/v1/admin/users*`, `require_admin`; Identity Platform user create/disable for password tenants.
+- [x] Admin events `user.invited`, `user.role_changed`, `user.status_changed`, `user.invite_resent`, `user.invite_revoked`
+      (migration `0011`, `admin_events`).
+- [ ] `auth.failed` events (failed sign-ins are only rate-limited today).
 - **Exit:** an Indulge admin invites a colleague who sets a password and signs in; the last admin cannot be
       removed.
 
 ### U5 — Branding (1 day)
-- [ ] Brand bar `{tenant name} | Smart Data Navigator` from `/v1/me`; page title; per-tenant `theme`.
+- [x] Brand bar `{tenant name} | Smart Data Navigator` from `/v1/me`; page title; per-tenant `theme`.
 - **Exit:** Cotality users see "Cotality | Smart Data Navigator", Indulge users "Indulge | Smart Data Navigator".
 
 ### U6 — Isolation hardening (2 days)
-- [ ] `assert_tenant_key` for every GCS read/write/sign; attachment-note cache key gets tenant+user.
-- [ ] CI: policy suite, RLS isolation + guard tests, lint, image builds (existing hardening item).
+- [x] `assert_tenant_key` for every GCS read/write/sign; attachment-note cache key gets tenant+user.
+- [x] CI (`.github/workflows/ci.yml`): full backend suite against a real pgvector Postgres (policy suite, RLS
+      isolation + every-table guard, tenant directory, admin API), ruff on lint-clean packages, frontend type-check.
+- [ ] Image builds in CI; widen ruff to `odn/platform` and `tests/platform` once their existing findings are fixed.
 - **Exit:** a deliberately mis-scoped key or cache lookup fails a test.
 
 ### U7 — Connection Manager in the tenant model (3 days, Phase 3 remainder)
-- [ ] Shared connections created/edited in the UI by admins/data leads; secrets per D3
+- [x] Shared connections created/edited in the UI by admins/data leads; secrets per D3
       (`odn-<tenant_id>-conn-*`, `odn-<tenant_id>-ssh-*`).
-- [ ] SSH tunnel end-to-end test against a real bastion; Test connection shows tunnel steps.
-- [ ] Connection audit events; allowlist editing in the UI.
+- [x] SSH tunnel end-to-end test against a real bastion; Test connection shows tunnel steps.
+- [x] Connection audit events; allowlist editing in the UI.
 - **Exit:** Phase 3 exit check's SSH-tunnel Postgres case passes on the hosted URL.
+
+### Implementation notes (2026-11-17)
+
+| Phase | Commits | Notes |
+|---|---|---|
+| U0 | `a04b3f9` | Spike results in §3. |
+| U1–U2 | `a04b3f9` | Migration `0009`; env mappings imported on every migrate; the agent resolves the tenant through `/v1/me` so ADK session keys (`{slug}:{subject}`) stay unchanged. Tests caught a cascade bug (the last-admin trigger blocked tenant deletion) and a default-privileges grant giving the app role write access to `schema_migrations` (revoked). |
+| U3 | `96af3e3` | `/v1/auth/*` (server-to-server), sign-in card, refresh tokens; migration `0010` routes domainless Google/OIDC organizations (e.g. `datahop`) by name. Google refresh needs `ODN_OIDC_ACCESS_TYPE=offline` and only works when Google returns a refresh token. |
+| U4 | `a2e46c4` | Organization tab, `/v1/admin/*`, `admin_events`. |
+| U5 | `739653e` | Brand bar, title and theme from `/v1/me`; "No access" page for refused identities. |
+| U6 | `7b29d5d` | `assert_tenant_key`, tenant-keyed attachment notes, CI. |
+| U7 | `bf2c027`, `8b291a5` | **Security fix:** the Postgres form sent the SSH private key inside `config` (would have been stored in plaintext and returned to the browser); now encrypted (`0012`, with a CHECK). The tunnel was rewritten (the old one never loaded the key, opened a remote listener and was never used) and verified end to end through a real bastion; host keys are pinned by SHA256 fingerprint (any of the bastion's key types). Shared connections are managed in Settings by admins/data leads. |
 
 **Total ≈ 21 days.** U1→U2→U3 is the critical path; U5 can ship right after U2; U6 and U7 can run in
 parallel with U3/U4.
@@ -340,7 +357,7 @@ parallel with U3/U4.
 |---|---|---|
 | D1 | Password IdP | Identity Platform (§3). |
 | D2 | Default join policy | `domain` for SSO tenants, `invite` for password tenants. |
-| D3 | Shared connection secrets | Secret Manager with name-conditioned create rights; fallback Postgres encryption. |
-| D4 | Ask for organization at all? | Keep it (requested), but also infer from the email domain and prefill; both must agree. |
-| D5 | MFA for password tenants | Optional per tenant at first (TOTP); required for admins. |
+| D3 | Shared connection secrets | **Decided:** UI-entered shared secrets are encrypted in Postgres (AAD bound to the tenant), like personal ones, so the VM needs no secret-creation rights; operator-provisioned Secret Manager refs (`odn-<tenant_id>-*`) still work. |
+| D4 | Ask for organization at all? | Kept (requested); prefilled from the last sign-in. Inferring it from the email domain is not done yet. |
+| D5 | MFA for password tenants | Open (Identity Platform supports TOTP; not enabled). |
 | D6 | Move SSO tenants onto Identity Platform | Later, only if we want one sign-in stack or a client brings SAML (Okta/Entra). |
