@@ -1,12 +1,17 @@
 import type { Theme } from "../themes";
 
-export default function BrandBar({ theme, user }: { theme: Theme; user?: string }) {
+/** "{company} | {product}"; before sign-in there is no tenant yet, so only the product is shown. */
+export default function BrandBar({ theme, company, user }: { theme: Theme; company?: string; user?: string }) {
   return (
     <header className="odn-brandbar">
       <div className="odn-brand">
         <span aria-hidden className="odn-brand-mark" />
-        <span className="odn-brand-company">{theme.company}</span>
-        <span aria-hidden className="odn-brand-sep">|</span>
+        {company && (
+          <>
+            <span className="odn-brand-company">{company}</span>
+            <span aria-hidden className="odn-brand-sep">|</span>
+          </>
+        )}
         <span className="odn-brand-product">{theme.product}</span>
       </div>
       <div className="odn-brandbar-right">
