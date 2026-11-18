@@ -24,7 +24,7 @@ from odn.platform.workspace.service import (
     _insert_artifact,
     _object_key,
 )
-from odn.platform.workspace.storage import gcs_client, workspace_prefix
+from odn.platform.workspace.storage import assert_tenant_key, gcs_client, tenant_key
 from odn.platform.workspace.uploads import (
     INLINE_MIME_TYPES,
     MIME_BY_EXTENSION,
@@ -96,7 +96,7 @@ def save_upload(ctx: RequestContext, session_id: str, filename: str, data: bytes
 
     file_id = uuid.uuid4()
     bucket = gcs_client().bucket(settings.gcs_bucket)
-    file_key = workspace_prefix(str(ctx.tenant_id), str(ctx.user_id), session_id, "files", f"{file_id}{ext}")
+    file_key = tenant_key(ctx.tenant_id, ctx.user_id, session_id, "files", f"{file_id}{ext}")
     bucket.blob(file_key).upload_from_string(data, content_type=MIME_BY_EXTENSION[ext])
 
     table_result: ArtifactResult | None = None
@@ -203,7 +203,7 @@ def open_file(ctx: RequestContext, file_id: uuid.UUID) -> tuple[StoreItem, Itera
         ).fetchone()
     if row is None:
         raise KeyError(file_id)
-    blob = gcs_client().bucket(settings.gcs_bucket).blob(row["object_key"])
+    blob = gcs_client().bucket(settings.gcs_bucket).blob(assert_tenant_key(ctx.tenant_id, ctx.user_id, row["object_key"]))
 
     def stream() -> Iterator[bytes]:
         with blob.open("rb") as fh:

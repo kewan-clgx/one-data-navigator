@@ -48,3 +48,27 @@ async def test_attachments_become_notes_and_the_stored_content_is_untouched(monk
     assert parts[3].file_data.file_uri == "gs://bucket/doc.pdf"  # not ours: left alone
     assert stored.parts[1].file_data is not None  # the conversation keeps the reference
     assert calls == ["workspace/s1/artifacts", "workspace/s1/artifacts/q1/rows"]  # described once
+
+
+async def test_notes_are_not_shared_between_users_with_the_same_session_id(monkeypatch) -> None:
+    from odn.agent.identity import user_key
+
+    async def fake_api(method: str, path: str, **kwargs: Any) -> httpx.Response:
+        owner = user_key.get()
+        if path.endswith("/rows"):
+            return httpx.Response(200, json={"total": 0, "rows": []})
+        return httpx.Response(200, json=[{"name": "q1", "row_count": 1, "sql_text": "", "columns": [
+            {"name": f"secret_of_{owner.replace(':', '_')}", "type": "string"}]}])
+
+    monkeypatch.setattr(tools, "_api", fake_api)
+    attachments._notes.clear()
+    uri = "/api/odn/artifacts/files/abc?inline=true&table=q1"
+    notes = {}
+    for who in ("acme:alice", "globex:bob"):
+        token = user_key.set(who)
+        try:
+            notes[who] = await attachments.describe_attachment("same-session", uri, "f.csv", "text/csv")
+        finally:
+            user_key.reset(token)
+    assert "secret_of_acme_alice" in notes["acme:alice"]
+    assert "secret_of_globex_bob" in notes["globex:bob"] and "alice" not in notes["globex:bob"]

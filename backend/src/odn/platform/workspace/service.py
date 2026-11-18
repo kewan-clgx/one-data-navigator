@@ -29,7 +29,7 @@ from odn.platform.policy.sql_policy import SqlPolicy
 from odn.platform.query.service import QueryFailed, QueryRejected, run_query
 from odn.platform.workspace.explain import explain_artifact, explain_chart
 from odn.platform.workspace.rows import column_info, json_safe
-from odn.platform.workspace.storage import gcs_client, workspace_prefix
+from odn.platform.workspace.storage import assert_tenant_key, gcs_client, tenant_key
 from odn.tenancy.context import RequestContext
 
 SESSION_RE = re.compile(r"^[A-Za-z0-9._:-]{1,200}$")
@@ -102,7 +102,7 @@ def _check_session(session_id: str) -> str:
 
 
 def _object_key(ctx: RequestContext, session_id: str, artifact_id: uuid.UUID) -> str:
-    return workspace_prefix(str(ctx.tenant_id), str(ctx.user_id), session_id, f"{artifact_id}.parquet")
+    return tenant_key(ctx.tenant_id, ctx.user_id, session_id, f"{artifact_id}.parquet")
 
 
 _ARTIFACT_COLS = (
@@ -147,7 +147,10 @@ def _object_keys(ctx: RequestContext, session_id: str) -> dict[str, tuple[uuid.U
             "WHERE user_id = %s AND session_id = %s",
             (ctx.user_id, session_id),
         ).fetchall()
-    return {r["name"]: (r["id"], r["object_key"], r["source_tables"]) for r in rows}
+    return {
+        r["name"]: (r["id"], assert_tenant_key(ctx.tenant_id, ctx.user_id, r["object_key"]), r["source_tables"])
+        for r in rows
+    }
 
 
 def _insert_artifact(ctx: RequestContext, session_id: str, artifact_id: uuid.UUID, **fields: Any) -> Artifact:

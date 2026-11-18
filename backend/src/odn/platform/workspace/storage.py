@@ -26,6 +26,19 @@ def workspace_prefix(*parts: str) -> str:
     return "/".join(p.strip("/") for p in (settings.gcs_prefix, *parts) if p)
 
 
+def tenant_key(tenant_id: object, user_id: object, *parts: str) -> str:
+    """Object key inside one user's workspace: <prefix>/<tenant>/<user>/..."""
+    return workspace_prefix(str(tenant_id), str(user_id), *parts)
+
+
+def assert_tenant_key(tenant_id: object, user_id: object, key: str) -> str:
+    """Refuse any object key outside the caller's own workspace (defence in depth: one bucket, one identity)."""
+    prefix = tenant_key(tenant_id, user_id) + "/"
+    if not key.startswith(prefix) or any(p in ("", ".", "..") for p in key[len(prefix):].split("/")):
+        raise PermissionError("object key is outside the caller's workspace")
+    return key
+
+
 def check_access() -> None:
     """Raises unless objects under the workspace prefix can be listed (bucket-level IAM is not required)."""
     next(iter(gcs_client().list_blobs(settings.gcs_bucket, prefix=workspace_prefix(""), max_results=1)), None)

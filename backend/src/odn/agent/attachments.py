@@ -16,14 +16,16 @@ from google.adk.models.llm_request import LlmRequest
 from google.genai import types
 
 from odn.agent import tools
+from odn.agent.identity import user_key
 
 # Reference URLs the frontend attaches (the browser can open them; the model never fetches them).
 ATTACHMENT_PREFIX = "/api/odn/artifacts/files/"
 SAMPLE_ROWS = tools.LLM_SAMPLE_ROWS
 MAX_NOTE_CHARS = 2000
 
-# (session id, reference URL) -> note; a reference describes the same file for the whole conversation.
-_notes: dict[tuple[str, str], str] = {}
+# (tenant:user key, session id, reference URL) -> note; a reference describes the same file for the whole
+# conversation. The caller's identity is part of the key so one user's note can never be served to another.
+_notes: dict[tuple[str, str, str], str] = {}
 
 
 def _table_name(uri: str) -> str | None:
@@ -64,7 +66,7 @@ async def _table_note(session_id: str, table: str) -> str:
 
 
 async def describe_attachment(session_id: str, uri: str, name: str, mime_type: str) -> str:
-    key = (session_id, uri)
+    key = (user_key.get() or "", session_id, uri)
     if key not in _notes:
         table = _table_name(uri)
         detail = (
