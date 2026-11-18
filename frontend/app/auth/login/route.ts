@@ -1,5 +1,5 @@
 import * as client from "openid-client";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 
 import { callbackUrl, oidc, toBrowserUrl } from "@/lib/oidc";
 import { AUTH_TX_COOKIE, cookieOptions, seal } from "@/lib/session";
@@ -9,7 +9,10 @@ export const dynamic = "force-dynamic";
 
 const TX_MAX_AGE_S = 600;
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  // Hints from the sign-in card: preselect the account and, for Google Workspace, the domain.
+  const loginHint = req.nextUrl.searchParams.get("login_hint")?.slice(0, 320);
+  const hd = req.nextUrl.searchParams.get("hd")?.slice(0, 253);
   const codeVerifier = client.randomPKCECodeVerifier();
   const state = client.randomState();
   const nonce = client.randomNonce();
@@ -21,6 +24,9 @@ export async function GET() {
     state,
     nonce,
     ...(config.prompt ? { prompt: config.prompt } : {}),
+    ...(config.accessType ? { access_type: config.accessType } : {}),
+    ...(loginHint ? { login_hint: loginHint } : {}),
+    ...(hd && /^[a-z0-9.-]+$/i.test(hd) ? { hd } : {}),
   });
 
   const res = NextResponse.redirect(toBrowserUrl(url));

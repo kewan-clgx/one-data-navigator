@@ -4,11 +4,19 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { config } from "@/lib/config";
 import { callbackUrl, oidc } from "@/lib/oidc";
-import { AUTH_TX_COOKIE, SESSION_COOKIE, cookieOptions, seal, unseal, type AuthTransaction } from "@/lib/session";
+import {
+  AUTH_TX_COOKIE,
+  MAX_SESSION_S,
+  SESSION_COOKIE,
+  cookieOptions,
+  seal,
+  sessionCookieAge,
+  unseal,
+  type AuthTransaction,
+  type Session,
+} from "@/lib/session";
 
 export const dynamic = "force-dynamic";
-
-const MAX_SESSION_S = 8 * 3600;
 
 export async function GET(req: NextRequest) {
   const tx = await unseal<AuthTransaction>(cookies().get(AUTH_TX_COOKIE)?.value);
@@ -38,15 +46,20 @@ export async function GET(req: NextRequest) {
   const lifetime = useIdToken && claims ? claims.exp - Math.floor(Date.now() / 1000) : tokens.expiresIn();
   const maxAge = Math.min(lifetime ?? 3600, MAX_SESSION_S);
   if (maxAge <= 0) return NextResponse.json({ error: "login failed" }, { status: 400 });
-  const session = {
+  const now = Math.floor(Date.now() / 1000);
+  const session: Session = {
     accessToken: bearer,
-    expiresAt: Math.floor(Date.now() / 1000) + maxAge,
+    expiresAt: now + maxAge,
     name: typeof claims?.name === "string" ? claims.name : undefined,
     email: typeof claims?.email === "string" ? claims.email : undefined,
+    refreshToken: tokens.refresh_token,
+    provider: "oidc",
+    loginAt: now,
   };
+  const age = sessionCookieAge(session);
 
   const res = NextResponse.redirect(new URL("/", config.publicUrl));
-  res.cookies.set(SESSION_COOKIE, await seal(session, maxAge), cookieOptions(maxAge));
+  res.cookies.set(SESSION_COOKIE, await seal(session, age), cookieOptions(age));
   res.cookies.delete(AUTH_TX_COOKIE);
   return res;
 }

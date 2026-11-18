@@ -7,6 +7,10 @@ import { config } from "./config";
 
 export const SESSION_COOKIE = "odn_session";
 export const AUTH_TX_COOKIE = "odn_auth_tx";
+/** Last organization typed on the sign-in card (not sensitive; prefills the form). */
+export const ORG_COOKIE = "odn_org";
+/** Longest a sign-in lasts, however often its token is refreshed. */
+export const MAX_SESSION_S = 8 * 3600;
 
 export type Session = {
   /** Bearer token for the API (the access or ID token, per ODN_OIDC_API_TOKEN). */
@@ -14,6 +18,12 @@ export type Session = {
   expiresAt: number;
   name?: string;
   email?: string;
+  /** Present when the IdP issued one; the BFF uses it to renew `accessToken` before it expires. */
+  refreshToken?: string;
+  /** "idp" = Identity Platform password sign-in (refreshed via the API); "oidc" = the OIDC provider. */
+  provider?: "oidc" | "idp";
+  /** Unix seconds of the interactive sign-in; caps the session at MAX_SESSION_S. */
+  loginAt?: number;
 };
 
 export type AuthTransaction = {
@@ -56,8 +66,26 @@ export function cookieOptions(maxAgeS: number) {
   };
 }
 
+/** The session if its token is still valid (no refresh; usable from server components). */
 export async function getSession(): Promise<Session | null> {
-  const session = await unseal<Session>(cookies().get(SESSION_COOKIE)?.value);
+  const session = await readSession();
   if (!session || session.expiresAt <= Date.now() / 1000) return null;
   return session;
+}
+
+/** The stored session even if its token has expired (it may still be refreshable). */
+export async function readSession(): Promise<Session | null> {
+  return unseal<Session>(cookies().get(SESSION_COOKIE)?.value);
+}
+
+/** Seconds the session cookie should live: to the sign-in cap if refreshable, else to token expiry. */
+export function sessionCookieAge(session: Session): number {
+  const now = Math.floor(Date.now() / 1000);
+  if (session.refreshToken) return Math.max(0, (session.loginAt ?? now) + MAX_SESSION_S - now);
+  return Math.max(0, Math.min(session.expiresAt - now, MAX_SESSION_S));
+}
+
+export function canRefresh(session: Session): boolean {
+  const now = Math.floor(Date.now() / 1000);
+  return Boolean(session.refreshToken) && (session.loginAt ?? now) + MAX_SESSION_S > now;
 }

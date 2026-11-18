@@ -118,7 +118,7 @@ code, pre, textarea.mono { font-family: var(--font-mono); }
 .odn-btn--ghost-panel:hover:not(:disabled) { border-color: var(--panel-fg); background: var(--panel-hover); color: var(--panel-fg); }
 
 /* Light-context form controls. */
-:where(.odn-sheet, .odn-workbench) :where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea) {
+:where(.odn-sheet, .odn-workbench, .odn-signin-form) :where(input:not([type="checkbox"]):not([type="radio"]):not([type="file"]), select, textarea) {
   padding: 0.45rem 0.6rem;
   font: inherit;
   font-size: 0.82rem;
@@ -127,7 +127,7 @@ code, pre, textarea.mono { font-family: var(--font-mono); }
   border: 1px solid var(--border);
   border-radius: var(--radius);
 }
-:where(.odn-sheet, .odn-workbench) :where(input, select, textarea):focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 0; }
+:where(.odn-sheet, .odn-workbench, .odn-signin-form) :where(input, select, textarea):focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 0; }
 
 /* ============ Main split: side panel | chat ============ */
 
@@ -754,6 +754,14 @@ table.grid.dictionary td.def-cell { min-width: 260px; }
   padding: 2rem; display: flex; flex-direction: column; gap: 0.9rem;
 }
 .odn-signin-card h1 { font-size: 1.4rem; margin: 0; }
+.odn-signin-form { display: flex; flex-direction: column; gap: 0.8rem; }
+.odn-signin-form label { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; font-weight: 600; }
+.odn-signin-form .odn-btn { align-self: stretch; justify-content: center; }
+.odn-signin-form .link { align-self: flex-start; }
+.odn-signin-who { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem; }
+.odn-signin-who strong { color: var(--fg); }
+.odn-signin-card .odn-signin-error { color: var(--danger); background: var(--danger-bg); padding: 0.5rem 0.7rem; border-radius: var(--radius); }
+.odn-signin-card .odn-signin-notice { color: var(--success); background: var(--success-bg); padding: 0.5rem 0.7rem; border-radius: var(--radius); }
 .odn-signin-card p { margin: 0; color: var(--fg-muted); font-size: 0.9rem; line-height: 1.5; }
 .odn-signin-card .odn-btn { align-self: flex-start; }
 

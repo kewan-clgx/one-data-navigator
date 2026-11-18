@@ -7,14 +7,14 @@ import {
 import { NextResponse, type NextRequest } from "next/server";
 
 import { config } from "@/lib/config";
-import { getSession } from "@/lib/session";
+import { freshSession } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
 const AGENT_ID = "odn";
 
 export async function POST(req: NextRequest) {
-  const session = await getSession();
+  const session = await freshSession();
   if (!session) return NextResponse.json({ detail: "not signed in" }, { status: 401 });
   if (req.headers.get("origin") !== new URL(config.publicUrl).origin) {
     return NextResponse.json({ detail: "bad origin" }, { status: 403 });

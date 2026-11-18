@@ -1,13 +1,19 @@
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+
 import AboutSlides from "./components/AboutSlides";
 import AppShell from "./components/AppShell";
 import BrandBar from "./components/BrandBar";
+import SignInForm from "./components/SignInForm";
 import { currentTheme, tenantTheme } from "./themes/server";
 import { currentIdentity } from "@/lib/identity";
+import { ORG_COOKIE } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const identity = await currentIdentity();
+  if (identity.kind === "expired") redirect("/auth/refresh");
   if (identity.kind === "signed-out") {
     const theme = currentTheme();
     return (
@@ -20,8 +26,8 @@ export default async function Home() {
           <section className="odn-signin-main">
             <div className="odn-signin-card">
               <h1>Welcome to {theme.product}</h1>
-              <p>Sign in with your organization account to continue.</p>
-              <a className="odn-btn odn-btn--lg" href="/auth/login">Sign in</a>
+              <p>Sign in with your organization and work email.</p>
+              <SignInForm defaultOrganization={cookies().get(ORG_COOKIE)?.value} />
             </div>
           </section>
         </main>

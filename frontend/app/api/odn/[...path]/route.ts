@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { config } from "@/lib/config";
-import { getSession } from "@/lib/session";
+import { freshSession } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -9,12 +9,14 @@ type Params = { params: { path: string[] } };
 
 /** BFF proxy: browser -> /api/odn/<path> -> API /v1/<path> with the session's bearer token. */
 async function proxy(req: NextRequest, { params }: Params) {
-  const session = await getSession();
+  const session = await freshSession();
   if (!session) return NextResponse.json({ detail: "not signed in" }, { status: 401 });
 
   if (req.method !== "GET" && req.headers.get("origin") !== new URL(config.publicUrl).origin) {
     return NextResponse.json({ detail: "bad origin" }, { status: 403 });
   }
+  // Sign-in endpoints are server-to-server only (the BFF's /auth/* routes call them directly).
+  if (params.path[0] === "auth") return NextResponse.json({ detail: "not found" }, { status: 404 });
   if (params.path.some((s) => s === "." || s === ".." || /[\\/]/.test(s))) {
     return NextResponse.json({ detail: "bad path" }, { status: 400 });
   }

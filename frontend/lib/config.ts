@@ -43,6 +43,10 @@ export const config = {
   get prompt() {
     return process.env.ODN_OIDC_PROMPT || "";
   },
+  /** Optional Google "access_type" ("offline" asks Google for a refresh token so sessions can renew). */
+  get accessType() {
+    return process.env.ODN_OIDC_ACCESS_TYPE || "";
+  },
   get sessionSecret() {
     return required("ODN_SESSION_SECRET");
   },

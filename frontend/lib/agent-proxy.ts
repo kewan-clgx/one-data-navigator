@@ -3,11 +3,11 @@ import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { config } from "@/lib/config";
-import { getSession } from "@/lib/session";
+import { freshSession } from "@/lib/auth";
 
 /** Forwards a browser request to the agent runtime with the session's bearer token. */
 export async function proxyToAgent(req: NextRequest, path: string, body?: string): Promise<NextResponse> {
-  const session = await getSession();
+  const session = await freshSession();
   if (!session) return NextResponse.json({ detail: "not signed in" }, { status: 401 });
   if (req.method !== "GET" && req.headers.get("origin") !== new URL(config.publicUrl).origin) {
     return NextResponse.json({ detail: "bad origin" }, { status: 403 });
