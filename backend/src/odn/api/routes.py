@@ -64,6 +64,18 @@ router = APIRouter(prefix="/v1")
 EXPLORER_MAX_ROWS = 1000
 
 
+_SECRET_KEYS = {"password", "ssh_private_key", "private_key", "credentials_json", "api_key"}
+
+
+def _public_config(value: Any) -> Any:
+    """Connection config as shown to the browser: secret-looking keys removed at any depth (defence in depth)."""
+    if isinstance(value, dict):
+        return {k: _public_config(v) for k, v in value.items() if k not in _SECRET_KEYS}
+    if isinstance(value, list):
+        return [_public_config(v) for v in value]
+    return value
+
+
 class ConnectionOut(BaseModel):
     id: UUID
     name: str
@@ -76,7 +88,7 @@ class ConnectionOut(BaseModel):
     @classmethod
     def of(cls, p: ConnectionProfile) -> ConnectionOut:
         return cls(
-            id=p.id, name=p.name, kind=p.kind, config=p.config, allowed_objects=p.allowed_objects,
+            id=p.id, name=p.name, kind=p.kind, config=_public_config(p.config), allowed_objects=p.allowed_objects,
             scope="personal" if p.personal else "shared",
         )
 

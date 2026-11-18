@@ -1,219 +1,212 @@
-"""SSH tunnel configuration and async tunnel management for private Postgres databases."""
+"""SSH bastion tunnels for private Postgres databases.
+
+A tunnel connects to the bastion with the connection's private key, accepts the bastion only if its host key
+matches the pinned SHA256 fingerprint (checked during the SSH handshake, before authentication), and
+forwards a local port on 127.0.0.1 to the database host:port as seen from the bastion. Tunnels run on one
+background event loop, are shared by identical specs, and close after sitting idle.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import base64
-from dataclasses import dataclass
-from typing import Any
+import hashlib
+import hmac
+import re
+import threading
+import time
+from dataclasses import dataclass, field
 
 import asyncssh
-from pydantic import BaseModel, Field, field_validator
+
+IDLE_CLOSE_S = 600
+CONNECT_TIMEOUT_S = 15
+# A bastion usually has several host keys; the admin may have pinned any one of them, so each algorithm is
+# offered in turn until the presented key matches the pin.
+HOST_KEY_ALGS = (
+    "ssh-ed25519", "ecdsa-sha2-nistp256", "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521", "rsa-sha2-512", "rsa-sha2-256",
+)
+
+_FP_RE = re.compile(r"^SHA256:[A-Za-z0-9+/]{43}=?$")
 
 
-class SSHTunnelConfig(BaseModel):
-    """SSH tunnel configuration for reaching a private database via bastion host."""
+class TunnelError(Exception):
+    """The tunnel could not be opened (message is safe to show)."""
 
-    host: str = Field(..., description="Bastion SSH host")
-    port: int = Field(default=22, ge=1, le=65535, description="Bastion SSH port")
-    username: str = Field(..., description="SSH login username")
-    key_format: str = Field(default="openssh", description="Private key format: 'openssh' or 'pem'")
-    key_ciphertext: bytes = Field(..., description="Encrypted private key (encrypted with app master key)")
-    known_hosts_key_type: str = Field(
-        ..., description="Host public key type: 'ssh-rsa', 'ssh-ed25519', or 'ecdsa-sha2-nistp256'"
-    )
-    known_hosts_key_data: str = Field(..., description="Host public key in base64 (without key type prefix)")
 
-    @field_validator("port")
-    @classmethod
-    def validate_port(cls, v: int) -> int:
-        if not 1 <= v <= 65535:
-            raise ValueError("port must be between 1 and 65535")
-        return v
-
-    @field_validator("key_format")
-    @classmethod
-    def validate_key_format(cls, v: str) -> str:
-        if v not in ("openssh", "pem"):
-            raise ValueError("key_format must be 'openssh' or 'pem'")
-        return v
-
-    @field_validator("known_hosts_key_type")
-    @classmethod
-    def validate_key_type(cls, v: str) -> str:
-        valid_types = ("ssh-rsa", "ssh-ed25519", "ecdsa-sha2-nistp256")
-        if v not in valid_types:
-            raise ValueError(f"known_hosts_key_type must be one of {valid_types}")
-        return v
-
-    @field_validator("known_hosts_key_data")
-    @classmethod
-    def validate_key_data(cls, v: str) -> str:
-        # Ensure it's valid base64
+def normalize_fingerprint(value: str) -> str:
+    """Accept "SHA256:...", the bare base64 digest, or a public key line ("ssh-ed25519 AAAA..."); return SHA256:..."""
+    value = (value or "").strip()
+    if not value:
+        raise ValueError("the bastion's host key fingerprint is required (SHA256:... or its public key)")
+    if value.startswith(("ssh-", "ecdsa-")):
         try:
-            base64.b64decode(v)
-        except Exception:
-            raise ValueError("known_hosts_key_data must be valid base64")
-        return v
+            return asyncssh.import_public_key(value).get_fingerprint("sha256")
+        except (asyncssh.KeyImportError, ValueError):
+            raise ValueError("the bastion public key could not be read") from None
+    if not value.startswith("SHA256:"):
+        value = f"SHA256:{value}"
+    value = value.rstrip("=")
+    if not _FP_RE.match(value):
+        raise ValueError("the fingerprint must look like SHA256: followed by 43 base64 characters")
+    return value
+
+
+def check_private_key(text: str) -> None:
+    try:
+        asyncssh.import_private_key(text)
+    except asyncssh.KeyImportError as exc:
+        if "passphrase" in str(exc).lower():
+            raise ValueError("passphrase-protected SSH keys are not supported; use a key without a passphrase") from None
+        raise ValueError("the SSH private key could not be read (OpenSSH or PEM format)") from None
 
 
 @dataclass(frozen=True)
-class RemotePostgresTarget:
-    """Configuration for the Postgres database on the remote network."""
+class TunnelSpec:
+    bastion_host: str
+    bastion_port: int
+    bastion_user: str
+    host_key_fingerprint: str
+    db_host: str
+    db_port: int
+    private_key: str = field(repr=False)
 
-    host: str = "localhost"  # Always localhost from the bastion's perspective
-    port: int = 5432  # Remote Postgres port
+    def cache_key(self) -> str:
+        raw = "\x00".join(
+            (self.bastion_host, str(self.bastion_port), self.bastion_user, self.host_key_fingerprint,
+             self.db_host, str(self.db_port), self.private_key)
+        )
+        return hashlib.sha256(raw.encode()).hexdigest()
 
 
-class SSHTunnelManager:
-    """Manage SSH port-forwarding tunnels with connection reuse and cleanup."""
+class _PinnedHostKey(asyncssh.SSHClient):
+    def __init__(self, expected: str) -> None:
+        self.expected = expected
+        self.seen: str | None = None
 
-    def __init__(self, tunnel_config: SSHTunnelConfig, remote_target: RemotePostgresTarget | None = None):
-        """Initialize tunnel manager.
+    def validate_host_public_key(self, host: str, addr: str, port: int, key: asyncssh.SSHKey) -> bool:
+        self.seen = key.get_fingerprint("sha256")
+        return hmac.compare_digest(self.seen, self.expected)
 
-        Args:
-            tunnel_config: SSH bastion configuration
-            remote_target: Remote Postgres target (default: localhost:5432)
-        """
-        self.tunnel_config = tunnel_config
-        self.remote_target = remote_target or RemotePostgresTarget()
-        self._connection: asyncssh.SSHClientConnection | None = None
-        self._listener: asyncssh.SSHListener | None = None
-        self._local_port: int | None = None
 
-    async def open_tunnel(self) -> int:
-        """Open SSH tunnel and return local forwarding port.
+@dataclass
+class _Tunnel:
+    conn: asyncssh.SSHClientConnection
+    listener: asyncssh.SSHListener
+    port: int
+    last_used: float
 
-        Returns:
-            Local port number on which Postgres connection should be made.
 
-        Raises:
-            ValueError: If host key verification fails or connection fails
-            asyncssh.PermissionDenied: If authentication fails
-        """
-        if self._connection is not None and self._local_port is not None:
-            # Tunnel already open
-            return self._local_port
+class TunnelPool:
+    def __init__(self) -> None:
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._lock = threading.Lock()
+        self._tunnels: dict[str, _Tunnel] = {}
 
+    def _ensure_loop(self) -> asyncio.AbstractEventLoop:
+        with self._lock:
+            if self._loop is None:
+                loop = asyncio.new_event_loop()
+                threading.Thread(target=loop.run_forever, name="odn-ssh-tunnels", daemon=True).start()
+                asyncio.run_coroutine_threadsafe(self._reap_idle(), loop)
+                self._loop = loop
+            return self._loop
+
+    def local_port(self, spec: TunnelSpec) -> int:
+        """Open (or reuse) the tunnel for `spec`; returns the local port forwarding to the database."""
+        future = asyncio.run_coroutine_threadsafe(self._open(spec), self._ensure_loop())
         try:
-            # Reconstruct host key from stored config
-            host_key = self._make_host_key()
+            return future.result(timeout=CONNECT_TIMEOUT_S + 5)
+        except TimeoutError:
+            future.cancel()
+            raise TunnelError(f"timed out connecting to the bastion {spec.bastion_host}:{spec.bastion_port}") from None
 
-            # Connect to bastion with host key verification
-            self._connection = await asyncssh.connect(
-                self.tunnel_config.host,
-                port=self.tunnel_config.port,
-                username=self.tunnel_config.username,
-                client_keys=[],  # Will be loaded from decrypted key
-                known_hosts=[(self.tunnel_config.host, host_key)],
-                known_hosts_exceptions=None,  # Fail on unknown hosts
-            )
+    def close_all(self) -> None:
+        if self._loop is not None:
+            asyncio.run_coroutine_threadsafe(self._close_all(), self._loop).result(timeout=10)
 
-            # Open port-forwarding listener on localhost
-            # Let the OS choose an available port (port 0)
-            self._listener = await self._connection.listen(
-                "127.0.0.1",
-                0,  # Bind to any available port
-                self._forward_connection,
-            )
+    async def _open(self, spec: TunnelSpec) -> int:
+        key = spec.cache_key()
+        tunnel = self._tunnels.get(key)
+        if tunnel is not None and not tunnel.conn.is_closed():
+            tunnel.last_used = time.monotonic()
+            return tunnel.port
+        if tunnel is not None:
+            self._tunnels.pop(key, None)
 
-            # Get the actual port the listener is using
-            self._local_port = self._listener.get_port()
-            return self._local_port
-
-        except Exception as exc:
-            await self.close()
-            raise
-
-    async def _forward_connection(
-        self, process: asyncssh.SSHClientProcess
-    ) -> asyncssh.SSHClientProcess | None:
-        """Forward connection to remote Postgres via tunnel."""
+        conn = await self._connect(spec)
         try:
-            conn = await self._connection.connect(self.remote_target.host, self.remote_target.port)
-            return conn
-        except Exception:
-            process.exit(1)
-            return None
+            listener = await conn.forward_local_port("127.0.0.1", 0, spec.db_host, spec.db_port)
+        except (OSError, asyncssh.Error):
+            conn.close()
+            raise TunnelError("the bastion refused port forwarding to the database") from None
+        self._tunnels[key] = _Tunnel(conn, listener, listener.get_port(), time.monotonic())
+        return listener.get_port()
 
-    async def close(self) -> None:
-        """Close tunnel and clean up resources."""
-        if self._listener is not None:
-            self._listener.close()
-            self._listener = None
-
-        if self._connection is not None:
-            self._connection.close()
-            await self._connection.wait_closed()
-            self._connection = None
-
-        self._local_port = None
-
-    def _make_host_key(self) -> asyncssh.SSHKey:
-        """Reconstruct the host's public key from stored config."""
-        key_type = self.tunnel_config.known_hosts_key_type
-        key_data_b64 = self.tunnel_config.known_hosts_key_data
-        key_data = base64.b64decode(key_data_b64)
-
-        # asyncssh requires the key in OpenSSH format: type + base64-encoded blob
-        # We reconstruct the blob format that asyncssh expects
+    async def _connect(self, spec: TunnelSpec) -> asyncssh.SSHClientConnection:
         try:
-            if key_type == "ssh-rsa":
-                from cryptography.hazmat.primitives.serialization import load_der_public_key
-                from cryptography.hazmat.backends import default_backend
+            private_key = asyncssh.import_private_key(spec.private_key)
+        except asyncssh.KeyImportError:
+            raise TunnelError("the SSH private key could not be read") from None
+        seen: list[str] = []
+        for alg in HOST_KEY_ALGS:
+            client = _PinnedHostKey(spec.host_key_fingerprint)
+            try:
+                conn, _ = await asyncio.wait_for(
+                    asyncssh.create_connection(
+                        lambda client=client: client,
+                        spec.bastion_host,
+                        port=spec.bastion_port,
+                        username=spec.bastion_user,
+                        client_keys=[private_key],
+                        known_hosts=([], [], []),  # trust nothing by default: the pinned fingerprint decides
+                        server_host_key_algs=[alg],
+                        agent_path=None,
+                        password=None,
+                        keepalive_interval=30,
+                    ),
+                    timeout=CONNECT_TIMEOUT_S,
+                )
+                return conn
+            except asyncssh.HostKeyNotVerifiable:
+                if client.seen:
+                    seen.append(client.seen)
+            except asyncssh.PermissionDenied:
+                # Authentication runs only after the host key matched.
+                raise TunnelError("the bastion rejected the SSH user or private key") from None
+            except (asyncssh.KeyExchangeFailed, asyncssh.ConnectionLost):
+                continue  # no host key of this type: servers fail or drop the key exchange
+            except (OSError, TimeoutError, asyncssh.Error) as exc:
+                raise TunnelError(
+                    f"could not reach the bastion {spec.bastion_host}:{spec.bastion_port} ({type(exc).__name__})"
+                ) from None
+        if not seen:
+            raise TunnelError(f"could not reach the bastion {spec.bastion_host}:{spec.bastion_port} (no SSH host key offered)")
+        raise TunnelError(
+            "the bastion's host keys (" + ", ".join(dict.fromkeys(seen)) + ") do not match the pinned fingerprint"
+        )
 
-                public_key = load_der_public_key(key_data, backend=default_backend())
-                # asyncssh will validate the key type
-                return asyncssh.import_public_key(f"{key_type} {key_data_b64}")
-            elif key_type == "ssh-ed25519":
-                return asyncssh.import_public_key(f"{key_type} {key_data_b64}")
-            elif key_type == "ecdsa-sha2-nistp256":
-                return asyncssh.import_public_key(f"{key_type} {key_data_b64}")
-        except Exception as exc:
-            raise ValueError(f"Failed to load host key: {exc}") from None
+    async def _reap_idle(self) -> None:
+        while True:
+            await asyncio.sleep(60)
+            now = time.monotonic()
+            for key, tunnel in list(self._tunnels.items()):
+                if tunnel.conn.is_closed() or now - tunnel.last_used > IDLE_CLOSE_S:
+                    self._tunnels.pop(key, None)
+                    tunnel.listener.close()
+                    tunnel.conn.close()
 
-    async def __aenter__(self):
-        """Context manager entry."""
-        await self.open_tunnel()
-        return self
-
-    async def __aexit__(self, *args: Any) -> None:
-        """Context manager exit."""
-        await self.close()
+    async def _close_all(self) -> None:
+        for tunnel in self._tunnels.values():
+            tunnel.listener.close()
+            tunnel.conn.close()
+        self._tunnels.clear()
 
 
-async def diagnose_ssh_tunnel(config: SSHTunnelConfig) -> list[dict[str, Any]]:
-    """Diagnose SSH tunnel connectivity.
+pool = TunnelPool()
 
-    Returns:
-        List of diagnostic result dicts with 'step', 'ok', and 'detail' keys.
-    """
-    results = []
 
-    # Step 1: Can we parse the config?
-    try:
-        manager = SSHTunnelManager(config)
-        results.append({"step": "config", "ok": True})
-    except Exception as exc:
-        results.append({"step": "config", "ok": False, "detail": str(exc)})
-        return results
-
-    # Step 2: Can we connect to the bastion?
-    try:
-        local_port = await manager.open_tunnel()
-        results.append({"step": "auth", "ok": True})
-        results.append({"step": "network", "ok": True})
-        results.append({"step": "tunnel", "ok": True, "detail": f"listening on 127.0.0.1:{local_port}"})
-    except asyncssh.PermissionDenied as exc:
-        results.append({"step": "auth", "ok": False, "detail": "authentication failed"})
-    except (asyncssh.HostKeyNotVerifiable, ValueError) as exc:
-        results.append({"step": "auth", "ok": True})
-        results.append({"step": "network", "ok": False, "detail": "host key verification failed"})
-    except (OSError, asyncssh.Error) as exc:
-        results.append({"step": "auth", "ok": True})
-        results.append({"step": "network", "ok": False, "detail": str(exc)})
-    except Exception as exc:
-        results.append({"step": "auth", "ok": False, "detail": str(exc)})
-    finally:
-        await manager.close()
-
-    return results
+def fingerprint_of_public_key(b64_blob: str) -> str:
+    """SHA256 fingerprint of a raw base64 public-key blob (as in known_hosts)."""
+    digest = hashlib.sha256(base64.b64decode(b64_blob)).digest()
+    return "SHA256:" + base64.b64encode(digest).decode().rstrip("=")

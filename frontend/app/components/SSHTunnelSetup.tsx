@@ -13,9 +13,12 @@ type Draft = {
 function SSHTunnelSetup({
   d,
   setD,
+  hasStoredKey = false,
 }: {
   d: Draft;
   setD: (updater: (prev: any) => any) => void;
+  /** Editing a connection whose key is already saved: an empty key field keeps it. */
+  hasStoredKey?: boolean;
 }) {
   const [keyFile, setKeyFile] = useState<{ label: string; content: string } | null>(null);
   const [keyType, setKeyType] = useState<string | null>(null);
@@ -86,7 +89,7 @@ function SSHTunnelSetup({
           rows={6}
           value={displayedKey}
           onChange={set("ssh_private_key")}
-          placeholder={"-----BEGIN OPENSSH PRIVATE KEY-----\n..."}
+          placeholder={hasStoredKey ? "Saved key kept unless you paste or upload a new one" : "-----BEGIN OPENSSH PRIVATE KEY-----\n..."}
           aria-label="SSH private key PEM"
           spellCheck={false}
           autoComplete="off"
@@ -95,13 +98,22 @@ function SSHTunnelSetup({
       </fieldset>
 
       <label>
-        Server fingerprint (optional)
+        Bastion host key fingerprint
         <input
+          required
           value={d.known_hosts_fingerprint}
           onChange={set("known_hosts_fingerprint")}
-          placeholder="SHA256:... or the server's public key"
+          placeholder="SHA256:... or the bastion's public key line"
+          spellCheck={false}
+          autoComplete="off"
         />
       </label>
+      <p className="muted">
+        Required, so we only ever connect to your bastion. Get it from the bastion&apos;s admin, or run{" "}
+        <code>ssh-keyscan -p {d.bastion_port || "22"} {d.bastion_host || "bastion-host"} | ssh-keygen -lf -</code> and paste
+        one SHA256 value. Keys protected by a passphrase are not supported. The private key is stored encrypted and never
+        shown again.
+      </p>
     </fieldset>
   );
 }

@@ -85,13 +85,20 @@ def test_unsaved_connection(
         current = get_connection(ctx.tenant_id, ctx.user_id, connection_id)
         if current is None or current.owner_user_id != ctx.user_id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "connection not found")
+    from odn.platform.connectors.ssh_tunnel import TunnelError
+
     try:
         connector = unsaved_connector(data, current)
     except CredentialError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, f"stored key unavailable: {exc}") from None
+    except TunnelError as exc:
+        return [ConnectionTestStep(step="tunnel", ok=False, detail=str(exc))]
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
-    return connector.test_connection()
+    steps = connector.test_connection()
+    if data.kind == "postgres" and data.ssh_tunnel is not None:
+        steps = [ConnectionTestStep(step="tunnel", ok=True, detail=f"via {data.ssh_tunnel.bastion_host}"), *steps]
+    return steps
 
 
 # --- LLM key --------------------------------------------------------------------------------------

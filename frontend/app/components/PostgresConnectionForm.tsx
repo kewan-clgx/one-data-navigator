@@ -6,6 +6,13 @@ import { api, CONNECTIONS_CHANGED, notify } from "@/lib/client-api";
 import SSHTunnelSetup from "./SSHTunnelSetup";
 
 type Step = { step: string; ok: boolean; detail: string | null };
+const STEP_LABELS: Record<string, string> = {
+  tunnel: "SSH tunnel",
+  auth: "Authentication",
+  network: "Network",
+  metadata: "Metadata",
+  read: "Read check",
+};
 
 type Draft = {
   id?: string;
@@ -94,7 +101,8 @@ export default function PostgresConnectionForm({ initial, onDone }: { initial: D
         bastion_host: d.bastion_host,
         bastion_port: parseInt(d.bastion_port, 10),
         bastion_user: d.bastion_user,
-        ssh_private_key: d.ssh_private_key,
+        // Empty on edit = keep the saved key (the server never sends it back).
+        ssh_private_key: d.ssh_private_key.trim() ? d.ssh_private_key : null,
         known_hosts_fingerprint: d.known_hosts_fingerprint || null,
       };
     }
@@ -181,6 +189,7 @@ export default function PostgresConnectionForm({ initial, onDone }: { initial: D
         <SSHTunnelSetup
           d={d}
           setD={setD}
+          hasStoredKey={editing && initial.use_ssh_tunnel}
         />
       )}
 
@@ -233,7 +242,7 @@ export default function PostgresConnectionForm({ initial, onDone }: { initial: D
         <ol className="test-steps" aria-label="Connection test">
           {steps.map((s) => (
             <li key={s.step} className={s.ok ? "ok" : "error"}>
-              {s.ok ? "✓" : "✗"} {s.step}
+              {s.ok ? "✓" : "✗"} {STEP_LABELS[s.step] ?? s.step}
               {s.detail && <span className="muted"> — {s.detail}</span>}
             </li>
           ))}

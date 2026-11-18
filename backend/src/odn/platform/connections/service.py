@@ -72,6 +72,7 @@ class ConnectionProfile(ConnectionInput):
     secret_ref: str | None = None  # type: ignore[assignment]
     owner_user_id: UUID | None = None
     secret_ciphertext: bytes | None = Field(default=None, repr=False, exclude=True)
+    ssh_key_ciphertext: bytes | None = Field(default=None, repr=False, exclude=True)
 
     @property
     def personal(self) -> bool:
@@ -80,6 +81,21 @@ class ConnectionProfile(ConnectionInput):
 
 def _secret_aad(tenant_id: UUID, owner_user_id: UUID, connection_id: UUID) -> str:
     return f"connection:{tenant_id}:{owner_user_id}:{connection_id}"
+
+
+def _ssh_key_aad(tenant_id: UUID, owner_user_id: UUID | None, connection_id: UUID) -> str:
+    return f"ssh-key:{tenant_id}:{owner_user_id or 'shared'}:{connection_id}"
+
+
+def resolve_ssh_key(profile: ConnectionProfile) -> str | None:
+    if profile.ssh_key_ciphertext is None:
+        return None
+    try:
+        return crypto.decrypt(
+            profile.ssh_key_ciphertext, _ssh_key_aad(profile.tenant_id, profile.owner_user_id, profile.id)
+        ).decode()
+    except (crypto.SecretsUnavailable, crypto.SecretDecryptionError) as exc:
+        raise CredentialError(str(exc)) from None
 
 
 def parse_service_account_key(raw: str) -> dict[str, Any]:
@@ -112,6 +128,44 @@ def _qualify(entry: str, project: str) -> str:
     return entry
 
 
+class SSHTunnelInput(BaseModel):
+    """Bastion settings. The private key is write-only: stored encrypted, never in config or API responses."""
+
+    bastion_host: str = Field(min_length=1, max_length=253)
+    bastion_port: int = Field(default=22, ge=1, le=65535)
+    bastion_user: str = Field(min_length=1, max_length=64)
+    known_hosts_fingerprint: str = Field(min_length=1, max_length=2000)
+    ssh_private_key: str | None = Field(default=None, repr=False, max_length=16_384)
+
+    @field_validator("bastion_host")
+    @classmethod
+    def _host(cls, v: str) -> str:
+        v = v.strip()
+        if not re.fullmatch(r"[A-Za-z0-9.-]+|\[?[0-9A-Fa-f:.]+\]?", v):
+            raise ValueError("invalid bastion host")
+        return v
+
+    @field_validator("known_hosts_fingerprint")
+    @classmethod
+    def _fingerprint(cls, v: str) -> str:
+        from odn.platform.connectors.ssh_tunnel import normalize_fingerprint
+
+        return normalize_fingerprint(v)
+
+    @field_validator("ssh_private_key")
+    @classmethod
+    def _key(cls, v: str | None) -> str | None:
+        if v is None or not v.strip():
+            return None
+        from odn.platform.connectors.ssh_tunnel import check_private_key
+
+        check_private_key(v)
+        return v.strip() + "\n"
+
+    def public(self) -> dict[str, Any]:
+        return self.model_dump(exclude={"ssh_private_key"})
+
+
 class PersonalConnectionInput(BaseModel):
     """A user's own data connection (BigQuery or Postgres). On update, an omitted key keeps the stored one."""
 
@@ -131,7 +185,7 @@ class PersonalConnectionInput(BaseModel):
     password: str | None = Field(default=None, repr=False)
     ssl_mode: str | None = None
     schema: str | None = None
-    ssh_tunnel: dict[str, Any] | None = None
+    ssh_tunnel: SSHTunnelInput | None = None
     # Both
     allowed_objects: list[str] = Field(default_factory=list, max_length=500)
 
@@ -207,8 +261,8 @@ class PersonalConnectionInput(BaseModel):
         ssl_mode = self.ssl_mode or (current.config.get("ssl_mode") if current else None) or "prefer"
         
         config: dict[str, Any] = {"host": host, "port": port, "database": database, "user": user, "schema": schema, "ssl_mode": ssl_mode}
-        if self.ssh_tunnel or (current and current.config.get("ssh_tunnel")):
-            config["ssh_tunnel"] = self.ssh_tunnel or current.config.get("ssh_tunnel")
+        if self.ssh_tunnel is not None:
+            config["ssh_tunnel"] = self.ssh_tunnel.public()
         
         # Allowlist: for Postgres, use schema.table format (not project.dataset.table)
         allowed = [a.strip() for a in self.allowed_objects if a.strip()] or ["*.*"]
@@ -304,7 +358,7 @@ def resolve_postgres_credentials(profile: ConnectionProfile) -> str | None:
 
 def build_connector(profile: ConnectionProfile) -> BaseConnector:
     if profile.kind == "postgres":
-        return postgres_connector(profile.config, resolve_postgres_credentials(profile))
+        return postgres_connector(profile.config, resolve_postgres_credentials(profile), resolve_ssh_key(profile))
     else:
         return bigquery_connector(profile.config, resolve_credentials(profile))
 
@@ -321,40 +375,40 @@ def bigquery_connector(cfg: dict[str, Any], credentials: Credentials) -> BaseCon
     )
 
 
-def postgres_connector(cfg: dict[str, Any], password: str | None = None) -> BaseConnector:
-    """Create a PostgreSQL connector from configuration.
-    
-    Args:
-        cfg: Connection config with host, port, database, user, schema, ssl_mode, ssh_tunnel_config
-        password: Database password (optional)
-    
-    Returns:
-        PostgresConnector instance with optional SSH tunnel support
+def postgres_connector(cfg: dict[str, Any], password: str | None = None, ssh_key: str | None = None) -> BaseConnector:
+    """PostgreSQL connector; with `ssh_tunnel` in the config it connects through the bastion tunnel.
+
+    Raises TunnelError (safe message) when the tunnel cannot be opened.
     """
+    from odn.platform.connectors import ssh_tunnel
     from odn.platform.connectors.postgres import PostgresConnector
-    from odn.platform.connectors.ssh_tunnel import SSHTunnelConfig, SSHTunnelManager
 
-    host = cfg["host"]
-    port = cfg.get("port", 5432)
-    database = cfg["database"]
-    user = cfg["user"]
-    schema = cfg.get("schema", "public")
-    ssl_mode = cfg.get("ssl_mode", "prefer")
-
-    # Create the PostgreSQL connector
-    connector = PostgresConnector(
+    host, port = cfg["host"], int(cfg.get("port", 5432))
+    tunnel = cfg.get("ssh_tunnel")
+    if tunnel:
+        if not ssh_key:
+            raise ssh_tunnel.TunnelError("the SSH private key for this connection is missing; enter it again")
+        port = ssh_tunnel.pool.local_port(
+            ssh_tunnel.TunnelSpec(
+                bastion_host=tunnel["bastion_host"],
+                bastion_port=int(tunnel.get("bastion_port", 22)),
+                bastion_user=tunnel["bastion_user"],
+                host_key_fingerprint=tunnel["known_hosts_fingerprint"],
+                db_host=host,
+                db_port=port,
+                private_key=ssh_key,
+            )
+        )
+        host = "127.0.0.1"
+    return PostgresConnector(
         host=host,
         port=port,
-        database=database,
-        user=user,
+        database=cfg["database"],
+        user=cfg["user"],
         password=password,
-        schema=schema,
-        ssl_mode=ssl_mode,
+        schema=cfg.get("schema", "public"),
+        ssl_mode=cfg.get("ssl_mode", "prefer"),
     )
-
-    # Note: SSH tunnel is managed separately via SSHTunnelManager
-    # and would be opened before connection attempts in the API layer
-    return connector
 
 
 def build_policy(profile: ConnectionProfile, connector: BaseConnector) -> SqlPolicy:
@@ -365,7 +419,9 @@ def build_policy(profile: ConnectionProfile, connector: BaseConnector) -> SqlPol
     )
 
 
-_COLUMNS = "id, tenant_id, name, kind, config, secret_ref, allowed_objects, owner_user_id, secret_ciphertext"
+_COLUMNS = (
+    "id, tenant_id, name, kind, config, secret_ref, allowed_objects, owner_user_id, secret_ciphertext, ssh_key_ciphertext"
+)
 
 
 def list_connections(tenant_id: UUID, user_id: UUID) -> list[ConnectionProfile]:
@@ -419,6 +475,13 @@ def save_personal_connection(
     ciphertext = (
         crypto.encrypt(secret_to_encrypt, _secret_aad(tenant_id, user_id, cid)) if secret_to_encrypt is not None else None
     )
+    tunnel = data.ssh_tunnel if data.kind == "postgres" else None
+    ssh_key = tunnel.ssh_private_key if tunnel else None
+    if tunnel and ssh_key is None and (current is None or current.ssh_key_ciphertext is None):
+        raise ValueError("an SSH private key is required for the tunnel")
+    ssh_ciphertext = crypto.encrypt(ssh_key.encode(), _ssh_key_aad(tenant_id, user_id, cid)) if ssh_key else None
+    # No tunnel any more: drop the stored key. Tunnel without a new key: keep the stored one.
+    keep_ssh_key = tunnel is not None and ssh_key is None
     
     try:
         with tenant_transaction(tenant_id, user_id) as conn:
@@ -426,23 +489,26 @@ def save_personal_connection(
                 row = conn.execute(
                     f"""
                     INSERT INTO connections (id, tenant_id, owner_user_id, name, kind, config, allowed_objects,
-                                             secret_ciphertext, created_by)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                             secret_ciphertext, ssh_key_ciphertext, created_by)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING {_COLUMNS}
                     """,
                     (cid, tenant_id, user_id, spec.name, spec.kind, Jsonb(spec.config), spec.allowed_objects,
-                     ciphertext, user_id),
+                     ciphertext, ssh_ciphertext, user_id),
                 ).fetchone()
             else:
                 row = conn.execute(
                     f"""
                     UPDATE connections
                        SET name = %s, config = %s, allowed_objects = %s,
-                           secret_ciphertext = coalesce(%s, secret_ciphertext), updated_at = now()
+                           secret_ciphertext = coalesce(%s, secret_ciphertext),
+                           ssh_key_ciphertext = CASE WHEN %s THEN ssh_key_ciphertext ELSE %s END,
+                           updated_at = now()
                      WHERE id = %s AND owner_user_id = %s
                     RETURNING {_COLUMNS}
                     """,
-                    (spec.name, Jsonb(spec.config), spec.allowed_objects, ciphertext, cid, user_id),
+                    (spec.name, Jsonb(spec.config), spec.allowed_objects, ciphertext, keep_ssh_key, ssh_ciphertext,
+                     cid, user_id),
                 ).fetchone()
     except psycopg.errors.UniqueViolation:
         raise DuplicateName(spec.name) from None
@@ -480,7 +546,10 @@ def unsaved_connector(data: PersonalConnectionInput, current: ConnectionProfile 
         if password is None and current is not None:
             password = resolve_postgres_credentials(current)
         spec = data.resolved(None, current)
-        return postgres_connector(spec.config, password)
+        ssh_key = None
+        if data.ssh_tunnel is not None:
+            ssh_key = data.ssh_tunnel.ssh_private_key or (resolve_ssh_key(current) if current is not None else None)
+        return postgres_connector(spec.config, password, ssh_key)
     
     else:
         raise ValueError(f"unsupported connection kind: {data.kind}")

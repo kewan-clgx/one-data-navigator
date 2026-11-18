@@ -11,6 +11,7 @@ from odn.api.routes import router
 from odn.api.usage_routes import router as usage_router
 from odn.api.workspace_routes import router as workspace_router
 from odn.config import settings
+from odn.platform.connectors.ssh_tunnel import TunnelError
 
 app = FastAPI(title="One Data Navigator API")
 app.add_middleware(GZipMiddleware, minimum_size=2048)
@@ -29,6 +30,12 @@ def credentials_rejected(_request: Request, exc: auth_exc.RefreshError) -> JSONR
     return JSONResponse(
         status_code=409, content={"detail": f"the connection's key was rejected by Google: {exc.args[0]}"}
     )
+
+
+@app.exception_handler(TunnelError)
+def tunnel_failed(_request: Request, exc: TunnelError) -> JSONResponse:
+    # The bastion is the client's infrastructure: report it plainly instead of a 500.
+    return JSONResponse(status_code=502, content={"detail": f"SSH tunnel: {exc}"})
 
 
 @app.get("/healthz")

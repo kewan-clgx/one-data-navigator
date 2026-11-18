@@ -198,6 +198,13 @@ function LlmKeySection() {
 // Data connections (DBeaver-style), BigQuery first
 
 type Step = { step: string; ok: boolean; detail: string | null };
+const STEP_LABELS: Record<string, string> = {
+  tunnel: "SSH tunnel",
+  auth: "Authentication",
+  network: "Network",
+  metadata: "Metadata",
+  read: "Read check",
+};
 
 type Draft = {
   id?: string;
@@ -365,7 +372,7 @@ function ConnectionForm({ initial, onDone }: { initial: Draft; onDone: (saved: b
         <ol className="test-steps" aria-label="Connection test">
           {steps.map((s) => (
             <li key={s.step} className={s.ok ? "ok" : "error"}>
-              {s.ok ? "✓" : "✗"} {s.step}
+              {s.ok ? "✓" : "✗"} {STEP_LABELS[s.step] ?? s.step}
               {s.detail && <span className="muted"> — {s.detail}</span>}
             </li>
           ))}

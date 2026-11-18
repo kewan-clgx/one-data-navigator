@@ -44,7 +44,7 @@ class CostEstimate(BaseModel):
 
 
 class ConnectionTestStep(BaseModel):
-    step: Literal["auth", "network", "metadata", "read"]
+    step: Literal["tunnel", "auth", "network", "metadata", "read"]
     ok: bool
     detail: str | None = None
 
