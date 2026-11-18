@@ -298,7 +298,7 @@ Estimates are focused engineering days. Each phase lists its exit check.
 - [x] Session cookie stores the refresh token; BFF refreshes ID tokens before expiry (Google + Identity
       Platform). Remember last organization.
 - [x] Rate limiting for discover/password per email (in-process); no secrets or passwords in logs.
-- [ ] Per-IP rate limiting (needs the client IP forwarded by the BFF/Caddy).
+- [ ] Per-IP rate limiting (needs the client IP forwarded by the BFF/Caddy). *(Moved to MVP plan Phase 6.)*
 - **Exit:** a Cotality user signs in via SSO and an invited Indulge user via password, both on staging/local;
       sessions survive past 1 hour.
 
@@ -308,7 +308,7 @@ Estimates are focused engineering days. Each phase lists its exit check.
 - [x] API `/v1/admin/users*`, `require_admin`; Identity Platform user create/disable for password tenants.
 - [x] Admin events `user.invited`, `user.role_changed`, `user.status_changed`, `user.invite_resent`, `user.invite_revoked`
       (migration `0011`, `admin_events`).
-- [ ] `auth.failed` events (failed sign-ins are only rate-limited today).
+- [x] `auth.failed` events in the activity log (`19709c5`).
 - **Exit:** an Indulge admin invites a colleague who sets a password and signs in; the last admin cannot be
       removed.
 
@@ -349,7 +349,7 @@ parallel with U3/U4.
 1. Ship U1+U2 behind the existing Google flow (no visible change); verify prod sign-ins.
 2. Ship U3+U5: new sign-in card; Cotality via SSO; create the Indulge tenant and first admin.
 3. Ship U4; Indulge admin invites users.
-4. Remove `ODN_OIDC_TENANT_DOMAINS` / `tenants.oidc_issuer` after one release.
+4. ✅ Removed `ODN_OIDC_TENANT_DOMAINS` / `ODN_OIDC_DEFAULT_TENANT` / `tenants.oidc_issuer` (`19709c5`, migration `0014`).
 
 ## 8. Open decisions
 
@@ -359,5 +359,5 @@ parallel with U3/U4.
 | D2 | Default join policy | `domain` for SSO tenants, `invite` for password tenants. |
 | D3 | Shared connection secrets | **Decided:** UI-entered shared secrets are encrypted in Postgres (AAD bound to the tenant), like personal ones, so the VM needs no secret-creation rights; operator-provisioned Secret Manager refs (`odn-<tenant_id>-*`) still work. |
 | D4 | Ask for organization at all? | Kept (requested); prefilled from the last sign-in. Inferring it from the email domain is not done yet. |
-| D5 | MFA for password tenants | Open (Identity Platform supports TOTP; not enabled). |
+| D5 | MFA for password tenants | Open; scheduled in MVP plan Phase 6 (TOTP, required for admins). |
 | D6 | Move SSO tenants onto Identity Platform | Later, only if we want one sign-in stack or a client brings SAML (Okta/Entra). |

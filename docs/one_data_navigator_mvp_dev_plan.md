@@ -153,7 +153,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 
 ### Progress Summary (updated 2026-11-18)
 
-**Where it runs:** production at `https://odn.datahop.ai` (one GCP VM `odn-prod`, Docker Compose + Caddy, static egress IP `136.71.108.203`, Gemini via LiteLLM), release **`2ef1122`** (deployed 2026-11-18; tenant & user system since `8407ddb`; migrations up to `0012`; pre-migration dump in `/opt/odn/backups/`). Tenants: **Cotality** (Google SSO, `cotality.com`, BigQuery `idap-int`), **DataHop** (personal Google accounts by allowlist) and **Indulge** (email + password via Google Identity Platform, invite-only, shared Postgres on AWS RDS). Development uses the local Docker Compose stack (`docker-compose.yml`; `docker-compose.gcs.yml` switches the workspace to the real `gs://datahop` bucket under `odn/`): frontend, API/BFF, ADK agent, isolated DuckDB worker, Postgres + pgvector, mock OIDC IdP and fake GCS, with real BigQuery (`clgx-idap-bigquery-int-278e`) and AWS RDS Postgres. Quality gates: 357 backend tests (+3 end-to-end SSH tunnel tests that need a test bastion) and frontend type-check, run by GitHub Actions on every push (`.github/workflows/ci.yml`); `main` is green.
+**Where it runs:** production at `https://odn.datahop.ai` (one GCP VM `odn-prod`, Docker Compose + Caddy, static egress IP `136.71.108.203`, Gemini via LiteLLM), release **`19709c5`** (deployed 2026-11-18; tenant & user system since `8407ddb`; migrations up to `0012`; pre-migration dump in `/opt/odn/backups/`). Tenants: **Cotality** (Google SSO, `cotality.com`, BigQuery `idap-int`), **DataHop** (personal Google accounts by allowlist) and **Indulge** (email + password via Google Identity Platform, invite-only, shared Postgres on AWS RDS). Development uses the local Docker Compose stack (`docker-compose.yml`; `docker-compose.gcs.yml` switches the workspace to the real `gs://datahop` bucket under `odn/`): frontend, API/BFF, ADK agent, isolated DuckDB worker, Postgres + pgvector, mock OIDC IdP and fake GCS, with real BigQuery (`clgx-idap-bigquery-int-278e`) and AWS RDS Postgres. Quality gates: 357 backend tests (+3 end-to-end SSH tunnel tests that need a test bastion) and frontend type-check, run by GitHub Actions on every push (`.github/workflows/ci.yml`); `main` is green.
 
 **Done**
 
@@ -210,11 +210,9 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
    - The agent is told not to query `information_schema` / `pg_catalog` / `pg_stat_*` (the policy blocks them) and to use `get_table_schema` / `search_tables_by_keyword`.
    - Indulge's database user (`reporting`) is already least-privilege: not superuser, owns no tables, no write privileges. Keep this as the onboarding guide's requirement.
 2. **Tenant & user system follow-ups** ([Tenant_Isolation_User_system.md](Tenant_Isolation_User_system.md)):
-   - Per-IP sign-in rate limiting (today per email, in-process), `auth.failed` events, MFA for password tenants.
-   - Branded invite / password emails (Identity Platform default sender and wording today).
-   - Remove the legacy `ODN_OIDC_TENANT_DOMAINS` / `tenants.oidc_issuer` after one release.
-   - Delete the test Identity Platform tenant `indulge-test-xkke0` and the local test "Indulge" tenant.
-3. **Gold benchmark (Phase 1 → 3):** 25 BigQuery + 25 Postgres questions with the pilot data owners (Cotality, Indulge), baseline execution accuracy, then automate it in CI.
+   - *Done 2026-11-18 (`19709c5`, deployed):* failed sign-ins recorded as `auth.failed` in the organization's activity log (reason + method, never the password; attributed only when the email's verified domain matched; repeats once per 10 min); legacy `ODN_OIDC_TENANT_DOMAINS` / `ODN_OIDC_DEFAULT_TENANT` and `tenants.oidc_issuer` removed (migration `0014`); test Identity Platform tenant and local test tenant deleted; invite/reset emails now show sender **DataHop Smart Data Navigator** with reply-to `service@datahop.ai`; branded set-password page live at `/auth/action`.
+   - *Open — branded email content:* Google blocks changing the subject, body and link destination (`EMAIL_TEMPLATE_UPDATE_NOT_ALLOWED`), and the `noreply@datahop.ai` sender domain can only be verified in the Firebase console. Options: (a) Firebase console → Authentication → Templates → customize domain (DNS records in GoDaddy); or (b) send invite/reset emails ourselves through the chosen mail provider (Google Workspace or Zoho SMTP), with admin-generated links pointing at `/auth/action` — full control of subject, body and sender. Depends on the `datahop.ai` mailbox decision; `service@datahop.ai` must exist for replies.
+3. **Moved to Phase 6 (TBD):** the 50-question gold benchmark, per-IP sign-in rate limiting and two-factor sign-in.
 4. **Production hardening:**
    - CI image builds; widen ruff to `odn/platform` and `tests/platform` after fixing their existing findings.
    - Summary stats for the LLM.
@@ -222,7 +220,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
    - Run the Phase 2 exit check on the hosted URL.
 5. **Workspace retention:** decide the Parquet/upload TTL and whether users can delete individual artifacts (only whole conversations can be deleted today; their artifacts are kept).
 6. **Architecture sign-off:** close the [Open Decisions](#6-open-decisions-to-close-at-spike-sign-off).
-7. **Phase 3 remainder:** Postgres descriptions in the curated explorer; opt-in pgvector metadata sync and semantic (embedding) table retrieval to replace keyword matching; pinned joins and verified metrics; an SSH-tunnel test against a client's real bastion.
+7. **Phase 3 remainder** (benchmark now in Phase 6): Postgres descriptions in the curated explorer; opt-in pgvector metadata sync and semantic (embedding) table retrieval to replace keyword matching; pinned joins and verified metrics; an SSH-tunnel test against a client's real bastion.
 8. **Phase 4:** Skills v2, column masking, security review (now including the sign-in flows and tunnels), load test, pilot onboarding guide.
 9. **Phase 5 (post-v1):** Collibra catalog integration.
 10. **Later options:**
@@ -347,7 +345,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
   - [ ] Implement semantic retrieval tool in ADK: retrieve top-$k$ relevant tables + pinned joins per user prompt to inject into the SQL sub-agent's context.
     - *Interim (2026-11-17, `73b9cc7`):* `search_tables_by_keyword` ranks table names by keyword match (top 5, no schema calls), and the instructions set a discovery order (see [SCHEMA_DISCOVERY_STRATEGY.md](SCHEMA_DISCOVERY_STRATEGY.md)). Embedding retrieval, column-level matching and pinned joins remain; it depends on the metadata sync job above.
 - [ ] **Accuracy Evaluation Harness:**
-  - [ ] Complete the 50-question gold benchmark (25 BigQuery, 25 Postgres) and automate execution-accuracy evaluation in CI, tracked per release.
+  - [ ] Complete the 50-question gold benchmark (25 BigQuery, 25 Postgres) and automate execution-accuracy evaluation in CI, tracked per release. *(Moved to [Phase 6](#phase-6-accuracy-benchmark--sign-in-security-tbd).)*
 - [ ] **Exit Check:** Same natural-language analytical workflow runs cleanly on both BigQuery and Postgres (including one Postgres reached via SSH tunnel); approved Postgres fields and available descriptions appear in the curated explorer; gold eval set hits $\ge 80\%$ execution accuracy.
   - *Status (2026-11-18):* the chat workflow runs on BigQuery (Cotality) and on AWS RDS Postgres (Indulge, 46 production chat queries) on the hosted URL; Postgres through an SSH tunnel works against a test bastion. Open: a client bastion, Postgres descriptions in the curated explorer, and the gold eval.
 
@@ -388,6 +386,17 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
   - [ ] Show Collibra definitions in the Explorer dictionary with provenance (e.g. "Collibra · PRD") alongside source and curated definitions.
   - [ ] Settings: connect and test Collibra per environment.
 - [ ] **Exit Check:** The 2026-11-17 mapping template (business name, business type, corporate revenue, location sales, employee numbers) is completed for PRD and INT with a Collibra asset link, definition and dataset · project · environment for every match; every definition traces to a Collibra asset, unmatched fields are labelled, and nothing is invented.
+
+### Phase 6: Accuracy Benchmark & Sign-in Security (TBD)
+
+*Goal: measure text-to-SQL accuracy against real questions from the pilot clients, and harden sign-in for password organizations. Not yet scheduled.*
+
+- [ ] **Gold benchmark (moved from Phases 1 and 3):**
+  - [ ] Collect 50 questions with expected answers from the pilot data owners: 25 BigQuery (Cotality, `idap-int`) and 25 Postgres (Indulge, RDS). Questions and answers come from the data owners, never invented.
+  - [ ] Record a baseline execution accuracy, then automate the evaluation (CI or a scheduled job against read-only connections) and track it per release. Target: $\ge 80\%$ (Section 4).
+- [ ] **Per-IP sign-in rate limiting:** today attempts are limited per email, in-process. Forward the client IP from Caddy through the BFF (trusted header only), limit discover/password/reset per IP as well, and keep limits correct if the API runs more than one process.
+- [ ] **Two-factor sign-in for password users:** enable Identity Platform TOTP for password organizations; required for admins, optional per organization for members (decision D5 in [Tenant_Isolation_User_system.md](Tenant_Isolation_User_system.md)); enrolment and sign-in steps in the sign-in card; recovery through the organization admin.
+- [ ] **Exit Check:** baseline accuracy published for both warehouses; password sign-ins require a second factor for admins; per-IP limits verified behind the proxy.
 
 ## 4. MVP Success Metrics (v1 Release Targets)
 
