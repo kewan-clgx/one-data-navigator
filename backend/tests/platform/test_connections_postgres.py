@@ -1,9 +1,7 @@
 """Tests for PostgreSQL connection service integration."""
 
-import base64
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import UUID, uuid4
+from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 import pytest
 
@@ -122,14 +120,13 @@ class TestPostgresConnector:
         """postgres_connector should create a PostgresConnector instance."""
         from odn.platform.connectors.postgres import PostgresConnector
 
-        with patch("odn.platform.connectors.postgres.AsyncConnectionPool"):
-            connector = postgres_connector(postgres_connection_profile.config, password="test123")
-            assert isinstance(connector, PostgresConnector)
-            assert connector.host == "postgres.example.com"
-            assert connector.port == 5432
-            assert connector.database == "production"
-            assert connector.user == "app_user"
-            assert connector.schema == "public"
+        connector = postgres_connector(postgres_connection_profile.config, password="test123")
+        assert isinstance(connector, PostgresConnector)
+        assert connector.host == "postgres.example.com"
+        assert connector.port == 5432
+        assert connector.database == "production"
+        assert connector.user == "app_user"
+        assert connector.schema == "public"
 
     def test_postgres_connector_defaults(self):
         """postgres_connector should use sensible defaults."""
@@ -140,12 +137,11 @@ class TestPostgresConnector:
             "database": "testdb",
             "user": "testuser",
         }
-        with patch("odn.platform.connectors.postgres.AsyncConnectionPool"):
-            connector = postgres_connector(cfg)
-            assert isinstance(connector, PostgresConnector)
-            assert connector.port == 5432  # Default
-            assert connector.schema == "public"  # Default
-            assert connector.ssl_mode == "prefer"  # Default
+        connector = postgres_connector(cfg)
+        assert isinstance(connector, PostgresConnector)
+        assert connector.port == 5432  # Default
+        assert connector.schema == "public"  # Default
+        assert connector.ssl_mode == "prefer"  # Default
 
     def test_postgres_connector_no_password(self):
         """postgres_connector should work without password."""
@@ -156,9 +152,8 @@ class TestPostgresConnector:
             "database": "testdb",
             "user": "testuser",
         }
-        with patch("odn.platform.connectors.postgres.AsyncConnectionPool"):
-            connector = postgres_connector(cfg, password=None)
-            assert isinstance(connector, PostgresConnector)
+        connector = postgres_connector(cfg, password=None)
+        assert isinstance(connector, PostgresConnector)
 
 
 class TestResolvePostgresCredentials:
@@ -302,12 +297,11 @@ class TestBuildConnector:
         """build_connector should create PostgresConnector for postgres kind."""
         from odn.platform.connectors.postgres import PostgresConnector
 
-        with patch("odn.platform.connectors.postgres.AsyncConnectionPool"):
-            with patch("odn.platform.connections.service.resolve_postgres_credentials") as mock_resolve:
-                mock_resolve.return_value = "password123"
-                connector = build_connector(postgres_connection_profile)
-                assert isinstance(connector, PostgresConnector)
-                mock_resolve.assert_called_once()
+        with patch("odn.platform.connections.service.resolve_postgres_credentials") as mock_resolve:
+            mock_resolve.return_value = "password123"
+            connector = build_connector(postgres_connection_profile)
+            assert isinstance(connector, PostgresConnector)
+            mock_resolve.assert_called_once()
 
 
 class TestPostgresDialectSupport:
@@ -357,19 +351,18 @@ class TestConnectionIntegration:
         """Full pipeline: profile → connector → policy."""
         from odn.platform.connectors.postgres import PostgresConnector
 
-        with patch("odn.platform.connectors.postgres.AsyncConnectionPool"):
-            with patch("odn.platform.connections.service.resolve_postgres_credentials", return_value="pwd"):
-                connector = build_connector(postgres_connection_profile)
-                assert isinstance(connector, PostgresConnector)
-                assert connector.dialect == "postgres"
+        with patch("odn.platform.connections.service.resolve_postgres_credentials", return_value="pwd"):
+            connector = build_connector(postgres_connection_profile)
+            assert isinstance(connector, PostgresConnector)
+            assert connector.dialect == "postgres"
 
-                policy = SqlPolicy(
-                    dialect=connector.dialect,
-                    allowed_objects=frozenset(postgres_connection_profile.allowed_objects),
-                    default_namespace=connector.default_namespace,
-                )
-                assert policy.dialect == "postgres"
-                assert len(policy.allowed_objects) == len(postgres_connection_profile.allowed_objects)
+            policy = SqlPolicy(
+                dialect=connector.dialect,
+                allowed_objects=frozenset(postgres_connection_profile.allowed_objects),
+                default_namespace=connector.default_namespace,
+            )
+            assert policy.dialect == "postgres"
+            assert len(policy.allowed_objects) == len(postgres_connection_profile.allowed_objects)
 
 
 if __name__ == "__main__":

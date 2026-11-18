@@ -1,15 +1,10 @@
 """Tests for PostgreSQL connector implementation."""
 
-import asyncio
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
-import psycopg
 import pytest
-from psycopg import AsyncConnection
-from psycopg_pool import AsyncConnectionPool
 
-from odn.platform.connectors.base import ColumnSchema, ConnectionTestStep, CostEstimate, QueryLimits, TableSchema
+from odn.platform.connectors.base import QueryLimits
 from odn.platform.connectors.postgres import PostgresConnector, PostgresExecution
 
 
@@ -94,131 +89,18 @@ class TestConnectionString:
         assert conn.user == "testuser"
 
 
-class TestConnectionTesting:
-    """Test connection diagnostic steps."""
-
-    def test_test_connection_implementation_exists(self, connector):
-        """Connector should have test_connection method."""
-        assert hasattr(connector, "test_connection")
-        assert callable(connector.test_connection)
-
-    def test_test_connection_returns_steps(self, connector):
-        """Test connection should return a list of ConnectionTestStep."""
-        # Mocking the async internals is complex; instead we test the happy path
-        # by ensuring the method exists and returns the right type
-        with patch.object(
-            connector, "_test_connection_async"
-        ) as mock_test:
-            mock_test.return_value = [
-                ConnectionTestStep(step="auth", ok=True),
-                ConnectionTestStep(step="network", ok=True),
-                ConnectionTestStep(step="metadata", ok=True),
-                ConnectionTestStep(step="read", ok=True),
-            ]
-            steps = connector.test_connection()
-            assert isinstance(steps, list)
-            assert all(isinstance(s, ConnectionTestStep) for s in steps)
-
-
-class TestCatalogListing:
-    """Test catalog discovery."""
-
-    def test_list_catalog_root_requires_no_parent(self, connector):
-        """Listing root catalog should work with empty parent."""
-        # Mock will be provided by async test
-        pass
-
-    def test_list_catalog_path_validation(self, connector):
-        """Invalid parent paths should raise ValueError."""
-        import asyncio
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        try:
-            with patch.object(connector, "_list_catalog_async", side_effect=ValueError("invalid parent")):
-                with pytest.raises(ValueError):
-                    connector.list_catalog(parent=("schema", "table"))
-        finally:
-            loop.close()
-
-
-class TestSchemaRetrieval:
-    """Test table schema discovery."""
-
-    def test_get_schema_path_validation(self, connector):
-        """Schema path must be (schema, table)."""
-        import asyncio
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        try:
-            with patch.object(
-                connector, "_get_schema_async", side_effect=ValueError("path must be (schema, table)")
-            ):
-                with pytest.raises(ValueError):
-                    connector.get_schema(("schema", "table", "extra"))
-        finally:
-            loop.close()
-
-    def test_get_schema_bad_identifiers(self, connector):
-        """Schema/table identifiers must match SQL identifier rules."""
-        import asyncio
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        try:
-            with patch.object(
-                connector,
-                "_get_schema_async",
-                side_effect=ValueError("invalid schema or table name"),
-            ):
-                with pytest.raises(ValueError):
-                    # Invalid identifier (starts with number)
-                    connector.get_schema(("2invalid", "table"))
-        finally:
-            loop.close()
-
-
-class TestCostEstimation:
-    """Test EXPLAIN-based cost estimation."""
-
-    def test_estimate_cost_returns_rows_estimate(self, connector):
-        """EXPLAIN should return rows_estimated."""
-        # This is tested via the EXPLAIN mock
-        pass
-
-    def test_estimate_cost_handles_explain_failure(self, connector):
-        """Failed EXPLAIN should return empty CostEstimate."""
-        import asyncio
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        try:
-            with patch.object(connector, "_estimate_cost_async", return_value=CostEstimate()):
-                result = connector.estimate_cost("SELECT * FROM nonexistent")
-                assert result.rows_estimated is None
-                assert result.bytes_processed is None
-        finally:
-            loop.close()
-
-
 class TestQueryExecution:
     """Test query execution and paging."""
 
     def test_postgres_execution_creation(self):
         """PostgresExecution should track job_id and timeout."""
-        mock_conn = AsyncMock()
+        mock_conn = MagicMock()
         exec = PostgresExecution(mock_conn, "SELECT 1", job_id="12345", timeout_s=60)
         assert exec.job_id == "12345"
 
     def test_postgres_execution_fetch_empty_result(self):
         """Execution should handle empty result sets."""
         # Requires async execution
-        pass
 
 
 class TestQueryLimits:
@@ -247,12 +129,16 @@ class TestJobCancellation:
         # Should not raise even with invalid PID
         connector.cancel_job("not_a_number")
 
-    def test_cancel_job_with_valid_pid(self, connector):
-        """Cancellation should work with valid PID."""
-        # Mock pool and connection
-        with patch.object(connector, "_cancel_job_async", return_value=None):
-            # Should not raise
-            connector.cancel_job("12345")
+    def test_identifier_validation_happens_before_connecting(self, connector):
+        """Bad paths and identifiers are refused without touching the database."""
+        for call in (
+            lambda: connector.list_catalog(parent=("schema", "table")),
+            lambda: connector.get_schema(("schema", "table", "extra")),
+            lambda: connector.get_schema(("2invalid", "table")),
+            lambda: connector.list_columns(("bad schema",)),
+        ):
+            with pytest.raises(ValueError):
+                call()
 
 
 class TestTypeMapping:

@@ -57,6 +57,9 @@ How to work:
    - Only call `get_table_schema` on the user's chosen table or the best match, NOT all results
 5. For the specific table you identified, call `get_table_schema(connection_id, table_path)` exactly once 
    to see its columns before writing SQL. Never guess column names; always check the schema first.
+   Never query system catalogs with `run_sql` (`information_schema.*`, `pg_catalog.*`, `pg_stat_*`,
+   `INFORMATION_SCHEMA`): the policy rejects them. Use `get_table_schema` for columns, types and row counts,
+   and `search_tables_by_keyword` / `list_tables` to find tables.
 6. Write read-only SQL using the warehouse's dialect (BigQuery Standard SQL with backticks for identifiers,
    PostgreSQL with quoted identifiers). Select only the columns you need (never SELECT *), aggregate where
    possible, add LIMIT for row output, and use partition filters when available.

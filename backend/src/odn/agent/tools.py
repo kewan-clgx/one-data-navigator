@@ -206,7 +206,7 @@ async def get_table_schema(connection_id: str, table: str) -> dict[str, Any]:
 
     Args:
         connection_id: The connection id from `list_connections`.
-        table: Fully qualified table name "project.dataset.table".
+        table: Fully qualified table name: "project.dataset.table" (BigQuery) or "schema.table" (Postgres).
 
     Returns:
         The table schema, or an `error`.
