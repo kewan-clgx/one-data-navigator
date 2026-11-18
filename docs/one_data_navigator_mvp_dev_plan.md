@@ -1,8 +1,8 @@
 # One Data Navigator: MVP Architecture & Development Plan
 
-**Status:** Final (v1.0) — in build. Spikes done; Phase 1 and Phase 2 features built and running locally; hosted on a single GCP VM at `https://odn.datahop.ai` since 2026-11-16 (see [deploy_gcp_vm.md](deploy_gcp_vm.md)) (see [Progress Summary](#progress-summary-2026-11-15)).
+**Status:** Final (v1.0) — in build. Spikes done; Phases 1–2 built; Phase 3 connector, connection manager and tenant & user system built; hosted on a single GCP VM at `https://odn.datahop.ai` since 2026-11-16 (see [deploy_gcp_vm.md](deploy_gcp_vm.md)) with three tenants (see [Progress Summary](#progress-summary-updated-2026-11-18)).
 
-**Date:** 2026-11-14 (progress updated 2026-11-16)
+**Date:** 2026-11-14 (progress updated 2026-11-18)
 
 **Supersedes:** [One_Data_Navigator_Architecture.md](One_Data_Navigator_Architecture.md) (Full Vision Proposal) for v1 scope and sequencing. The full vision remains the v2+ reference.
 
@@ -151,9 +151,9 @@ flowchart LR
 
 Each phase ends with an **Exit Check**. A phase is not closed until its Exit Check passes; slipped items roll forward explicitly rather than silently.
 
-### Progress Summary (updated 2026-11-17)
+### Progress Summary (updated 2026-11-18)
 
-**Where it runs:** production at `https://odn.datahop.ai` since 2026-11-16 (one GCP VM, Docker Compose + Caddy, Google sign-in, Gemini via LiteLLM). Development uses the local Docker Compose stack (`docker-compose.yml`; `docker-compose.gcs.yml` switches the workspace to the real `gs://datahop` bucket under `odn/`): frontend, API/BFF, ADK agent, isolated DuckDB worker, Postgres + pgvector, mock OIDC IdP and fake GCS, with real BigQuery (`clgx-idap-bigquery-int-278e`) via a service-account key, plus a client Postgres on AWS RDS (`devindulge_aws`) for Phase 3. As of 2026-11-17 (late): 363 backend tests passing (+3 end-to-end SSH tunnel tests that need a test bastion), CI on GitHub Actions. **Deployed:** `odn.datahop.ai` runs release `42492db` (deployed 2026-11-17 evening): UI redesign, Chats, Artifacts, attachments, the Postgres connector + SSH tunnel + Postgres connection manager, agent schema discovery, Postgres read-only enforcement and the shared Explorer connection. Tenant & user system deployed 2026-11-17 as release `8407ddb` (migrations `0009`–`0012`; pre-migration dump in `/opt/odn/backups/`).
+**Where it runs:** production at `https://odn.datahop.ai` (one GCP VM `odn-prod`, Docker Compose + Caddy, static egress IP `136.71.108.203`, Gemini via LiteLLM), release **`8407ddb`** (deployed 2026-11-17; migrations up to `0012`; pre-migration dump in `/opt/odn/backups/`). Tenants: **Cotality** (Google SSO, `cotality.com`, BigQuery `idap-int`), **DataHop** (personal Google accounts by allowlist) and **Indulge** (email + password via Google Identity Platform, invite-only, shared Postgres on AWS RDS). Development uses the local Docker Compose stack (`docker-compose.yml`; `docker-compose.gcs.yml` switches the workspace to the real `gs://datahop` bucket under `odn/`): frontend, API/BFF, ADK agent, isolated DuckDB worker, Postgres + pgvector, mock OIDC IdP and fake GCS, with real BigQuery (`clgx-idap-bigquery-int-278e`) and AWS RDS Postgres. Quality gates: 363 backend tests (+3 end-to-end SSH tunnel tests that need a test bastion) and frontend type-check, run by GitHub Actions on every push (`.github/workflows/ci.yml`); `main` is green.
 
 **Done**
 
@@ -182,6 +182,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 | Postgres connector (2026-11-17) | `PostgresConnector` on the `BaseConnector` SPI (`303f56b`, fixes `cf2c811`): async `psycopg` pool, `EXPLAIN (FORMAT JSON)` cost/row estimate, `statement_timeout` per query, cancellation by backend PID, catalog/schema/column listing with `pg_description` comments, `sslmode`. SSH bastion tunnel: the first version could not work and would have stored the private key in plaintext; rewritten in `bf2c027` (encrypted key, SHA256 host-key pin, verified end to end through a real bastion). Wired into the connection service (`969b932`) and API (`abced93`). Verified against AWS RDS `devindulge_aws`: browse, preview and a chat count over `public.businesses`. |
 | Postgres connection manager (2026-11-17) | Settings → Data connections now creates/edits Postgres profiles (`c0fba60`, `37899b6`, per [UI_Design_note.md](UI_Design_note.md)): host/port/db/user/schema/SSL, optional SSH tunnel, and **Test connection** with step diagnostics. Personal connections stay owner-only via RLS. |
 | Agent schema discovery (2026-11-17) | A chat count query had explored 51 tables with 23 queries. Fixes: instructions with a discovery order (scoped table/connection → ask which connection → favorites/recent → keyword search → full listing only on request) (`3502345`, `0b11adb`) and a new `search_tables_by_keyword` tool that ranks table names without per-table schema calls (`73b9cc7`). Design and tests: [SCHEMA_DISCOVERY_STRATEGY.md](SCHEMA_DISCOVERY_STRATEGY.md), [OPTIMIZATION_SUMMARY.md](OPTIMIZATION_SUMMARY.md), [TESTING_SEMANTIC_SEARCH.md](TESTING_SEMANTIC_SEARCH.md). |
+| Agent scoping & Postgres read-only (2026-11-17) | Explorer shares the connection the user picked (remembered across reloads) with the agent, which then stays on it; a connection selected only by default is not a scope. Postgres queries are read-only at the database (`default_transaction_read_only=on` on every connection, `SET TRANSACTION READ ONLY` per query on its own connection), tested against live Postgres; this also fixed a pooled-connection leak. |
 | Tenant & user system (2026-11-17, deployed `8407ddb`) | Per [Tenant_Isolation_User_system.md](Tenant_Isolation_User_system.md): tenant directory in Postgres (domains verified by DNS TXT or attestation, identity-provider mappings, status, join policy, theme) replacing the env mapping; Google SSO + email/password via Google Identity Platform (multi-tenant, `datahop-514819`); sign-in card with organization + work email; refresh tokens; invites, roles, disable and an admin activity log in a new **Organization** tab; brand bar "{tenant name} \| Smart Data Navigator"; RLS guard test, GCS key assertion, tenant-keyed caches; CI; shared connections managed in Settings by admins/data leads with tenant-bound encrypted secrets. Migrations `0009`–`0012`. |
 
 **Results so far (verified)**
@@ -196,35 +197,37 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
   - A user's 5-field Collibra mapping XLSX now imports with the header on row 2 and its instructions kept as notes.
 - 2026-11-17 (evening), locally against AWS RDS Postgres `devindulge_aws`:
   - Connection test, Explorer browse and preview of `public.businesses`.
-  - Chat answered "businesses in Las Vegas and San Diego by status and published" correctly (7 rows), but only at **q6**: with only the connection picked, the agent still started with `list_connections` and BigQuery `idap-int` (fixed: see *Left to do*, item 3).
+  - Chat answered "businesses in Las Vegas and San Diego by status and published" correctly (7 rows), but only at **q6**: with only the connection picked, the agent still started with `list_connections` and BigQuery `idap-int` (fixed the same day: *Agent scoping* above).
+- 2026-11-17, locally: SSH tunnel end to end through a real bastion to a private Postgres (query, wrong host key refused, wrong key refused).
+- 2026-11-18, **in production**:
+  - Indulge's first admin (`kevinwan@indulgetheapp.com`) set a password from the invite email and signed in; all three tenants have an active admin.
+  - Indulge's shared Postgres connection (AWS RDS, direct, no tunnel) answered **46 chat queries**; **2 were rejected** by the SQL policy because the agent tried to read the system catalog (correct refusal, wasted calls; see *Left to do*, item 1).
 
 **Left to do (in priority order)**
 
-1. **Client network access + hosted smoke test** (code deployed as `42492db`): ask the client to allow the VM's static egress IP **`136.71.108.203/32`** on TCP 5432 in the RDS security group (RDS must be publicly accessible), or port 22 on their bastion if they use the SSH tunnel. Then add the Postgres connection on `odn.datahop.ai` and smoke-test BigQuery and Postgres chat queries there.
-2. **Pre-existing async-pool lifecycle in `PostgresConnector` metadata calls:** catalog, schema, `EXPLAIN` and test-connection still run on an async pool created per request inside short-lived event loops, which logs "Event loop is closed" and holds idle connections until garbage collection. Move these to the same sync per-call connection the query path now uses (or one long-lived pool per connection).
-3. **Done 2026-11-17 (follow-up to item 1's work):**
-   - *Active connection shared with the agent:* Explorer reports the connection the user picked (remembered across reloads) or the only connection; `ScopeContext` tells the agent to stay on it. A connection Explorer selects only by default is not a scope, so the agent asks instead of assuming BigQuery.
-   - *Postgres read-only enforcement:* every connector connection starts with `default_transaction_read_only=on`, and each query runs on its own connection that issues `SET TRANSACTION READ ONLY` with `SET LOCAL statement_timeout`/`search_path`, then closes. Test `tests/platform/test_postgres_read_only.py` (live Postgres): `SELECT nextval(...)` is refused, flipping the session default does not re-enable writes, and plain `SELECT` works. This also fixes a leak where every query kept a pooled connection checked out (the second query on a 1-connection pool waited 30 s and failed). Still recommend least-privilege read-only DB users in the onboarding guide.
-4. **Tenant & user system follow-ups** (deployed as `8407ddb`; prod tenants: Cotality — Google SSO, `cotality.com`, admin kewan@cotality.com, Cotality theme; DataHop — personal Google accounts by allowlist; Indulge — email + password, invite-only, `indulgetheapp.com` (operator-attested), Identity Platform tenant `indulge-vl4t0`):
-   - Invite Indulge's first admin (an `@indulgetheapp.com` address): `deploy/deploy.sh provision invite indulge <email> --role admin`.
-   - Per-IP sign-in rate limiting, `auth.failed` events, MFA for password tenants, CI image builds.
-   - Remove `ODN_OIDC_TENANT_DOMAINS` / `tenants.oidc_issuer` after one release.
-5. **Gold benchmark (Phase 1):** draft 25 BigQuery questions with the pilot data owners and record baseline execution accuracy.
-6. **Production hardening:**
-   - OIDC token refresh (prod sessions end after the 1-hour Google ID token); planned in U3 of the tenant & user system.
-   - Local dev seed: the `local` tenant can end up with an empty `oidc_issuer` ("tenant is not provisioned"); make `--seed-local` set `http://oidc:8080/odn`.
+1. **Postgres in production — quick fixes** (Indulge is using it now):
+   - Metadata calls (catalog, schema, `EXPLAIN`, Test connection) in `PostgresConnector` still run on an async pool created per request in short-lived event loops: they log "Event loop is closed" and leave idle connections on the client's RDS until garbage collection. Move them to the per-call sync connection the query path already uses.
+   - Tell the agent not to query `information_schema` / `pg_catalog` (the policy blocks them) and to use `get_table_schema` instead; 2 of 48 production queries were wasted this way.
+   - Least-privilege read-only database user for Indulge (onboarding guide item, Phase 4).
+2. **Tenant & user system follow-ups** ([Tenant_Isolation_User_system.md](Tenant_Isolation_User_system.md)):
+   - Per-IP sign-in rate limiting (today per email, in-process), `auth.failed` events, MFA for password tenants.
+   - Branded invite / password emails (Identity Platform default sender and wording today).
+   - Remove the legacy `ODN_OIDC_TENANT_DOMAINS` / `tenants.oidc_issuer` after one release.
+   - Delete the test Identity Platform tenant `indulge-test-xkke0` and the local test "Indulge" tenant.
+3. **Gold benchmark (Phase 1 → 3):** 25 BigQuery + 25 Postgres questions with the pilot data owners (Cotality, Indulge), baseline execution accuracy, then automate it in CI.
+4. **Production hardening:**
+   - CI image builds; widen ruff to `odn/platform` and `tests/platform` after fixing their existing findings.
    - Summary stats for the LLM.
-   - Keyboard-accessibility tests for the explorer, dictionary and the new panel tabs.
-   - Run the Phase 1 and Phase 2 exit checks on the hosted URL.
-   - CI (policy suite, RLS isolation tests, lint, image builds).
-7. **Workspace retention:** decide the Parquet/upload TTL and whether users can delete individual artifacts (only whole conversations can be deleted today; their artifacts are kept).
-8. **Architecture sign-off:** close the [Open Decisions](#6-open-decisions-to-close-at-spike-sign-off).
-9. **Phase 3 remainder:** a Postgres reached through an SSH tunnel end to end; Postgres descriptions in the curated explorer; opt-in pgvector metadata sync and semantic (embedding) table retrieval to replace keyword matching; pinned joins and verified metrics; 50-question gold benchmark.
-10. **Phase 4:** Skills v2, column masking, security review, load test, pilot onboarding guide.
-11. **Phase 5 (post-v1):** Collibra catalog integration.
-12. **Later options:**
+   - Keyboard-accessibility tests for the explorer, dictionary and panel tabs (incl. Organization).
+   - Run the Phase 2 exit check on the hosted URL.
+5. **Workspace retention:** decide the Parquet/upload TTL and whether users can delete individual artifacts (only whole conversations can be deleted today; their artifacts are kept).
+6. **Architecture sign-off:** close the [Open Decisions](#6-open-decisions-to-close-at-spike-sign-off).
+7. **Phase 3 remainder:** Postgres descriptions in the curated explorer; opt-in pgvector metadata sync and semantic (embedding) table retrieval to replace keyword matching; pinned joins and verified metrics; an SSH-tunnel test against a client's real bastion.
+8. **Phase 4:** Skills v2, column masking, security review (now including the sign-in flows and tunnels), load test, pilot onboarding guide.
+9. **Phase 5 (post-v1):** Collibra catalog integration.
+10. **Later options:**
    - Pass attached images to vision-capable models; today the agent knows an image was attached but cannot see it.
-   - Additional enterprise themes (B, C, D) as clients onboard.
+   - Additional enterprise themes (B, C, D) as clients onboard (Indulge uses the default theme).
    - A small usage view for telemetry.
 
 ### Pre-Build: 1-Week Technical Spike (Week 0, Gate to Phase 1)
@@ -248,12 +251,12 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
   - [ ] Provision GCP environment via IaC (Terraform): Cloud Run (API/BFF & Agent), Cloud SQL (Postgres + `pgvector`), GCS bucket with 24h lifecycle deletion, Secret Manager, Direct VPC egress + Cloud NAT (static egress IP), and separate dev/staging environments.
     - *Superseded for the MVP (2026-11-16):* a single GCP VM with Docker Compose instead of Cloud Run/Terraform; see [deploy_gcp_vm.md](deploy_gcp_vm.md) (static IP, firewall, VM service account, Secret Manager, daily disk snapshots; Postgres runs on the VM instead of Cloud SQL). Earlier findings for the Cloud Run/GKE options, kept for v2: the approved GHA platform has no Cloud Run deploy workflow, Terraform must live in a separate `{org}-{space}-iac` repo, Python CI is Poetry-based, and environment names are `dev/int/uat/prd` (no `staging`). The existing KWAgent path is Jenkins + Helm on CNTV GKE with Vault secrets. Local development runs fully in Docker Compose meanwhile.
   - [x] Implement OIDC SSO authentication in Next.js + BFF; inject verified `tenant_id` and `user_id` into request context middleware.
-    - *Done:* BFF side (`odn.tenancy`, `odn.api.deps`): JWKS-verified asymmetric-only tokens (issuer/audience/exp required), tenant resolved server-side from issuer + tenant claim, user upserted under RLS. Next.js (`frontend/app/auth/*`, `frontend/lib/*`): authorization code + PKCE + state + nonce via `openid-client`, session in an encrypted (A256GCM) HttpOnly cookie, `/api/odn/*` proxy adds the bearer token and enforces same-origin on writes. IdP-agnostic; verified locally against the mock IdP. Token refresh is not implemented yet (session ends at token expiry).
+    - *Done:* BFF side (`odn.tenancy`, `odn.api.deps`): JWKS-verified asymmetric-only tokens (issuer/audience/exp required), tenant resolved server-side from issuer + tenant claim, user upserted under RLS. Next.js (`frontend/app/auth/*`, `frontend/lib/*`): authorization code + PKCE + state + nonce via `openid-client`, session in an encrypted (A256GCM) HttpOnly cookie, `/api/odn/*` proxy adds the bearer token and enforces same-origin on writes. IdP-agnostic; verified locally against the mock IdP. Token refresh added 2026-11-17 (refresh tokens kept in the sealed session; Identity Platform always, Google when it issues one).
   - [x] Create core Postgres schema (`tenants`, `users`, `connections`, `audit_logs`) with Row-Level Security policies and cross-tenant isolation tests in CI.
-    - *Done:* `backend/src/odn/db/migrations/0001_core.sql` (FORCE RLS keyed on a transaction-local `odn.tenant_id`, fail-closed when unset; append-only audit log; tenant directory only reachable via a security-definer lookup). Isolation tests in `backend/tests/db/test_rls.py` (CI wiring pending).
+    - *Done:* `backend/src/odn/db/migrations/0001_core.sql` (FORCE RLS keyed on a transaction-local `odn.tenant_id`, fail-closed when unset; append-only audit log; tenant directory only reachable via a security-definer lookup). Isolation tests and an every-table-forces-RLS guard in `backend/tests/db/test_rls.py`, run in CI.
 - [ ] **Connector SPI & Query Service:**
   - [x] Define Python `BaseConnector` ABC and Pydantic data contracts (`CatalogNode`, `TableSchema`, `CostEstimate`, `QueryResultMeta`).
-  - [x] Productionize the Spike 1 `sqlglot` AST read-only & object-allowlist validator (fail-closed) with the adversarial suite running in CI. *(Suite runs in `pytest`; CI pipeline pending.)*
+  - [x] Productionize the Spike 1 `sqlglot` AST read-only & object-allowlist validator (fail-closed) with the adversarial suite running in CI. *(Runs in CI on every push.)*
   - [x] Implement `BigQueryConnector` (service-account credential resolver via Secret Manager, dry-run byte estimation, `maximum_bytes_billed` cap, job timeout, and cancellation).
     - *Done:* verified against `clgx-idap-bigquery-int-278e` locally. Secret refs must be tenant-prefixed Secret Manager names (`odn-<tenant_id>-*`) or, in local dev only, `file:` refs under `keys/`; there is no fallback to the platform identity. Explorer catalog/schema calls are filtered by the same allowlist as queries.
   - [x] Write an audit log record for every executed and rejected query.
@@ -266,8 +269,8 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
     - *Done:* `backend/src/odn/agent/` (ADK 2.14 + ag-ui-adk, LiteLLM proxy model from `LITELLM_*`). Tools `list_connections`, `list_tables`, `get_table_schema`, `run_sql` call the API as the signed-in user (token kept in a request context variable, never in session state). Over-threshold queries pause via ADK `request_confirmation` (resumable app) and render as an approve/deny card in chat; the tool re-checks that the approved payload matches the paused SQL, so the model cannot self-approve. The model receives a 5-row sample; the full grid reaches the UI through agent state. Sessions are in-memory and scoped per tenant+user (durable sessions later). The agent checks the user's favorites and recently queried tables first (`get_my_tables`; `list_tables` ranks them first).
   - [ ] Draft the first 25 BigQuery gold-benchmark questions and record a baseline execution accuracy.
     - *Not started:* questions and expected answers need the pilot data owners (no invented questions/answers).
-- [ ] **Exit Check:** Authenticated user logs into the hosted URL, browses BigQuery datasets, and runs a chat query; CI verifies cross-tenant isolation and 100% rejection on the adversarial SQL suite; current MVP BigQuery features work with no MCP.
-  - *Status:* passes locally (login → browse → chat query, no MCP; isolation and policy suites green in `pytest`). Hosted login, browse and query verified on `odn.datahop.ai` (2026-11-16); CI deferred (suites run with `pytest` before each deploy).
+- [x] **Exit Check:** Authenticated user logs into the hosted URL, browses BigQuery datasets, and runs a chat query; CI verifies cross-tenant isolation and 100% rejection on the adversarial SQL suite; current MVP BigQuery features work with no MCP.
+  - *Passed:* hosted login, browse and query on `odn.datahop.ai` (2026-11-16); GitHub Actions runs the isolation and adversarial suites on every push (2026-11-17). Phase 1 items left: the gold benchmark (rolled into Phase 3) and IaC (superseded by the single VM).
 
 ### Phase 2: Result Workspace, PM Explanations & Curated Schema — *Core MVP* (Weeks 4–6)
 
@@ -324,7 +327,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
   - [x] Enforce per-tenant daily LLM token/cost budgets on the managed key (hard stop + user-facing message).
     - *Done (2026-11-16):* `before_model_callback` checks `GET /v1/llm-budget` before every model call and, at or over the limit, answers with a plain message (used/limit, reset time 00:00 UTC, Explorer still works) without calling the model; fails closed if the budget can't be checked. Default `ODN_LLM_DAILY_TOKEN_BUDGET` (2M tokens/tenant/UTC day); per-tenant override in `tenant_llm_budgets` (operator-managed, read-only to the app). A single in-flight call can overshoot slightly; the next call is stopped. Token-based for now; cost-based limits need per-model prices.
 - [ ] **Exit Check:** Alpha user executes 1 warehouse query followed by 3 conversational follow-ups and 1 chart render with zero additional BigQuery scans and no result rows sent to the LLM beyond the optional 5-row preview. A PM sees a grounded one- or two-sentence logic/lineage explanation with SQL collapsed but accessible, and can find an approved BigQuery field and its source or curated definition in the schema explorer; missing definitions and partial results are labeled. CI verifies authorized edits and tenant isolation.
-  - *Status:* the workflow half passes locally (1 scan → 3 DuckDB follow-ups + chart, zero re-scans in the audit log; explanations and dictionary shown); telemetry and LLM budgets done. Open: running it on the hosted alpha; CI deferred.
+  - *Status:* the workflow half passes locally (1 scan → 3 DuckDB follow-ups + chart, zero re-scans in the audit log; explanations and dictionary shown); telemetry and LLM budgets done. CI now verifies authorized edits and tenant isolation. Open: running it on the hosted alpha.
 
 ### Phase 3: Postgres Connector & Lightweight Context Layer (Weeks 7–9)
 
@@ -333,8 +336,8 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 - [ ] **Postgres Connector & Private VPC Networking:**
   - [x] Implement `PostgresConnector` adhering to `BaseConnector` SPI (`psycopg` async pool, `EXPLAIN` cost/row estimation, read-only transaction mode, statement timeout enforcement, query cancellation).
     - *Done (2026-11-17, `303f56b`, `969b932`, `cf2c811`):* async pool, `EXPLAIN (FORMAT JSON)` estimate, `statement_timeout`, cancel by backend PID, catalog/schema with comments, `sslmode`; verified on AWS RDS `devindulge_aws`. Read-only enforced at the database (follow-up): `default_transaction_read_only=on` on every connection plus `SET TRANSACTION READ ONLY` per query, tested against live Postgres.
-  - [ ] Build DBeaver-style Connection Manager UI supporting BigQuery and Postgres profiles, *(BigQuery part done 2026-11-16; Postgres profiles, SSH tunnel form and Test connection diagnostics done 2026-11-17 in `c0fba60`, `37899b6`, `abced93`; remaining: keys in Secret Manager for tenant-shared tunnels — personal tunnel keys are encrypted in Postgres — and an end-to-end tunnel test against a real bastion)* SSH bastion tunnel configuration (keys in Secret Manager, mandatory host-key verification), and granular **Test Connection** diagnostics (Auth → Network → Metadata → Read Check).
-    - *Done (U7, `bf2c027`, `8b291a5`):* shared connections managed in Settings by admins/data leads (secrets encrypted with tenant-bound AAD instead of Secret Manager; operator refs still work); SSH tunnel rewritten and verified end to end through a real bastion with a pinned host key. Remaining: a test against a client's real bastion.
+  - [x] Build DBeaver-style Connection Manager UI supporting BigQuery and Postgres profiles, *(BigQuery 2026-11-16; Postgres profiles, SSH tunnel form and Test connection diagnostics 2026-11-17; shared connections and tunnel keys encrypted with tenant-bound AAD instead of Secret Manager, decision D3 in [Tenant_Isolation_User_system.md](Tenant_Isolation_User_system.md))* SSH bastion tunnel configuration (keys in Secret Manager, mandatory host-key verification), and granular **Test Connection** diagnostics (Auth → Network → Metadata → Read Check).
+    - *Done (U7, `bf2c027`, `8b291a5`):* shared connections managed in Settings by admins/data leads (secrets encrypted with tenant-bound AAD instead of Secret Manager; operator refs still work); SSH tunnel rewritten and verified end to end through a real bastion with a pinned host key. In production since 2026-11-18: Indulge's shared Postgres (direct). Remaining: a test against a client's real bastion.
 - [ ] **Lightweight Context Layer:**
   - [ ] Extend the Phase 2 explorer and curated-definition model to import
     descriptions for explicitly selected, approved Postgres schemas and
@@ -346,7 +349,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 - [ ] **Accuracy Evaluation Harness:**
   - [ ] Complete the 50-question gold benchmark (25 BigQuery, 25 Postgres) and automate execution-accuracy evaluation in CI, tracked per release.
 - [ ] **Exit Check:** Same natural-language analytical workflow runs cleanly on both BigQuery and Postgres (including one Postgres reached via SSH tunnel); approved Postgres fields and available descriptions appear in the curated explorer; gold eval set hits $\ge 80\%$ execution accuracy.
-  - *Status (2026-11-17):* the chat workflow runs on BigQuery and on a direct (no tunnel) AWS RDS Postgres, locally. Open: SSH-tunnel Postgres, Postgres descriptions in the curated explorer, gold eval, and the hosted run (needs the client's RDS to allow `136.71.108.203`).
+  - *Status (2026-11-18):* the chat workflow runs on BigQuery (Cotality) and on AWS RDS Postgres (Indulge, 46 production chat queries) on the hosted URL; Postgres through an SSH tunnel works against a test bastion. Open: a client bastion, Postgres descriptions in the curated explorer, and the gold eval.
 
 ### Phase 4: Skills v2, Enterprise Governance & v1 Release (Weeks 10–12)
 
@@ -418,8 +421,8 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 - [ ] Embedding model for `pgvector` context retrieval.
 - [ ] Workspace Parquet retention TTL (proposed: 24h) and whether users can pin artifacts longer. *Local/dev:* `gs://datahop` (prefix `odn/`) has a 3-day bucket default set by the owner; confirm whether that is a lifecycle delete rule or the soft-delete window, and align the app TTL with it.
 - [ ] Final worker RAM size and result cap (from Spike 2 results).
-- [x] OIDC identity provider(s) supported for the pilot. *Google sign-in: the Workspace `hd` claim maps a domain to a tenant (`ODN_OIDC_TENANT_DOMAINS`, e.g. `cotality.com=cotality`); other Google accounts go to the default tenant (`ODN_OIDC_DEFAULT_TENANT`), optionally limited by `ODN_OIDC_DEFAULT_TENANT_EMAILS`.*
-- [ ] Pilot organization and its target BigQuery/Postgres sources.
+- [x] OIDC identity provider(s) supported for the pilot. *Google SSO per Workspace domain and email + password via Google Identity Platform (one IdP tenant per client); the tenant comes from a directory in Postgres (`tenant_identity_providers`, `tenant_domains`), managed with `python -m odn.db.provision`. Personal Google accounts go to the DataHop tenant, limited by `ODN_OIDC_DEFAULT_TENANT_EMAILS`. See [Tenant_Isolation_User_system.md](Tenant_Isolation_User_system.md).*
+- [x] Pilot organization and its target BigQuery/Postgres sources. *Cotality (BigQuery `idap-int`) and Indulge (AWS RDS Postgres).*
 - [ ] Phase 5 Collibra access: auth model (per-user login vs. scoped service identity) and which environments (PRD, INT) each tenant may search.
-- [x] Deploy target and CI path. *Decided 2026-11-16: one GCP VM (`datahop-514819`, `e2-standard-4`) running Docker Compose, deployed manually with `deploy/deploy.sh`; no CI/CD for the MVP. GCP over AWS because BigQuery and `gs://datahop` are on GCP (no egress fees, VM service account instead of key files). Earlier options: (A) Jenkins + Helm on CNTV GKE; (B) Cloud Run + `-iac` Terraform repo.*
+- [x] Deploy target and CI path. *Decided 2026-11-16: one GCP VM (`datahop-514819`, `e2-standard-4`) running Docker Compose, deployed manually with `deploy/deploy.sh`; GitHub Actions runs tests and type-checks on every push (no automatic deploy). GCP over AWS because BigQuery and `gs://datahop` are on GCP (no egress fees, VM service account instead of key files). Earlier options: (A) Jenkins + Helm on CNTV GKE; (B) Cloud Run + `-iac` Terraform repo.*
 - [ ] Cost guardrails per tenant: confirmation threshold (now 10 GiB) and hard `maximum_bytes_billed` cap (now 100 GiB). Note: some approved views (e.g. `vw_edr_sdp_address_universe`, ~17–30 GB minimum per query because of a whole-table dedup) can never get cheaper; consider asking data owners for materialized/clustered copies of heavily used tables.
