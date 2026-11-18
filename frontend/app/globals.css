@@ -661,6 +661,14 @@ table.grid.dictionary td.def-cell { min-width: 260px; }
 
 /* Settings (in a light sheet) */
 .settings { display: grid; gap: 1rem; align-content: start; }
+.org-profile { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 1rem; margin: 0; font-size: 0.85rem; }
+.org-profile dt { color: var(--fg-muted); }
+.org-profile dd { margin: 0; overflow-wrap: anywhere; }
+.settings-form.org-invite { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); align-items: end; }
+.org-table { overflow-x: auto; }
+.org-table td { vertical-align: middle; }
+.org-actions { display: flex; gap: 0.6rem; }
+.org-events { margin: 0; padding-left: 1rem; font-size: 0.8rem; display: grid; gap: 0.25rem; overflow-wrap: anywhere; }
 .settings-card { border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
 .settings-card h2 { font-size: 0.95rem; margin: 0; }
 .settings-card h3 { margin: 0.5rem 0 0; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-muted); }

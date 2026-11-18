@@ -62,7 +62,7 @@ export default async function Home() {
   return (
     <div className="odn-app">
       <BrandBar theme={theme} company={identity.me.tenant.name ?? undefined} user={identity.displayName} />
-      <AppShell theme={theme} />
+      <AppShell theme={theme} role={identity.me.role} userId={identity.me.user_id} />
     </div>
   );
 }

@@ -123,21 +123,25 @@ def update_user(
     return dict(row)
 
 
-def revoke_invite(conn: psycopg.Connection, tenant_id: UUID, user_id: UUID) -> None:
-    cur = conn.execute(
-        "DELETE FROM users WHERE tenant_id = %s AND id = %s AND status = 'invited'", (tenant_id, user_id)
-    )
-    if cur.rowcount == 0:
+def revoke_invite(conn: psycopg.Connection, tenant_id: UUID, user_id: UUID) -> str:
+    """Delete a pending invite; returns its email."""
+    row = conn.execute(
+        "DELETE FROM users WHERE tenant_id = %s AND id = %s AND status = 'invited' RETURNING email", (tenant_id, user_id)
+    ).fetchone()
+    if row is None:
         raise DirectoryError("no pending invite for this user")
+    return row["email"]
 
 
-def resend_invite(conn: psycopg.Connection, tenant_id: UUID, user_id: UUID) -> None:
+def resend_invite(conn: psycopg.Connection, tenant_id: UUID, user_id: UUID) -> str:
+    """Send the invite again; returns its email."""
     row = conn.execute(
         "SELECT email, role FROM users WHERE tenant_id = %s AND id = %s AND status = 'invited'", (tenant_id, user_id)
     ).fetchone()
     if row is None:
         raise DirectoryError("no pending invite for this user")
     invite(conn, tenant_id, row["email"], row["role"])
+    return row["email"]
 
 
 def _sync_idp_disabled(conn: psycopg.Connection, email: str | None, disabled: bool) -> None:

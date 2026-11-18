@@ -6,7 +6,12 @@ import { config } from "./config";
 import { canRefresh, getSession, readSession } from "./session";
 
 export type TenantProfile = { slug: string; name: string | null; theme: string | null; auth_method: string | null };
-export type Me = { role: string; user: { email: string | null; name: string | null }; tenant: TenantProfile };
+export type Me = {
+  role: string;
+  user_id: string;
+  user: { email: string | null; name: string | null };
+  tenant: TenantProfile;
+};
 
 /** The signed-in identity as the API resolves it: a profile, an access refusal, or no session. */
 export type Identity =

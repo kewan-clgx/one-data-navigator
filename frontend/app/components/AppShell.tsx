@@ -15,6 +15,7 @@ import ArtifactsPanel from "./ArtifactsPanel";
 import ChatsPanel, { useConversations } from "./Conversations";
 import Explorer, { type ActiveConnection, type TableScope } from "./Explorer";
 import ResultsPanel, { AGENT_ID, type AgentState } from "./Results";
+import Organization from "./Organization";
 import Settings from "./Settings";
 import SplitPane from "./SplitPane";
 
@@ -25,6 +26,7 @@ const TABS = [
   { id: "results", label: "Results" },
   { id: "artifacts", label: "Artifacts" },
   { id: "settings", label: "Settings" },
+  { id: "organization", label: "Organization" },
 ] as const;
 
 type TabId = (typeof TABS)[number]["id"];
@@ -176,7 +178,9 @@ function ChatRenderers() {
   return null;
 }
 
-export default function AppShell({ theme }: { theme: Theme }) {
+export default function AppShell({ theme, role, userId }: { theme: Theme; role?: string; userId?: string }) {
+  // The Organization tab (people, invites) is for tenant admins only; the API enforces it too.
+  const tabs = role === "admin" ? TABS : TABS.filter((t) => t.id !== "organization");
   const [panelOpen, setPanelOpen] = useState(true);
   const [tab, setTab] = useState<TabId>("about");
   const [resultsUnseen, setResultsUnseen] = useState(false);
@@ -244,24 +248,24 @@ export default function AppShell({ theme }: { theme: Theme }) {
   );
 
   function onTabKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-    const index = TABS.findIndex((t) => t.id === tab);
+    const index = tabs.findIndex((t) => t.id === tab);
     const next =
-      e.key === "ArrowRight" ? (index + 1) % TABS.length
-      : e.key === "ArrowLeft" ? (index - 1 + TABS.length) % TABS.length
+      e.key === "ArrowRight" ? (index + 1) % tabs.length
+      : e.key === "ArrowLeft" ? (index - 1 + tabs.length) % tabs.length
       : e.key === "Home" ? 0
-      : e.key === "End" ? TABS.length - 1
+      : e.key === "End" ? tabs.length - 1
       : null;
     if (next === null) return;
     e.preventDefault();
-    selectTab(TABS[next].id);
-    tabRefs.current[TABS[next].id]?.focus();
+    selectTab(tabs[next].id);
+    tabRefs.current[tabs[next].id]?.focus();
   }
 
   const panel = (
     <section className={`odn-panel${tab === "about" ? " odn-decor" : ""}`} aria-label="Side panel">
       <div className="odn-tabs">
         <div role="tablist" aria-label="Side panel" className="odn-tablist" onKeyDown={onTabKeyDown}>
-          {TABS.map((t) => (
+          {tabs.map((t) => (
             <button
               key={t.id}
               ref={(el) => {
@@ -337,6 +341,11 @@ export default function AppShell({ theme }: { theme: Theme }) {
           <Settings />
         </div>
       </div>
+      {role === "admin" && (
+        <div role="tabpanel" id="tabpanel-organization" aria-labelledby="tab-organization" hidden={tab !== "organization"} className="odn-tabpanel">
+          <div className="odn-sheet">{tab === "organization" && <Organization currentUserId={userId} />}</div>
+        </div>
+      )}
     </section>
   );
 

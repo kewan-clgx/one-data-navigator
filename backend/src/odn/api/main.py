@@ -3,6 +3,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from google.auth import exceptions as auth_exc
 
+from odn.api.admin_routes import router as admin_router
 from odn.api.artifacts_routes import router as artifacts_router
 from odn.api.auth_routes import router as auth_router
 from odn.api.me_routes import router as me_router
@@ -19,6 +20,7 @@ app.include_router(usage_router)
 app.include_router(me_router)
 app.include_router(artifacts_router)
 app.include_router(auth_router)
+app.include_router(admin_router)
 
 
 @app.exception_handler(auth_exc.RefreshError)
