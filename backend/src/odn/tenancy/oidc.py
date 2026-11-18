@@ -1,4 +1,8 @@
-"""Verify OIDC ID/access tokens against the issuer's JWKS."""
+"""Verify OIDC ID tokens from the trusted issuers (Google, Identity Platform, local mock IdP) against their JWKS.
+
+Verification only proves who signed the token and extracts the raw tenant claim (`external_id`); which tenant
+that is, and whether the user may enter it, is decided from the tenant directory (odn.tenancy.context).
+"""
 
 from __future__ import annotations
 
@@ -11,6 +15,8 @@ import jwt
 # Asymmetric only: never accept "none" or shared-secret algorithms.
 ALLOWED_ALGORITHMS = ["RS256", "RS384", "RS512", "ES256", "ES384", "PS256"]
 
+IDP_JWKS_URL = "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com"
+
 
 class InvalidToken(Exception):
     pass
@@ -20,24 +26,22 @@ class InvalidToken(Exception):
 class VerifiedToken:
     issuer: str
     subject: str
-    tenant_slug: str
+    external_id: str  # raw tenant claim: Google hd domain, Identity Platform tenant id, mock tenant slug; "" if absent
     email: str | None
+    email_verified: bool
     name: str | None
 
 
 @dataclass(frozen=True)
 class TokenVerifier:
+    """One trusted issuer. `tenant_claim` may be a dotted path (Identity Platform: "firebase.tenant")."""
+
     issuer: str
     jwks_url: str
     audience: str
     tenant_claim: str
-    # Optional claim value -> tenant slug map (e.g. Google "hd" domain "cotality.com" -> "cotality").
-    # When set, the claim is looked up here instead of being used as the slug directly.
-    tenant_domains: Mapping[str, str] = field(default_factory=dict)
-    # Tenant for identities whose claim is missing or unmapped (e.g. personal Google accounts).
-    default_tenant: str = ""
-    # Verified emails (or "@domain" suffixes) allowed into the default tenant; empty = any.
-    default_tenant_emails: frozenset[str] = frozenset()
+    # A token without the tenant claim is invalid unless the issuer has a fallback tenant (Google personal accounts).
+    tenant_claim_required: bool = True
     leeway_s: int = 30
 
     @cached_property
@@ -59,37 +63,43 @@ class TokenVerifier:
         except jwt.PyJWTError as exc:
             raise InvalidToken(type(exc).__name__) from None
 
+        external_id = _claim(claims, self.tenant_claim)
+        if not external_id and self.tenant_claim_required:
+            raise InvalidToken(f"missing {self.tenant_claim} claim")
+        email = claims.get("email")
+        name = claims.get("name")
         return VerifiedToken(
             issuer=claims["iss"],
             subject=str(claims["sub"]),
-            tenant_slug=self._tenant_slug(claims),
-            email=claims.get("email"),
-            name=claims.get("name"),
+            external_id=external_id,
+            email=email if isinstance(email, str) and email else None,
+            email_verified=claims.get("email_verified") is True,
+            name=name if isinstance(name, str) and name else None,
         )
 
-    def _tenant_slug(self, claims: Mapping[str, object]) -> str:
-        value = claims.get(self.tenant_claim)
-        claim = value if isinstance(value, str) and value else None
-        if not self.tenant_domains and not self.default_tenant:
-            if claim is None:
-                raise InvalidToken(f"missing {self.tenant_claim} claim")
-            return claim
 
-        mapped = self.tenant_domains.get(claim.lower()) if claim else None
-        if mapped:
-            return mapped
-        if not self.default_tenant:
-            raise InvalidToken(f"{self.tenant_claim} claim does not map to a tenant")
-        if self.default_tenant_emails and not self._email_allowed(claims):
-            raise InvalidToken("email is not allowed")
-        return self.default_tenant
+def _claim(claims: Mapping[str, object], path: str) -> str:
+    value: object = claims
+    for part in path.split("."):
+        value = value.get(part) if isinstance(value, Mapping) else None
+    return value if isinstance(value, str) else ""
 
-    def _email_allowed(self, claims: Mapping[str, object]) -> bool:
-        email = claims.get("email")
-        if claims.get("email_verified") is not True or not isinstance(email, str) or "@" not in email:
-            return False
-        email = email.lower()
-        return email in self.default_tenant_emails or "@" + email.split("@", 1)[1] in self.default_tenant_emails
+
+@dataclass(frozen=True)
+class TrustedIssuers:
+    """Routes a token to its issuer's verifier by the (unverified) `iss` claim; the verifier re-checks it."""
+
+    verifiers: Mapping[str, TokenVerifier] = field(default_factory=dict)
+
+    def verify(self, token: str) -> VerifiedToken:
+        try:
+            issuer = jwt.decode(token, options={"verify_signature": False}).get("iss")
+        except jwt.PyJWTError as exc:
+            raise InvalidToken(type(exc).__name__) from None
+        verifier = self.verifiers.get(issuer) if isinstance(issuer, str) else None
+        if verifier is None:
+            raise InvalidToken("untrusted issuer")
+        return verifier.verify(token)
 
 
 def parse_tenant_domains(raw: str) -> dict[str, str]:
@@ -107,15 +117,32 @@ def parse_email_allowlist(raw: str) -> frozenset[str]:
     return frozenset(e.strip().lower() for e in raw.split(",") if e.strip())
 
 
-def verifier_from_settings() -> TokenVerifier:
+def email_allowed(email: str | None, email_verified: bool, allowlist: frozenset[str]) -> bool:
+    """Empty allowlist = anyone; else a verified email listed exactly or by "@domain"."""
+    if not allowlist:
+        return True
+    if not email_verified or not email or "@" not in email:
+        return False
+    email = email.lower()
+    return email in allowlist or "@" + email.split("@", 1)[1] in allowlist
+
+
+def verifier_from_settings() -> TrustedIssuers:
     from odn.config import settings
 
-    return TokenVerifier(
-        issuer=settings.oidc_issuer,
-        jwks_url=settings.oidc_jwks_url,
-        audience=settings.oidc_audience,
-        tenant_claim=settings.oidc_tenant_claim,
-        tenant_domains=parse_tenant_domains(settings.oidc_tenant_domains),
-        default_tenant=settings.oidc_default_tenant,
-        default_tenant_emails=parse_email_allowlist(settings.oidc_default_tenant_emails),
-    )
+    verifiers = {
+        settings.oidc_issuer: TokenVerifier(
+            issuer=settings.oidc_issuer,
+            jwks_url=settings.oidc_jwks_url,
+            audience=settings.oidc_audience,
+            tenant_claim=settings.oidc_tenant_claim,
+            # Google: personal accounts have no hd claim and fall back to the issuer's '*' tenant.
+            tenant_claim_required=settings.oidc_tenant_claim != "hd",
+        )
+    }
+    if settings.idp_project:
+        issuer = f"https://securetoken.google.com/{settings.idp_project}"
+        verifiers[issuer] = TokenVerifier(
+            issuer=issuer, jwks_url=IDP_JWKS_URL, audience=settings.idp_project, tenant_claim="firebase.tenant"
+        )
+    return TrustedIssuers(verifiers)

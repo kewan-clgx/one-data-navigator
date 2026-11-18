@@ -19,6 +19,9 @@ x-backend-env: &backend-env
   # Tokens are always minted via the in-network URL, so this is the issuer everywhere server-side.
   ODN_OIDC_ISSUER: http://oidc:8080/odn
   ODN_OIDC_JWKS_URL: http://oidc:8080/odn/jwks
+  # Password sign-in tenants (Google Identity Platform); empty = disabled.
+  ODN_IDP_PROJECT: ${ODN_IDP_PROJECT:-}
+  ODN_IDP_API_KEY: ${ODN_IDP_API_KEY:-}
   ODN_WORKER_URL: http://worker:8000
   ODN_AGENT_URL: http://agent:8000
 

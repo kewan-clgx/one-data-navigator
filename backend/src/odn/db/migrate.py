@@ -44,13 +44,52 @@ def migrate(url: str) -> list[str]:
 
 
 def seed_local(url: str, issuer: str) -> None:
-    """Idempotently create the local dev tenant bound to the mock OIDC issuer."""
+    """Idempotently create the local dev tenant bound to the mock OIDC issuer (tenant claim = slug)."""
     with psycopg.connect(url) as conn, conn.transaction():
-        conn.execute(
-            "INSERT INTO tenants (id, slug, name, oidc_issuer) VALUES (%s, %s, %s, %s) "
-            "ON CONFLICT (slug) DO UPDATE SET oidc_issuer = EXCLUDED.oidc_issuer",
+        tenant_id = conn.execute(
+            "INSERT INTO tenants (id, slug, name, oidc_issuer, auth_method, join_policy) "
+            "VALUES (%s, %s, %s, %s, 'oidc', 'domain') "
+            "ON CONFLICT (slug) DO UPDATE SET oidc_issuer = EXCLUDED.oidc_issuer RETURNING id",
             (uuid.uuid4(), LOCAL_TENANT_SLUG, "Local Development", issuer),
+        ).fetchone()[0]  # type: ignore[index]
+        conn.execute(
+            "INSERT INTO tenant_identity_providers (issuer, external_id, tenant_id) VALUES (%s, %s, %s) "
+            "ON CONFLICT (issuer, external_id) DO UPDATE SET tenant_id = EXCLUDED.tenant_id",
+            (issuer, LOCAL_TENANT_SLUG, tenant_id),
         )
+
+
+def import_env_tenant_mappings(url: str, issuer: str, domains_raw: str, default_tenant: str) -> list[str]:
+    """Copy the legacy env mapping (ODN_OIDC_TENANT_DOMAINS / ODN_OIDC_DEFAULT_TENANT) into the tenant directory.
+
+    Idempotent and additive: existing directory rows win, unknown tenant slugs are skipped. Env-listed domains
+    are treated as operator-attested (verified)."""
+    from odn.tenancy.oidc import parse_tenant_domains
+
+    if not issuer:
+        return []
+    pairs = [(d, s) for d, s in parse_tenant_domains(domains_raw).items()]
+    if default_tenant:
+        pairs.append(("*", default_tenant))
+    done: list[str] = []
+    with psycopg.connect(url) as conn, conn.transaction():
+        for external_id, slug in pairs:
+            row = conn.execute("SELECT id FROM tenants WHERE slug = %s", (slug,)).fetchone()
+            if row is None:
+                continue
+            conn.execute(
+                "INSERT INTO tenant_identity_providers (issuer, external_id, tenant_id) VALUES (%s, %s, %s) "
+                "ON CONFLICT DO NOTHING",
+                (issuer, external_id, row[0]),
+            )
+            if external_id != "*":
+                conn.execute(
+                    "INSERT INTO tenant_domains (domain, tenant_id, verified_at) VALUES (%s, %s, now()) "
+                    "ON CONFLICT DO NOTHING",
+                    (external_id, row[0]),
+                )
+            done.append(f"{external_id}->{slug}")
+    return done
 
 
 def _env_list(raw: str) -> list[str]:
@@ -131,6 +170,11 @@ def main() -> None:
     url = settings.migrations_database_url
     applied = migrate(url)
     print(f"migrations applied: {applied or 'none'}")
+    imported = import_env_tenant_mappings(
+        url, settings.oidc_issuer, settings.oidc_tenant_domains, settings.oidc_default_tenant
+    )
+    if imported:
+        print(f"tenant mappings from env: {', '.join(imported)}")
     if args.seed_local:
         if settings.env != "local":
             raise SystemExit("--seed-local is only allowed when ODN_ENV=local")

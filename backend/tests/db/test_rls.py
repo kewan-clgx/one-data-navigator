@@ -4,6 +4,7 @@ import os
 import uuid
 
 import psycopg
+import psycopg.rows
 import pytest
 from psycopg.types.json import Jsonb
 
@@ -95,16 +96,50 @@ def test_cannot_update_other_tenant_rows(tenants: tuple[uuid.UUID, uuid.UUID]) -
 def test_app_cannot_read_tenant_directory_or_delete_audit(tenants: tuple[uuid.UUID, uuid.UUID]) -> None:
     a, _ = tenants
     with psycopg.connect(APP_URL) as conn:
-        with pytest.raises(psycopg.errors.InsufficientPrivilege), conn.transaction():
-            conn.execute("SELECT * FROM tenants")
+        for table in ("tenants", "tenant_domains", "tenant_identity_providers"):
+            with pytest.raises(psycopg.errors.InsufficientPrivilege), conn.transaction():
+                conn.execute(f"SELECT * FROM {table}")
         with pytest.raises(psycopg.errors.InsufficientPrivilege), conn.transaction():
             _as_tenant(conn, a)
             conn.execute("DELETE FROM audit_logs")
 
 
-def test_resolve_tenant_requires_matching_issuer(tenants: tuple[uuid.UUID, uuid.UUID]) -> None:
-    a, _ = tenants
-    slug = f"t-{a.hex[:12]}"
-    with psycopg.connect(APP_URL) as conn:
-        assert conn.execute("SELECT odn_resolve_tenant(%s, 'test-issuer')", (slug,)).fetchone()[0] == a
-        assert conn.execute("SELECT odn_resolve_tenant(%s, 'other-issuer')", (slug,)).fetchone()[0] is None
+def test_resolve_identity(tenants: tuple[uuid.UUID, uuid.UUID]) -> None:
+    a, b = tenants
+    issuer = f"test-issuer-{a.hex[:8]}"
+    with psycopg.connect(OWNER_URL) as conn:
+        conn.execute(
+            "INSERT INTO tenant_identity_providers (issuer, external_id, tenant_id) VALUES (%s, 'acme.com', %s), (%s, '*', %s)",
+            (issuer, a, issuer, b),
+        )
+        conn.execute("INSERT INTO tenant_domains (domain, tenant_id, verified_at) VALUES (%s, %s, now())", (f"{a.hex[:8]}.acme.com", a))
+
+    def resolve(external_id: str, domain: str | None, iss: str = issuer):
+        with psycopg.connect(APP_URL, row_factory=psycopg.rows.dict_row) as conn:
+            return conn.execute("SELECT * FROM odn_resolve_identity(%s, %s, %s)", (iss, external_id, domain)).fetchone()
+
+    exact = resolve("ACME.com", f"{a.hex[:8]}.acme.com")
+    assert (exact["tenant_id"], exact["fallback"], exact["has_domains"], exact["domain_ok"]) == (a, False, True, True)
+    assert resolve("acme.com", "evil.com")["domain_ok"] is False
+    fallback = resolve("other.org", None)
+    assert (fallback["tenant_id"], fallback["fallback"], fallback["domain_ok"]) == (b, True, True)
+    assert resolve("acme.com", None, iss="other-issuer") is None
+
+
+# Tables the app role cannot read at all; every other table must force RLS.
+DIRECTORY_TABLES = {"tenants", "tenant_domains", "tenant_identity_providers", "schema_migrations"}
+
+
+def test_every_table_forces_rls_or_is_a_directory_table() -> None:
+    migrate(OWNER_URL)
+    with psycopg.connect(OWNER_URL) as conn:
+        rows = conn.execute(
+            "SELECT c.relname, c.relrowsecurity, c.relforcerowsecurity, has_table_privilege('odn_app', c.oid, 'SELECT') "
+            "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p')"
+        ).fetchall()
+    unprotected = [
+        name for name, rls, forced, app_reads in rows
+        if not (rls and forced) and (name not in DIRECTORY_TABLES or app_reads)
+    ]
+    assert unprotected == [], f"tables without FORCE ROW LEVEL SECURITY: {unprotected}"

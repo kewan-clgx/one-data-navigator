@@ -61,9 +61,24 @@ email and password to our BFF (same-origin, TLS). The BFF calls the Identity Pla
 and stores both in the sealed session cookie. The password is never stored or logged by us. The API verifies
 the ID token exactly like a Google token.
 
-*To confirm in the spike (U0):* `firebase.tenant` claim name and JWKS URL; whether completing a password-reset
-link sets `email_verified`; Firebase Auth emulator support for tenants (local dev); required IAM role for the
-VM service account to create users (Identity Platform Admin).
+*Confirmed in the U0 spike (2026-11-17, project `datahop-514819`, test tenant `indulge-test-xkke0`):*
+- Token: RS256, `iss = https://securetoken.google.com/datahop-514819`, `aud = datahop-514819`, tenant in
+  `firebase.tenant`, `firebase.sign_in_provider = password`; JWKS
+  `https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com` verifies with PyJWT.
+- Invite: admin creates the user (no password), then an admin-generated `PASSWORD_RESET` link
+  (`returnOobLink`, or emailed by Identity Platform) sets the password **and marks `email_verified = true`**.
+- Refresh (`securetoken.googleapis.com/v1/token`) returns a new ID token with the same tenant; ID tokens last 1 h.
+- Project-level password sign-in is disabled, so a request without `tenantId` fails (`PASSWORD_LOGIN_DISABLED`);
+  disabled users get `USER_DISABLED`.
+- Wrong password and unknown email return different codes (`INVALID_PASSWORD` / `EMAIL_NOT_FOUND`): the BFF
+  maps every failure to one generic message.
+- Project config: multi-tenancy on, password policy (≥ 12 chars, upper/lower/digit) enforced, authorized
+  domains include `odn.datahop.ai` and `localhost`; API key `odn-identity-platform` restricted to
+  `identitytoolkit` + `securetoken`.
+- Local dev uses the real Identity Platform with a dev tenant (free tier) instead of the emulator; tests use
+  locally signed JWTs and mocked HTTP.
+- The VM service account needs an Identity Platform admin role (`roles/identitytoolkit.admin`) to create and
+  disable users for invites.
 
 ## 4. Target architecture
 

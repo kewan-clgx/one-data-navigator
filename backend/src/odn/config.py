@@ -16,10 +16,14 @@ class Settings(BaseSettings):
     oidc_audience: str = "odn"
     oidc_tenant_claim: str = "tenant"
     # Google sign-in: "cotality.com=cotality" maps the hd claim to a tenant slug; others use the default.
+    # Legacy: imported into the tenant directory by `python -m odn.db.migrate`; remove after one release.
     oidc_tenant_domains: str = ""
     oidc_default_tenant: str = ""
-    # Comma-separated emails or "@domain" entries allowed into the default tenant; empty = anyone.
+    # Comma-separated emails or "@domain" entries allowed into the issuer's fallback ('*') tenant; empty = anyone.
     oidc_default_tenant_emails: str = ""
+    # Google Identity Platform (password sign-in tenants); empty project = disabled.
+    idp_project: str = ""
+    idp_api_key: str = ""
     # Local-only credential files for connections with secret_ref "file:<name>".
     keys_dir: str = "/app/keys"
     confirm_bytes_threshold: int = 10 * 1024**3

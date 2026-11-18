@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from odn.api.deps import Context, require_data_lead
 from odn.config import settings
+from odn.db import tenant_transaction
 from odn.platform.catalog.dictionary import (
     CuratedDefinition,
     DefinitionInput,
@@ -96,7 +97,23 @@ class QueryResponse(BaseModel):
 
 @router.get("/me")
 def me(ctx: Context) -> dict[str, Any]:
-    return {"tenant_id": ctx.tenant_id, "user_id": ctx.user_id, "subject": ctx.subject, "role": ctx.role}
+    with tenant_transaction(ctx.tenant_id, ctx.user_id) as conn:
+        user = conn.execute("SELECT email, display_name FROM users WHERE id = %s", (ctx.user_id,)).fetchone() or {}
+        tenant = conn.execute("SELECT * FROM odn_tenant_profile()").fetchone() or {}
+    return {
+        "tenant_id": ctx.tenant_id,
+        "user_id": ctx.user_id,
+        "subject": ctx.subject,
+        "role": ctx.role,
+        "user": {"email": user.get("email"), "name": user.get("display_name")},
+        "tenant": {
+            "slug": tenant.get("slug", ctx.tenant_slug),
+            "name": tenant.get("name"),
+            "theme": tenant.get("theme"),
+            "auth_method": tenant.get("auth_method"),
+            "domains": tenant.get("domains", []),
+        },
+    }
 
 
 @router.get("/connections")

@@ -1,13 +1,22 @@
-"""Resolve a verified token into the tenant/user request context (tenant never comes from client input)."""
+"""Resolve a verified token into the tenant/user request context (tenant never comes from client input).
+
+Rules (docs/Tenant_Isolation_User_system.md §4.2): the tenant comes from the token's (issuer, tenant claim)
+via the tenant directory; the tenant must be active; for tenants with domains the email must be verified and
+on one of them; the issuer's fallback tenant may restrict emails; disabled users are refused; invited users
+are linked by verified email; otherwise `join_policy = domain` admits new members and `invite` refuses them.
+"""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cache
 from typing import Literal
 from uuid import UUID
 
+import psycopg
+
 from odn.db import system_transaction, tenant_transaction
-from odn.tenancy.oidc import VerifiedToken
+from odn.tenancy.oidc import VerifiedToken, email_allowed, parse_email_allowlist
 
 Role = Literal["member", "data_lead", "admin"]
 
@@ -16,33 +25,110 @@ class UnknownTenant(Exception):
     pass
 
 
+class AccessDenied(Exception):
+    """The tenant exists but this identity may not use it (message is safe to show)."""
+
+
 @dataclass(frozen=True)
 class RequestContext:
     tenant_id: UUID
     user_id: UUID
     subject: str
     role: Role
+    tenant_slug: str = ""
+    email: str | None = None
+
+
+@cache
+def _fallback_allowlist() -> frozenset[str]:
+    from odn.config import settings
+
+    return parse_email_allowlist(settings.oidc_default_tenant_emails)
+
+
+def _email_domain(email: str | None) -> str | None:
+    return email.rsplit("@", 1)[1].lower() if email and "@" in email else None
 
 
 def resolve_context(token: VerifiedToken) -> RequestContext:
     with system_transaction() as conn:
-        row = conn.execute(
-            "SELECT odn_resolve_tenant(%s, %s) AS id", (token.tenant_slug, token.issuer)
+        tenant = conn.execute(
+            "SELECT * FROM odn_resolve_identity(%s, %s, %s)",
+            (token.issuer, token.external_id, _email_domain(token.email)),
         ).fetchone()
-    tenant_id = row["id"] if row else None
-    if tenant_id is None:
-        raise UnknownTenant(token.tenant_slug)
+    if tenant is None:
+        raise UnknownTenant(token.external_id)
+    if tenant["status"] != "active":
+        raise AccessDenied("this organization is suspended")
+    if tenant["has_domains"] and not (token.email_verified and tenant["domain_ok"]):
+        raise AccessDenied("your email is not on one of this organization's verified domains")
+    if tenant["fallback"] and not email_allowed(token.email, token.email_verified, _fallback_allowlist()):
+        raise AccessDenied("this account is not allowed to sign in")
 
+    tenant_id: UUID = tenant["tenant_id"]
     with tenant_transaction(tenant_id) as conn:
-        user = conn.execute(
-            """
-            INSERT INTO users (tenant_id, subject, email, display_name, last_login_at)
-            VALUES (%s, %s, %s, %s, now())
-            ON CONFLICT (tenant_id, subject) DO UPDATE
-              SET email = EXCLUDED.email, display_name = EXCLUDED.display_name, last_login_at = now()
-            RETURNING id, role
+        user = _sign_in(conn, tenant_id, token, tenant["join_policy"])
+    if user["status"] == "disabled":
+        raise AccessDenied("your account is disabled; contact your organization's admin")
+    return RequestContext(
+        tenant_id=tenant_id,
+        user_id=user["id"],
+        subject=token.subject,
+        role=user["role"],
+        tenant_slug=tenant["slug"],
+        email=token.email,
+    )
+
+
+_USER = "id, role, status"
+
+
+def _sign_in(conn: psycopg.Connection, tenant_id: UUID, token: VerifiedToken, join_policy: str) -> dict:
+    user = conn.execute(
+        f"""
+        UPDATE users SET email = coalesce(%s, email), display_name = coalesce(%s, display_name), last_login_at = now()
+        WHERE tenant_id = %s AND issuer IS NOT DISTINCT FROM %s AND subject = %s AND status <> 'disabled'
+          AND (last_login_at IS NULL OR last_login_at < now() - interval '5 minutes'
+               OR email IS DISTINCT FROM coalesce(%s, email) OR display_name IS DISTINCT FROM coalesce(%s, display_name))
+        RETURNING {_USER}
+        """,
+        (token.email, token.name, tenant_id, token.issuer, token.subject, token.email, token.name),
+    ).fetchone() or conn.execute(
+        f"SELECT {_USER} FROM users WHERE tenant_id = %s AND issuer IS NOT DISTINCT FROM %s AND subject = %s",
+        (tenant_id, token.issuer, token.subject),
+    ).fetchone()
+    if user is not None:
+        return user
+
+    if token.email and token.email_verified:
+        invited = conn.execute(
+            f"""
+            UPDATE users SET issuer = %s, subject = %s, status = 'active', display_name = coalesce(%s, display_name),
+                             last_login_at = now()
+            WHERE tenant_id = %s AND lower(email) = lower(%s) AND status = 'invited' AND subject IS NULL
+            RETURNING {_USER}
             """,
-            (tenant_id, token.subject, token.email, token.name),
+            (token.issuer, token.subject, token.name, tenant_id, token.email),
         ).fetchone()
-    assert user is not None
-    return RequestContext(tenant_id=tenant_id, user_id=user["id"], subject=token.subject, role=user["role"])
+        if invited is not None:
+            return invited
+
+    if join_policy != "domain":
+        raise AccessDenied("you have not been invited to this organization; ask its admin for an invite")
+    try:
+        with conn.transaction():
+            created = conn.execute(
+                f"""
+                INSERT INTO users (tenant_id, issuer, subject, email, display_name, last_login_at)
+                VALUES (%s, %s, %s, %s, %s, now())
+                ON CONFLICT (tenant_id, issuer, subject) WHERE subject IS NOT NULL
+                  DO UPDATE SET last_login_at = now()
+                RETURNING {_USER}
+                """,
+                (tenant_id, token.issuer, token.subject, token.email, token.name),
+            ).fetchone()
+    except psycopg.errors.UniqueViolation:
+        # Same email already registered under another sign-in method in this tenant.
+        raise AccessDenied("this email already has an account with a different sign-in method") from None
+    assert created is not None
+    return created

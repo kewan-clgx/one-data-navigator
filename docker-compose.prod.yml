@@ -24,6 +24,9 @@ x-prod-backend-env: &prod-backend-env
   ODN_OIDC_TENANT_DOMAINS: ${ODN_OIDC_TENANT_DOMAINS:-}
   ODN_OIDC_DEFAULT_TENANT: ${ODN_OIDC_DEFAULT_TENANT:-}
   ODN_OIDC_DEFAULT_TENANT_EMAILS: ${ODN_OIDC_DEFAULT_TENANT_EMAILS:-}
+  # Password sign-in tenants (Google Identity Platform); empty = disabled. Admin calls use the VM service account.
+  ODN_IDP_PROJECT: ${ODN_IDP_PROJECT:-}
+  ODN_IDP_API_KEY: ${ODN_IDP_API_KEY:-}
   ODN_WORKER_TOKEN: ${ODN_WORKER_TOKEN:?set in .env}
   ODN_AGENT_TOKEN: ${ODN_AGENT_TOKEN:?set in .env}
 
