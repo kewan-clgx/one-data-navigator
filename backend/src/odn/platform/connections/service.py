@@ -79,8 +79,9 @@ class ConnectionProfile(ConnectionInput):
         return self.owner_user_id is not None
 
 
-def _secret_aad(tenant_id: UUID, owner_user_id: UUID, connection_id: UUID) -> str:
-    return f"connection:{tenant_id}:{owner_user_id}:{connection_id}"
+def _secret_aad(tenant_id: UUID, owner_user_id: UUID | None, connection_id: UUID) -> str:
+    # Shared (organization) connections bind their secret to the tenant only.
+    return f"connection:{tenant_id}:{owner_user_id or 'shared'}:{connection_id}"
 
 
 def _ssh_key_aad(tenant_id: UUID, owner_user_id: UUID | None, connection_id: UUID) -> str:
@@ -285,8 +286,8 @@ def is_tenant_secret_ref(tenant_id: UUID, secret_ref: str) -> bool:
 
 def resolve_credentials(profile: ConnectionProfile) -> Credentials:
     """Every connection must carry its own credentials; the platform identity is never used as a fallback."""
-    if profile.personal:
-        if profile.secret_ciphertext is None or profile.owner_user_id is None:
+    if profile.secret_ciphertext is not None or profile.personal:
+        if profile.secret_ciphertext is None:
             raise CredentialError("this connection has no stored key")
         try:
             raw = crypto.decrypt(
@@ -324,8 +325,8 @@ def resolve_postgres_credentials(profile: ConnectionProfile) -> str | None:
     Raises:
         CredentialError: If decryption fails
     """
-    if profile.personal:
-        if profile.secret_ciphertext is None or profile.owner_user_id is None:
+    if profile.secret_ciphertext is not None or profile.personal:
+        if profile.secret_ciphertext is None:
             # No password stored; Postgres will attempt password-less auth
             return None
         try:
@@ -447,11 +448,24 @@ def save_personal_connection(
     tenant_id: UUID, user_id: UUID, data: PersonalConnectionInput, connection_id: UUID | None = None
 ) -> ConnectionProfile:
     """Create (connection_id None) or update one of the user's own connections (BigQuery or Postgres)."""
+    return save_connection(tenant_id, user_id, data, connection_id, shared=False)
+
+
+def save_connection(
+    tenant_id: UUID, user_id: UUID, data: PersonalConnectionInput, connection_id: UUID | None = None,
+    *, shared: bool = False,
+) -> ConnectionProfile:
+    """Create/update a personal connection, or (shared=True; callers check the role) an organization-wide one.
+
+    Secrets are encrypted with AAD bound to the tenant, the owner ('shared' for organization connections) and the
+    connection. Editing an operator-provisioned shared connection keeps its Secret Manager reference unless a new
+    key is supplied."""
     import psycopg
     from psycopg.types.json import Jsonb
 
+    owner = None if shared else user_id
     current = get_connection(tenant_id, user_id, connection_id) if connection_id else None
-    if connection_id and (current is None or current.owner_user_id != user_id):
+    if connection_id and (current is None or current.owner_user_id != owner):
         raise LookupError("connection not found")
     
     # Validate and extract credentials/secrets based on kind
@@ -459,6 +473,8 @@ def save_personal_connection(
         key = parse_service_account_key(data.credentials_json) if data.credentials_json else None
         if key is None and current is None:
             raise ValueError("a service-account JSON key is required for BigQuery")
+        if key is None and current is not None and current.kind != "bigquery":
+            raise ValueError("a service-account JSON key is required when switching to BigQuery")
         secret_to_encrypt = json.dumps(key).encode() if key is not None else None
     elif data.kind == "postgres":
         # For Postgres, encrypt the password if provided
@@ -473,13 +489,13 @@ def save_personal_connection(
     spec = data.resolved(key, current)
     cid = connection_id or uuid4()
     ciphertext = (
-        crypto.encrypt(secret_to_encrypt, _secret_aad(tenant_id, user_id, cid)) if secret_to_encrypt is not None else None
+        crypto.encrypt(secret_to_encrypt, _secret_aad(tenant_id, owner, cid)) if secret_to_encrypt is not None else None
     )
     tunnel = data.ssh_tunnel if data.kind == "postgres" else None
     ssh_key = tunnel.ssh_private_key if tunnel else None
     if tunnel and ssh_key is None and (current is None or current.ssh_key_ciphertext is None):
         raise ValueError("an SSH private key is required for the tunnel")
-    ssh_ciphertext = crypto.encrypt(ssh_key.encode(), _ssh_key_aad(tenant_id, user_id, cid)) if ssh_key else None
+    ssh_ciphertext = crypto.encrypt(ssh_key.encode(), _ssh_key_aad(tenant_id, owner, cid)) if ssh_key else None
     # No tunnel any more: drop the stored key. Tunnel without a new key: keep the stored one.
     keep_ssh_key = tunnel is not None and ssh_key is None
     
@@ -493,7 +509,7 @@ def save_personal_connection(
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     RETURNING {_COLUMNS}
                     """,
-                    (cid, tenant_id, user_id, spec.name, spec.kind, Jsonb(spec.config), spec.allowed_objects,
+                    (cid, tenant_id, owner, spec.name, spec.kind, Jsonb(spec.config), spec.allowed_objects,
                      ciphertext, ssh_ciphertext, user_id),
                 ).fetchone()
             else:
@@ -502,13 +518,14 @@ def save_personal_connection(
                     UPDATE connections
                        SET name = %s, config = %s, allowed_objects = %s,
                            secret_ciphertext = coalesce(%s, secret_ciphertext),
+                           secret_ref = CASE WHEN %s::bytea IS NULL THEN secret_ref END,
                            ssh_key_ciphertext = CASE WHEN %s THEN ssh_key_ciphertext ELSE %s END,
                            updated_at = now()
-                     WHERE id = %s AND owner_user_id = %s
+                     WHERE id = %s AND owner_user_id IS NOT DISTINCT FROM %s
                     RETURNING {_COLUMNS}
                     """,
-                    (spec.name, Jsonb(spec.config), spec.allowed_objects, ciphertext, keep_ssh_key, ssh_ciphertext,
-                     cid, user_id),
+                    (spec.name, Jsonb(spec.config), spec.allowed_objects, ciphertext, ciphertext, keep_ssh_key,
+                     ssh_ciphertext, cid, owner),
                 ).fetchone()
     except psycopg.errors.UniqueViolation:
         raise DuplicateName(spec.name) from None
@@ -518,11 +535,17 @@ def save_personal_connection(
 
 
 def delete_personal_connection(tenant_id: UUID, user_id: UUID, connection_id: UUID) -> bool:
+    return delete_connection(tenant_id, user_id, connection_id, shared=False) is not None
+
+
+def delete_connection(tenant_id: UUID, user_id: UUID, connection_id: UUID, *, shared: bool = False) -> str | None:
+    """Delete a personal (or, shared=True, an organization) connection; returns its name if it existed."""
     with tenant_transaction(tenant_id, user_id) as conn:
-        cur = conn.execute(
-            "DELETE FROM connections WHERE id = %s AND owner_user_id = %s", (connection_id, user_id)
-        )
-    return cur.rowcount > 0
+        row = conn.execute(
+            "DELETE FROM connections WHERE id = %s AND owner_user_id IS NOT DISTINCT FROM %s RETURNING name",
+            (connection_id, None if shared else user_id),
+        ).fetchone()
+    return row["name"] if row else None
 
 
 def unsaved_connector(data: PersonalConnectionInput, current: ConnectionProfile | None) -> BaseConnector:

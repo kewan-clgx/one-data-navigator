@@ -234,7 +234,15 @@ function draftOf(c: Connection): Draft {
   };
 }
 
-function ConnectionForm({ initial, onDone }: { initial: Draft; onDone: (saved: boolean) => void }) {
+function ConnectionForm({
+  initial,
+  onDone,
+  base = "me/connections",
+}: {
+  initial: Draft;
+  onDone: (saved: boolean) => void;
+  base?: string;
+}) {
   const ids = useId();
   const [d, setD] = useState<Draft>(initial);
   const [steps, setSteps] = useState<Step[] | null>(null);
@@ -282,7 +290,7 @@ function ConnectionForm({ initial, onDone }: { initial: Draft; onDone: (saved: b
     setSteps(null);
     try {
       const q = editing ? `?connection_id=${initial.id}` : "";
-      setSteps(await api<Step[]>(`me/connections/test${q}`, { method: "POST", body: payload(true) }));
+      setSteps(await api<Step[]>(`${base}/test${q}`, { method: "POST", body: payload(true) }));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -295,7 +303,7 @@ function ConnectionForm({ initial, onDone }: { initial: Draft; onDone: (saved: b
     setBusy(true);
     setError(null);
     try {
-      await api(editing ? `me/connections/${initial.id}` : "me/connections", {
+      await api(editing ? `${base}/${initial.id}` : base, {
         method: editing ? "PUT" : "POST",
         body: payload(),
       });
@@ -383,11 +391,12 @@ function ConnectionForm({ initial, onDone }: { initial: Draft; onDone: (saved: b
   );
 }
 
-function ConnectionsSection() {
+function ConnectionsSection({ canManageShared = false }: { canManageShared?: boolean }) {
   const ids = useId();
   const [connections, setConnections] = useState<Connection[]>([]);
-  const [editing, setEditing] = useState<{ kind: string; draft: any } | null>(null);
+  const [editing, setEditing] = useState<{ kind: string; draft: any; shared: boolean } | null>(null);
   const [showKindPicker, setShowKindPicker] = useState(false);
+  const [shareNew, setShareNew] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -395,10 +404,13 @@ function ConnectionsSection() {
   }, []);
   useEffect(load, [load]);
 
+  const baseOf = (shared: boolean) => (shared ? "connections/shared" : "me/connections");
+
   async function remove(c: Connection) {
-    if (!window.confirm(`Delete connection "${c.name}"? Its saved key is deleted too.`)) return;
+    const who = c.scope === "shared" ? " It is removed for everyone in your organization." : "";
+    if (!window.confirm(`Delete connection "${c.name}"? Its saved key is deleted too.${who}`)) return;
     try {
-      await api(`me/connections/${c.id}`, { method: "DELETE" });
+      await api(`${baseOf(c.scope === "shared")}/${c.id}`, { method: "DELETE" });
       notify(CONNECTIONS_CHANGED);
       load();
     } catch (e) {
@@ -407,21 +419,35 @@ function ConnectionsSection() {
   }
 
   function startEdit(c: Connection) {
+    const shared = c.scope === "shared";
     if (c.kind === "postgres") {
-      setEditing({ kind: "postgres", draft: draftOfPostgres(c) });
+      setEditing({ kind: "postgres", draft: draftOfPostgres(c), shared });
     } else {
-      setEditing({ kind: "bigquery", draft: draftOf(c) });
+      setEditing({ kind: "bigquery", draft: draftOf(c), shared });
     }
   }
 
   function startNew(kind: string) {
+    const shared = canManageShared && shareNew;
     if (kind === "postgres") {
-      setEditing({ kind: "postgres", draft: EMPTY_POSTGRES_DRAFT });
+      setEditing({ kind: "postgres", draft: EMPTY_POSTGRES_DRAFT, shared });
     } else {
-      setEditing({ kind: "bigquery", draft: EMPTY });
+      setEditing({ kind: "bigquery", draft: EMPTY, shared });
     }
     setShowKindPicker(false);
   }
+
+  const manageButtons = (c: Connection) => (
+    <>
+      {" "}
+      <button type="button" className="link" onClick={() => startEdit(c)}>
+        Edit
+      </button>{" "}
+      <button type="button" className="link danger" onClick={() => remove(c)}>
+        Delete
+      </button>
+    </>
+  );
 
   const shared = connections.filter((c) => c.scope === "shared");
   const personal = connections.filter((c) => c.scope === "personal");
@@ -453,13 +479,18 @@ function ConnectionsSection() {
       <p className="muted">
         Connect your own BigQuery or PostgreSQL databases. Your connections and keys are visible only to you; queries
         still go through read-only checks and cost limits.
+        {canManageShared && " As an admin or data lead you can also share connections with your whole organization."}
       </p>
-      {shared.length > 0 && (
+      {(shared.length > 0 || canManageShared) && (
         <>
           <h3>Shared by your organization</h3>
+          {shared.length === 0 && <p className="muted">No shared connections yet.</p>}
           <ul className="connection-list">
             {shared.map((c) => (
-              <li key={c.id}>{connectionDisplay(c)}</li>
+              <li key={c.id}>
+                {connectionDisplay(c)}
+                {canManageShared && manageButtons(c)}
+              </li>
             ))}
           </ul>
         </>
@@ -469,13 +500,8 @@ function ConnectionsSection() {
       <ul className="connection-list">
         {personal.map((c) => (
           <li key={c.id}>
-            {connectionDisplay(c)}{" "}
-            <button type="button" className="link" onClick={() => startEdit(c)}>
-              Edit
-            </button>{" "}
-            <button type="button" className="link danger" onClick={() => remove(c)}>
-              Delete
-            </button>
+            {connectionDisplay(c)}
+            {manageButtons(c)}
           </li>
         ))}
       </ul>
@@ -483,6 +509,7 @@ function ConnectionsSection() {
         editing.kind === "postgres" ? (
           <PostgresConnectionForm
             key={editing.draft.id ?? "new"}
+            base={baseOf(editing.shared)}
             initial={editing.draft}
             onDone={(saved) => {
               setEditing(null);
@@ -492,6 +519,7 @@ function ConnectionsSection() {
         ) : (
           <ConnectionForm
             key={editing.draft.id ?? "new"}
+            base={baseOf(editing.shared)}
             initial={editing.draft}
             onDone={(saved) => {
               setEditing(null);
@@ -501,6 +529,12 @@ function ConnectionsSection() {
         )
       ) : showKindPicker ? (
         <div className="connection-kind-picker">
+          {canManageShared && (
+            <label className="connection-share">
+              <input type="checkbox" checked={shareNew} onChange={(e) => setShareNew(e.target.checked)} /> Share with
+              everyone in my organization
+            </label>
+          )}
           <p>Select a data source type:</p>
           <div className="settings-actions">
             <button type="button" onClick={() => startNew("bigquery")}>
@@ -524,11 +558,11 @@ function ConnectionsSection() {
   );
 }
 
-export default function Settings() {
+export default function Settings({ role }: { role?: string }) {
   return (
     <div className="settings">
       <LlmKeySection />
-      <ConnectionsSection />
+      <ConnectionsSection canManageShared={role === "admin" || role === "data_lead"} />
     </div>
   );
 }

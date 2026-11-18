@@ -87,3 +87,41 @@ def test_admin_cannot_touch_another_tenants_users(env) -> None:
     c = as_(admin_a)
     assert c.patch(f"/v1/admin/users/{victim.user_id}", json={"status": "disabled"}).status_code == 404
     assert all(u["email"] != f"v@{dom_b}" for u in c.get("/v1/admin/users").json())
+
+
+def test_shared_connections_are_managed_by_leads_and_visible_to_all(env, monkeypatch: pytest.MonkeyPatch) -> None:
+    import base64
+    import os
+
+    from odn.platform.connections.service import get_connection, resolve_postgres_credentials
+
+    monkeypatch.setattr(settings, "secrets_key", base64.urlsafe_b64encode(os.urandom(32)).decode())
+    tenant, user, as_ = env
+    _, dom = tenant()
+    _, other_dom = tenant()
+    lead, member, outsider = user(dom, "lead", "data_lead"), user(dom, "pat"), user(other_dom, "eve", "admin")
+    body = {"name": "warehouse", "kind": "postgres", "host": "db.example.com", "database": "d", "user": "reader",
+            "password": "s3cret"}
+
+    assert as_(member).post("/v1/connections/shared", json=body).status_code == 403
+    created = as_(lead).post("/v1/connections/shared", json=body)
+    assert created.status_code == 201, created.text
+    cid = created.json()["id"]
+
+    seen = {c["id"]: c for c in as_(member).get("/v1/connections").json()}
+    assert seen[cid]["scope"] == "shared" and "password" not in seen[cid]["config"]
+    profile = get_connection(lead.tenant_id, member.user_id, uuid.UUID(cid))
+    assert profile is not None and resolve_postgres_credentials(profile) == "s3cret"
+
+    renamed = as_(lead).put(f"/v1/connections/shared/{cid}", json={**body, "name": "warehouse-2", "password": None})
+    assert renamed.json()["name"] == "warehouse-2"  # password omitted: the stored one is kept
+    profile = get_connection(lead.tenant_id, lead.user_id, uuid.UUID(cid))
+    assert profile is not None and resolve_postgres_credentials(profile) == "s3cret"
+
+    assert as_(member).delete(f"/v1/connections/shared/{cid}").status_code == 403
+    assert as_(outsider).delete(f"/v1/connections/shared/{cid}").status_code == 404
+    assert as_(lead).delete(f"/v1/connections/shared/{cid}").status_code == 204
+    admin = user(dom, "boss", "admin")
+    actions = [(e["action"], e["target"]) for e in as_(admin).get("/v1/admin/events").json()]
+    assert actions == [("connection.deleted", "warehouse-2"), ("connection.updated", "warehouse-2"),
+                       ("connection.created", "warehouse")]

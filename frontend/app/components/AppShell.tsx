@@ -338,7 +338,7 @@ export default function AppShell({ theme, role, userId }: { theme: Theme; role?:
       </div>
       <div role="tabpanel" id="tabpanel-settings" aria-labelledby="tab-settings" hidden={tab !== "settings"} className="odn-tabpanel">
         <div className="odn-sheet">
-          <Settings />
+          <Settings role={role} />
         </div>
       </div>
       {role === "admin" && (

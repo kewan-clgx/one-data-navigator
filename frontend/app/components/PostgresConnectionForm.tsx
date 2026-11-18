@@ -73,7 +73,16 @@ function draftOf(c: any): Draft {
   };
 }
 
-export default function PostgresConnectionForm({ initial, onDone }: { initial: Draft; onDone: (saved: boolean) => void }) {
+export default function PostgresConnectionForm({
+  initial,
+  onDone,
+  base = "me/connections",
+}: {
+  initial: Draft;
+  onDone: (saved: boolean) => void;
+  /** API collection: "me/connections" (personal) or "connections/shared" (organization). */
+  base?: string;
+}) {
   const ids = useId();
   const [d, setD] = useState<Draft>(initial);
   const [steps, setSteps] = useState<Step[] | null>(null);
@@ -121,7 +130,7 @@ export default function PostgresConnectionForm({ initial, onDone }: { initial: D
     setSteps(null);
     try {
       const q = editing ? `?connection_id=${initial.id}` : "";
-      setSteps(await api<Step[]>(`me/connections/test${q}`, { method: "POST", body: payload(true) }));
+      setSteps(await api<Step[]>(`${base}/test${q}`, { method: "POST", body: payload(true) }));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -134,7 +143,7 @@ export default function PostgresConnectionForm({ initial, onDone }: { initial: D
     setBusy(true);
     setError(null);
     try {
-      await api(editing ? `me/connections/${initial.id}` : "me/connections", {
+      await api(editing ? `${base}/${initial.id}` : base, {
         method: editing ? "PUT" : "POST",
         body: payload(),
       });

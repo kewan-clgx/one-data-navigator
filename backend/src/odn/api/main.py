@@ -8,6 +8,7 @@ from odn.api.artifacts_routes import router as artifacts_router
 from odn.api.auth_routes import router as auth_router
 from odn.api.me_routes import router as me_router
 from odn.api.routes import router
+from odn.api.shared_connections_routes import router as shared_connections_router
 from odn.api.usage_routes import router as usage_router
 from odn.api.workspace_routes import router as workspace_router
 from odn.config import settings
@@ -15,6 +16,7 @@ from odn.platform.connectors.ssh_tunnel import TunnelError
 
 app = FastAPI(title="One Data Navigator API")
 app.add_middleware(GZipMiddleware, minimum_size=2048)
+app.include_router(shared_connections_router)
 app.include_router(router)
 app.include_router(workspace_router)
 app.include_router(usage_router)
