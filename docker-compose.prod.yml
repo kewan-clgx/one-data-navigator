@@ -111,6 +111,8 @@ services:
       # Google access tokens are opaque; the API verifies the ID token instead.
       ODN_OIDC_API_TOKEN: id_token
       ODN_OIDC_PROMPT: select_account
+      # "offline" asks Google for a refresh token so sessions renew past the 1-hour ID token.
+      ODN_OIDC_ACCESS_TYPE: ${ODN_OIDC_ACCESS_TYPE:-}
       ODN_SESSION_SECRET: ${ODN_SESSION_SECRET:?set in .env}
     volumes: !reset []
     ports: !reset []
