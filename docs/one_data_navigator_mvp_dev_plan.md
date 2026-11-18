@@ -204,20 +204,21 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 3. **Done 2026-11-17 (follow-up to item 1's work):**
    - *Active connection shared with the agent:* Explorer reports the connection the user picked (remembered across reloads) or the only connection; `ScopeContext` tells the agent to stay on it. A connection Explorer selects only by default is not a scope, so the agent asks instead of assuming BigQuery.
    - *Postgres read-only enforcement:* every connector connection starts with `default_transaction_read_only=on`, and each query runs on its own connection that issues `SET TRANSACTION READ ONLY` with `SET LOCAL statement_timeout`/`search_path`, then closes. Test `tests/platform/test_postgres_read_only.py` (live Postgres): `SELECT nextval(...)` is refused, flipping the session default does not re-enable writes, and plain `SELECT` works. This also fixes a leak where every query kept a pooled connection checked out (the second query on a 1-connection pool waited 30 s and failed). Still recommend least-privilege read-only DB users in the onboarding guide.
-4. **Gold benchmark (Phase 1):** draft 25 BigQuery questions with the pilot data owners and record baseline execution accuracy.
-5. **Production hardening:**
-   - OIDC token refresh (prod sessions end after the 1-hour Google ID token).
+4. **Tenant & user system** ([Tenant_Isolation_User_system.md](Tenant_Isolation_User_system.md), ≈21 days): tenant directory (domains, identity providers, admins, status) in Postgres instead of env; per-client sign-in (Cotality via Google SSO, Indulge via email + password on Google Identity Platform); sign-in with organization + work email; tenant admin console (invite, roles, disable); "{tenant name} | Smart Data Navigator" brand bar; isolation hardening (RLS guard test, GCS key assertion, tenant-prefixed cache keys); shared connections and SSH tunnel secrets inside the tenant model.
+5. **Gold benchmark (Phase 1):** draft 25 BigQuery questions with the pilot data owners and record baseline execution accuracy.
+6. **Production hardening:**
+   - OIDC token refresh (prod sessions end after the 1-hour Google ID token); planned in U3 of the tenant & user system.
    - Local dev seed: the `local` tenant can end up with an empty `oidc_issuer` ("tenant is not provisioned"); make `--seed-local` set `http://oidc:8080/odn`.
    - Summary stats for the LLM.
    - Keyboard-accessibility tests for the explorer, dictionary and the new panel tabs.
    - Run the Phase 1 and Phase 2 exit checks on the hosted URL.
    - CI (policy suite, RLS isolation tests, lint, image builds).
-6. **Workspace retention:** decide the Parquet/upload TTL and whether users can delete individual artifacts (only whole conversations can be deleted today; their artifacts are kept).
-7. **Architecture sign-off:** close the [Open Decisions](#6-open-decisions-to-close-at-spike-sign-off).
-8. **Phase 3 remainder:** a Postgres reached through an SSH tunnel end to end; Postgres descriptions in the curated explorer; opt-in pgvector metadata sync and semantic (embedding) table retrieval to replace keyword matching; pinned joins and verified metrics; 50-question gold benchmark.
-9. **Phase 4:** Skills v2, column masking, security review, load test, pilot onboarding guide.
-10. **Phase 5 (post-v1):** Collibra catalog integration.
-11. **Later options:**
+7. **Workspace retention:** decide the Parquet/upload TTL and whether users can delete individual artifacts (only whole conversations can be deleted today; their artifacts are kept).
+8. **Architecture sign-off:** close the [Open Decisions](#6-open-decisions-to-close-at-spike-sign-off).
+9. **Phase 3 remainder:** a Postgres reached through an SSH tunnel end to end; Postgres descriptions in the curated explorer; opt-in pgvector metadata sync and semantic (embedding) table retrieval to replace keyword matching; pinned joins and verified metrics; 50-question gold benchmark.
+10. **Phase 4:** Skills v2, column masking, security review, load test, pilot onboarding guide.
+11. **Phase 5 (post-v1):** Collibra catalog integration.
+12. **Later options:**
    - Pass attached images to vision-capable models; today the agent knows an image was attached but cannot see it.
    - Additional enterprise themes (B, C, D) as clients onboard.
    - A small usage view for telemetry.
@@ -329,6 +330,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
   - [x] Implement `PostgresConnector` adhering to `BaseConnector` SPI (`psycopg` async pool, `EXPLAIN` cost/row estimation, read-only transaction mode, statement timeout enforcement, query cancellation).
     - *Done (2026-11-17, `303f56b`, `969b932`, `cf2c811`):* async pool, `EXPLAIN (FORMAT JSON)` estimate, `statement_timeout`, cancel by backend PID, catalog/schema with comments, `sslmode`; verified on AWS RDS `devindulge_aws`. Read-only enforced at the database (follow-up): `default_transaction_read_only=on` on every connection plus `SET TRANSACTION READ ONLY` per query, tested against live Postgres.
   - [ ] Build DBeaver-style Connection Manager UI supporting BigQuery and Postgres profiles, *(BigQuery part done 2026-11-16; Postgres profiles, SSH tunnel form and Test connection diagnostics done 2026-11-17 in `c0fba60`, `37899b6`, `abced93`; remaining: keys in Secret Manager for tenant-shared tunnels — personal tunnel keys are encrypted in Postgres — and an end-to-end tunnel test against a real bastion)* SSH bastion tunnel configuration (keys in Secret Manager, mandatory host-key verification), and granular **Test Connection** diagnostics (Auth → Network → Metadata → Read Check).
+    - *Next:* shared connections, their secrets (`odn-<tenant_id>-conn-*` / `-ssh-*`) and admin roles are planned in U7 of [Tenant_Isolation_User_system.md](Tenant_Isolation_User_system.md).
 - [ ] **Lightweight Context Layer:**
   - [ ] Extend the Phase 2 explorer and curated-definition model to import
     descriptions for explicitly selected, approved Postgres schemas and
