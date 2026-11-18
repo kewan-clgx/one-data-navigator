@@ -77,6 +77,37 @@ def refresh(refresh_token: str) -> Tokens:
     return Tokens(data["id_token"], data["refresh_token"], int(data["expires_in"]))
 
 
+class ResetLinkInvalid(IdentityPlatformError):
+    """The emailed link is expired, already used or malformed."""
+
+
+class WeakPassword(IdentityPlatformError):
+    """The new password does not meet the project password policy (message lists what is missing)."""
+
+
+def _reset_call(body: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return _key_call("accounts:resetPassword", body)
+    except IdentityPlatformError as exc:
+        code = str(exc)
+        if code.startswith(("EXPIRED_OOB_CODE", "INVALID_OOB_CODE", "USER_DISABLED", "USER_NOT_FOUND")):
+            raise ResetLinkInvalid("this link has expired or was already used") from None
+        if code.startswith(("PASSWORD_DOES_NOT_MEET_REQUIREMENTS", "WEAK_PASSWORD")):
+            missing = code.partition("[")[2].rstrip("]").strip()
+            raise WeakPassword("the password needs " + (missing.lower() if missing else "to be stronger")) from None
+        raise
+
+
+def check_reset_code(idp_tenant_id: str, oob_code: str) -> str:
+    """Email the set/reset-password link belongs to (does not use up the code)."""
+    return _reset_call({"oobCode": oob_code, "tenantId": idp_tenant_id})["email"]
+
+
+def confirm_reset(idp_tenant_id: str, oob_code: str, new_password: str) -> str:
+    """Set the password from an emailed link; returns the account email (now verified)."""
+    return _reset_call({"oobCode": oob_code, "tenantId": idp_tenant_id, "newPassword": new_password})["email"]
+
+
 def send_password_email(idp_tenant_id: str, email: str) -> None:
     """Identity Platform emails a set/reset-password link. Silent for unknown emails (no enumeration)."""
     try:

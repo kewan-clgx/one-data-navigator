@@ -52,7 +52,7 @@ def users():
     u1, u2, u3 = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     with psycopg.connect(OWNER_URL) as conn:
         for tenant, members in ((t, (u1, u2)), (t2, (u3,))):
-            conn.execute("INSERT INTO tenants (id, slug, name, oidc_issuer) VALUES (%s, %s, 'x', 'iss')",
+            conn.execute("INSERT INTO tenants (id, slug, name) VALUES (%s, %s, 'x')",
                          (tenant, f"t-{tenant.hex[:12]}"))
             for u in members:
                 conn.execute("INSERT INTO users (id, tenant_id, subject) VALUES (%s, %s, %s)", (u, tenant, u.hex))

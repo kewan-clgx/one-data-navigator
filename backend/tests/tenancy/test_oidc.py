@@ -108,12 +108,3 @@ def test_fallback_email_allowlist(email: str | None, verified: bool, allowed: bo
 
 def test_empty_allowlist_allows_anyone() -> None:
     assert email_allowed(None, False, frozenset()) is True
-
-
-def test_parse_tenant_domains() -> None:
-    from odn.tenancy.oidc import parse_tenant_domains
-
-    assert parse_tenant_domains(" Cotality.com=cotality , a.org=a ") == {"cotality.com": "cotality", "a.org": "a"}
-    assert parse_tenant_domains("") == {}
-    with pytest.raises(ValueError):
-        parse_tenant_domains("cotality.com")

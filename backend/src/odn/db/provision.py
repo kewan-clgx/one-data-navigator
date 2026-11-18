@@ -56,7 +56,6 @@ def upsert_tenant(
     url: str,
     slug: str,
     name: str,
-    issuer: str | None = None,
     *,
     auth: str | None = None,
     join: str | None = None,
@@ -68,12 +67,11 @@ def upsert_tenant(
     with _conn(url) as conn:
         row = conn.execute(
             """
-            INSERT INTO tenants (slug, name, oidc_issuer, auth_method, join_policy, theme, status, idp_tenant_id)
-            VALUES (%(slug)s, %(name)s, %(issuer)s, coalesce(%(auth)s, 'google'), coalesce(%(join)s, 'invite'),
+            INSERT INTO tenants (slug, name, auth_method, join_policy, theme, status, idp_tenant_id)
+            VALUES (%(slug)s, %(name)s, coalesce(%(auth)s, 'google'), coalesce(%(join)s, 'invite'),
                     coalesce(%(theme)s, 'default'), coalesce(%(status)s, 'active'), %(idp)s)
             ON CONFLICT (slug) DO UPDATE SET
               name = EXCLUDED.name,
-              oidc_issuer = coalesce(%(issuer)s, tenants.oidc_issuer),
               auth_method = coalesce(%(auth)s, tenants.auth_method),
               join_policy = coalesce(%(join)s, tenants.join_policy),
               theme = coalesce(%(theme)s, tenants.theme),
@@ -82,7 +80,7 @@ def upsert_tenant(
               updated_at = now()
             RETURNING id
             """,
-            {"slug": slug, "name": name, "issuer": issuer, "auth": auth, "join": join, "theme": theme,
+            {"slug": slug, "name": name, "auth": auth, "join": join, "theme": theme,
              "status": status, "idp": idp_tenant_id},
         ).fetchone()
         assert row is not None
@@ -257,7 +255,6 @@ def main(argv: list[str] | None = None) -> None:
     p = sub.add_parser("tenant", help="create/update a tenant")
     p.add_argument("slug")
     p.add_argument("--name", required=True)
-    p.add_argument("--issuer", help="legacy; identity mappings now live in tenant_identity_providers")
     p.add_argument("--auth", choices=["google", "password", "oidc", "saml"])
     p.add_argument("--join", choices=["domain", "invite"])
     p.add_argument("--theme")
@@ -321,7 +318,7 @@ def main(argv: list[str] | None = None) -> None:
             idp = create_tenant(args.slug)
             print(f"created Identity Platform tenant {idp}")
         tid = upsert_tenant(
-            url, args.slug, args.name, args.issuer, auth=args.auth, join=args.join, theme=args.theme,
+            url, args.slug, args.name, auth=args.auth, join=args.join, theme=args.theme,
             status=args.status, idp_tenant_id=idp,
         )
         print(f"tenant {args.slug}: {tid}")

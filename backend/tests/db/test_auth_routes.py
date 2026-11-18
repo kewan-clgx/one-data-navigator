@@ -97,3 +97,47 @@ def test_forgot_is_always_accepted_and_only_emails_password_orgs(
     for org, email in ((f"pw-{s}", f"b@pw-{s}.com"), (f"sso-{s}", f"b@sso-{s}.com"), ("nope", "x@y.com")):
         assert client.post("/v1/auth/forgot", json={"organization": org, "email": email}).status_code == 202
     assert sent == [(f"idp-{s}", f"b@pw-{s}.com")]
+
+
+def test_failed_password_sign_ins_are_logged_for_the_organization(
+    client: TestClient, orgs: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from odn.platform.governance import auth_events
+    from tests.db.test_tenant_directory import _auth_events
+
+    auth_events._recent.clear()
+    s = orgs
+    monkeypatch.setattr(identity_platform, "sign_in", lambda *a: (_ for _ in ()).throw(identity_platform.SignInFailed()))
+    body = {"organization": f"pw-{s}", "email": f"A@pw-{s}.com", "password": "never-logged-x1"}
+    for _ in range(2):
+        client.post("/v1/auth/password", json=body)
+    client.post("/v1/auth/password", json={**body, "organization": "nope"})
+    with psycopg.connect(OWNER_URL) as conn:
+        tid = conn.execute("SELECT id FROM tenants WHERE slug = %s", (f"pw-{s}",)).fetchone()[0]
+        conn.execute("SELECT set_config('odn.tenant_id', %s, false)", (str(tid),))
+        raw = conn.execute("SELECT detail::text FROM admin_events WHERE tenant_id = %s", (tid,)).fetchall()
+    assert _auth_events(tid) == [(f"a@pw-{s}.com", "wrong_password_or_inactive")] * 2
+    assert all("never-logged" not in r[0] for r in raw)
+
+
+def test_set_password_link(client: TestClient, orgs: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    s = orgs
+
+    def confirm(tenant: str, code: str, password: str) -> str:
+        if password == "weak":
+            raise identity_platform.WeakPassword("the password needs to be stronger")
+        return f"new@pw-{s}.com"
+
+    def check(tenant: str, code: str) -> str:
+        if code.startswith("used"):
+            raise identity_platform.ResetLinkInvalid("this link has expired or was already used")
+        return f"new@pw-{s}.com"
+
+    monkeypatch.setattr(identity_platform, "check_reset_code", check)
+    monkeypatch.setattr(identity_platform, "confirm_reset", confirm)
+    base = {"oob_code": "abcdefghijkl", "tenant_id": f"idp-{s}"}
+    assert client.post("/v1/auth/reset", json=base).json() == {"email": f"new@pw-{s}.com", "organization": f"pw-{s}"}
+    assert client.post("/v1/auth/reset", json={**base, "new_password": "weak"}).status_code == 422
+    assert client.post("/v1/auth/reset", json={**base, "new_password": "Strong-Pass-123"}).status_code == 200
+    assert client.post("/v1/auth/reset", json={**base, "oob_code": "used-abcdefgh"}).status_code == 410
+    assert client.post("/v1/auth/reset", json={**base, "tenant_id": "bad id!"}).status_code == 422

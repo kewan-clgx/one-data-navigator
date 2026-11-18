@@ -162,3 +162,28 @@ def test_domain_verification_by_dns_txt(make_tenant) -> None:
     other, _, _ = make_tenant(domain=False)
     with pytest.raises(SystemExit):
         add_domain(OWNER_URL, other, f"{slug}.org", attest=True)
+
+
+def _auth_events(tid: uuid.UUID) -> list[tuple[str, str]]:
+    with psycopg.connect(OWNER_URL) as conn:
+        conn.execute("SELECT set_config('odn.tenant_id', %s, false)", (str(tid),))
+        rows = conn.execute(
+            "SELECT target, detail->>'reason' FROM admin_events WHERE tenant_id = %s AND action = 'auth.failed' "
+            "ORDER BY id", (tid,)
+        ).fetchall()
+    return [(r[0], r[1]) for r in rows]
+
+
+def test_refused_sign_ins_are_logged_once_per_window(make_tenant) -> None:
+    from odn.platform.governance import auth_events
+
+    auth_events._recent.clear()
+    _, tid, dom = make_tenant(join="invite")
+    for _ in range(3):  # a refused token is re-presented on every request
+        with pytest.raises(AccessDenied):
+            resolve_context(_token(dom, user="stranger"))
+    foreign = VerifiedToken(issuer=GOOGLE, subject="e", external_id=dom, email="eve@evil.com",
+                            email_verified=True, name=None)
+    with pytest.raises(AccessDenied):
+        resolve_context(foreign)
+    assert _auth_events(tid) == [(f"stranger@{dom}", "not_invited")]  # foreign domain not attributed

@@ -25,6 +25,16 @@ const AUTH_LABELS: Record<string, string> = {
   saml: "Single sign-on (SAML)",
 };
 
+const FAILURE_LABELS: Record<string, string> = {
+  wrong_password_or_inactive: "wrong password or inactive account",
+  too_many_attempts: "too many attempts",
+  not_invited: "not invited",
+  account_disabled: "account disabled",
+  organization_suspended: "organization suspended",
+  email_not_allowed: "email not allowed",
+  other_sign_in_method: "account uses another sign-in method",
+};
+
 function when(iso: string | null): string {
   return iso ? new Date(iso).toLocaleString() : "–";
 }
@@ -217,10 +227,11 @@ export default function Organization({ currentUserId }: { currentUserId?: string
           <ul className="org-events">
             {events.map((e, i) => (
               <li key={i}>
-                <span className="muted">{when(e.occurred_at)}</span> {e.actor ?? "someone"} — {e.action.replace(".", " ").replace(/_/g, " ")}
+                <span className="muted">{when(e.occurred_at)}</span> {e.action === "auth.failed" ? "Failed sign-in" : `${e.actor ?? "someone"} — ${e.action.replace(".", " ").replace(/_/g, " ")}`}
                 {e.target ? ` ${e.target}` : ""}
                 {typeof e.detail.role === "string" ? ` → ${ROLE_LABELS[e.detail.role as Role] ?? e.detail.role}` : ""}
                 {typeof e.detail.status === "string" ? ` → ${e.detail.status}` : ""}
+                {typeof e.detail.reason === "string" ? ` (${FAILURE_LABELS[e.detail.reason] ?? e.detail.reason.replace(/_/g, " ")})` : ""}
               </li>
             ))}
           </ul>

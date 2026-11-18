@@ -32,7 +32,7 @@ def tenants() -> tuple[uuid.UUID, uuid.UUID]:
     with psycopg.connect(OWNER_URL) as conn:
         for t in (a, b):
             conn.execute(
-                "INSERT INTO tenants (id, slug, name, oidc_issuer) VALUES (%s, %s, %s, 'test-issuer')",
+                "INSERT INTO tenants (id, slug, name) VALUES (%s, %s, %s)",
                 (t, f"t-{t.hex[:12]}", "test"),
             )
     yield a, b

@@ -25,7 +25,7 @@ def tenants():
     with psycopg.connect(OWNER_URL) as conn:
         for _ in range(2):
             t, u = uuid.uuid4(), uuid.uuid4()
-            conn.execute("INSERT INTO tenants (id, slug, name, oidc_issuer) VALUES (%s, %s, 'x', 'iss')",
+            conn.execute("INSERT INTO tenants (id, slug, name) VALUES (%s, %s, 'x')",
                          (t, f"t-{t.hex[:12]}"))
             conn.execute("INSERT INTO users (id, tenant_id, subject) VALUES (%s, %s, 's')", (u, t))
             rows.append(RequestContext(tenant_id=t, user_id=u, subject="s", role="data_lead"))

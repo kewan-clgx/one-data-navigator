@@ -16,7 +16,7 @@ pytestmark = pytest.mark.skipif(not _reachable(), reason="local Postgres not run
 def tenant():
     migrate(OWNER_URL)
     slug = f"t-{uuid.uuid4().hex[:12]}"
-    tenant_id = upsert_tenant(OWNER_URL, slug, "Test", "https://accounts.google.com")
+    tenant_id = upsert_tenant(OWNER_URL, slug, "Test", auth="google")
     yield slug, tenant_id
     with psycopg.connect(OWNER_URL) as conn:
         conn.execute("DELETE FROM tenants WHERE id = %s", (tenant_id,))

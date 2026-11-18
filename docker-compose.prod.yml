@@ -21,8 +21,6 @@ x-prod-backend-env: &prod-backend-env
   ODN_OIDC_JWKS_URL: https://www.googleapis.com/oauth2/v3/certs
   ODN_OIDC_AUDIENCE: ${ODN_OIDC_CLIENT_ID:?set in .env}
   ODN_OIDC_TENANT_CLAIM: hd
-  ODN_OIDC_TENANT_DOMAINS: ${ODN_OIDC_TENANT_DOMAINS:-}
-  ODN_OIDC_DEFAULT_TENANT: ${ODN_OIDC_DEFAULT_TENANT:-}
   ODN_OIDC_DEFAULT_TENANT_EMAILS: ${ODN_OIDC_DEFAULT_TENANT_EMAILS:-}
   # Password sign-in tenants (Google Identity Platform); empty = disabled. Admin calls use the VM service account.
   ODN_IDP_PROJECT: ${ODN_IDP_PROJECT:-}

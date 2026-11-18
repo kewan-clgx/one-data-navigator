@@ -25,7 +25,7 @@ def users():
     pool.cache_clear()
     t, u1, u2 = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     with psycopg.connect(OWNER_URL) as conn:
-        conn.execute("INSERT INTO tenants (id, slug, name, oidc_issuer) VALUES (%s, %s, 'x', 'iss')",
+        conn.execute("INSERT INTO tenants (id, slug, name) VALUES (%s, %s, 'x')",
                      (t, f"t-{t.hex[:12]}"))
         for u in (u1, u2):
             conn.execute("INSERT INTO users (id, tenant_id, subject) VALUES (%s, %s, %s)", (u, t, u.hex))

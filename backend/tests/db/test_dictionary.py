@@ -28,7 +28,7 @@ def two_tenants() -> tuple[RequestContext, RequestContext, uuid.UUID, uuid.UUID]
     with psycopg.connect(OWNER_URL) as conn:
         for _ in range(2):
             t, u, c = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-            conn.execute("INSERT INTO tenants (id, slug, name, oidc_issuer) VALUES (%s, %s, 'x', 'iss')", (t, f"t-{t.hex[:12]}"))
+            conn.execute("INSERT INTO tenants (id, slug, name) VALUES (%s, %s, 'x')", (t, f"t-{t.hex[:12]}"))
             conn.execute("INSERT INTO users (id, tenant_id, subject, role) VALUES (%s, %s, 'lead', 'data_lead')", (u, t))
             conn.execute(
                 "INSERT INTO connections (id, tenant_id, name, kind, config, secret_ref, allowed_objects) "

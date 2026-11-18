@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from odn.api.ratelimit import RateLimiter
 from odn.db import system_transaction
 from odn.platform import identity_platform
+from odn.platform.governance.auth_events import record_auth_failure
 
 router = APIRouter(prefix="/v1/auth")
 
@@ -37,6 +38,17 @@ class PasswordIn(DiscoverIn):
 
 class RefreshIn(BaseModel):
     refresh_token: str = Field(min_length=1, max_length=4096)
+
+
+class ResetIn(BaseModel):
+    oob_code: str = Field(min_length=10, max_length=2000)
+    tenant_id: str = Field(pattern=r"^[A-Za-z0-9-]{3,64}$")
+    new_password: str | None = Field(default=None, min_length=1, max_length=256)
+
+
+class ResetOut(BaseModel):
+    email: str
+    organization: str | None = None
 
 
 class DiscoverOut(BaseModel):
@@ -86,13 +98,18 @@ def discover(body: DiscoverIn) -> DiscoverOut:
 @router.post("/password")
 def password(body: PasswordIn) -> TokensOut:
     if not _password_limit.allow(body.email.lower()):
+        tenant = _discover(body.organization, body.email)
+        record_auth_failure(tenant["tenant_id"] if tenant else None, body.email, "too_many_attempts", "password")
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, TOO_MANY)
     tenant = _discover(body.organization, body.email)
     if tenant is None or tenant["auth_method"] != "password" or not tenant["idp_tenant_id"]:
+        record_auth_failure(None, body.email, "unknown_organization", "password")
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, SIGN_IN_FAILED)
     try:
         tokens = identity_platform.sign_in(tenant["idp_tenant_id"], body.email.strip(), body.password)
     except identity_platform.SignInFailed:
+        # Every wrong password counts (the per-email rate limit caps how many can be logged).
+        record_auth_failure(tenant["tenant_id"], body.email, "wrong_password_or_inactive", "password", dedupe=False)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, SIGN_IN_FAILED) from None
     except identity_platform.IdentityPlatformError:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Sign-in is temporarily unavailable.") from None
@@ -123,3 +140,36 @@ def forgot(body: DiscoverIn) -> dict[str, str]:
         except identity_platform.IdentityPlatformError:
             pass
     return message
+
+
+_reset_limit = RateLimiter(limit=20, window_s=15 * 60)
+
+
+def _organization_of(idp_tenant_id: str) -> str | None:
+    from odn.config import settings
+
+    with system_transaction() as conn:
+        row = conn.execute(
+            "SELECT slug FROM odn_resolve_identity(%s, %s, NULL)",
+            (f"https://securetoken.google.com/{settings.idp_project}", idp_tenant_id),
+        ).fetchone()
+    return row["slug"] if row else None
+
+
+@router.post("/reset")
+def reset(body: ResetIn) -> ResetOut:
+    """Branded set-password page: without new_password only checks the emailed link, with it sets the password."""
+    if not _reset_limit.allow(body.oob_code[:64]):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, TOO_MANY)
+    try:
+        if body.new_password is None:
+            email = identity_platform.check_reset_code(body.tenant_id, body.oob_code)
+        else:
+            email = identity_platform.confirm_reset(body.tenant_id, body.oob_code, body.new_password)
+    except identity_platform.ResetLinkInvalid as exc:
+        raise HTTPException(status.HTTP_410_GONE, f"{str(exc).capitalize()}. Ask for a new one.") from None
+    except identity_platform.WeakPassword as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"{str(exc).capitalize()}.") from None
+    except identity_platform.IdentityPlatformError:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Sign-in is temporarily unavailable.") from None
+    return ResetOut(email=email, organization=_organization_of(body.tenant_id))

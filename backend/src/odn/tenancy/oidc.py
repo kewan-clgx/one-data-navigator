@@ -102,17 +102,6 @@ class TrustedIssuers:
         return verifier.verify(token)
 
 
-def parse_tenant_domains(raw: str) -> dict[str, str]:
-    """"cotality.com=cotality, example.org=example" -> {"cotality.com": "cotality", ...}."""
-    pairs: dict[str, str] = {}
-    for item in filter(None, (p.strip() for p in raw.split(","))):
-        domain, sep, slug = item.partition("=")
-        if not sep or not domain.strip() or not slug.strip():
-            raise ValueError(f"invalid tenant domain mapping: {item!r} (expected domain=slug)")
-        pairs[domain.strip().lower()] = slug.strip()
-    return pairs
-
-
 def parse_email_allowlist(raw: str) -> frozenset[str]:
     return frozenset(e.strip().lower() for e in raw.split(",") if e.strip())
 
