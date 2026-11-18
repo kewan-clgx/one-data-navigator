@@ -153,7 +153,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 
 ### Progress Summary (updated 2026-11-18)
 
-**Where it runs:** production at `https://odn.datahop.ai` (one GCP VM `odn-prod`, Docker Compose + Caddy, static egress IP `136.71.108.203`, Gemini via LiteLLM), release **`8407ddb`** (deployed 2026-11-17; migrations up to `0012`; pre-migration dump in `/opt/odn/backups/`). Tenants: **Cotality** (Google SSO, `cotality.com`, BigQuery `idap-int`), **DataHop** (personal Google accounts by allowlist) and **Indulge** (email + password via Google Identity Platform, invite-only, shared Postgres on AWS RDS). Development uses the local Docker Compose stack (`docker-compose.yml`; `docker-compose.gcs.yml` switches the workspace to the real `gs://datahop` bucket under `odn/`): frontend, API/BFF, ADK agent, isolated DuckDB worker, Postgres + pgvector, mock OIDC IdP and fake GCS, with real BigQuery (`clgx-idap-bigquery-int-278e`) and AWS RDS Postgres. Quality gates: 363 backend tests (+3 end-to-end SSH tunnel tests that need a test bastion) and frontend type-check, run by GitHub Actions on every push (`.github/workflows/ci.yml`); `main` is green.
+**Where it runs:** production at `https://odn.datahop.ai` (one GCP VM `odn-prod`, Docker Compose + Caddy, static egress IP `136.71.108.203`, Gemini via LiteLLM), release **`2ef1122`** (deployed 2026-11-18; tenant & user system since `8407ddb`; migrations up to `0012`; pre-migration dump in `/opt/odn/backups/`). Tenants: **Cotality** (Google SSO, `cotality.com`, BigQuery `idap-int`), **DataHop** (personal Google accounts by allowlist) and **Indulge** (email + password via Google Identity Platform, invite-only, shared Postgres on AWS RDS). Development uses the local Docker Compose stack (`docker-compose.yml`; `docker-compose.gcs.yml` switches the workspace to the real `gs://datahop` bucket under `odn/`): frontend, API/BFF, ADK agent, isolated DuckDB worker, Postgres + pgvector, mock OIDC IdP and fake GCS, with real BigQuery (`clgx-idap-bigquery-int-278e`) and AWS RDS Postgres. Quality gates: 357 backend tests (+3 end-to-end SSH tunnel tests that need a test bastion) and frontend type-check, run by GitHub Actions on every push (`.github/workflows/ci.yml`); `main` is green.
 
 **Done**
 
@@ -205,10 +205,10 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 
 **Left to do (in priority order)**
 
-1. **Postgres in production — quick fixes** (Indulge is using it now):
-   - Metadata calls (catalog, schema, `EXPLAIN`, Test connection) in `PostgresConnector` still run on an async pool created per request in short-lived event loops: they log "Event loop is closed" and leave idle connections on the client's RDS until garbage collection. Move them to the per-call sync connection the query path already uses.
-   - Tell the agent not to query `information_schema` / `pg_catalog` (the policy blocks them) and to use `get_table_schema` instead; 2 of 48 production queries were wasted this way.
-   - Least-privilege read-only database user for Indulge (onboarding guide item, Phase 4).
+1. **Done 2026-11-18 (`2ef1122`, deployed): Postgres in production fixes.**
+   - Metadata calls (Test connection, catalog, schema, columns, `EXPLAIN`, cancel) now use one short-lived read-only connection each instead of a per-request async pool; verified on Indulge's RDS: no connections left open afterwards, no more "Event loop is closed" errors. Also fixed: `EXPLAIN` row estimates were always empty, row counts come from `pg_class.reltuples`.
+   - The agent is told not to query `information_schema` / `pg_catalog` / `pg_stat_*` (the policy blocks them) and to use `get_table_schema` / `search_tables_by_keyword`.
+   - Indulge's database user (`reporting`) is already least-privilege: not superuser, owns no tables, no write privileges. Keep this as the onboarding guide's requirement.
 2. **Tenant & user system follow-ups** ([Tenant_Isolation_User_system.md](Tenant_Isolation_User_system.md)):
    - Per-IP sign-in rate limiting (today per email, in-process), `auth.failed` events, MFA for password tenants.
    - Branded invite / password emails (Identity Platform default sender and wording today).
