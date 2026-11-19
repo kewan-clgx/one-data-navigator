@@ -2,7 +2,7 @@
 
 Runs with the owner/migrations role (ODN_MIGRATIONS_DATABASE_URL), e.g. on the VM:
 
-    docker compose ... run --rm api python -m odn.db.provision tenant datahop --name "DataHop"
+    docker compose ... run --rm api python -m odn.db.provision tenant datahop --name "QueryMuse"
     docker compose ... run --rm api python -m odn.db.provision connection cotality idap-int \\
         --project clgx-idap-bigquery-int-278e \\
         --secret-ref projects/<p>/secrets/odn-<tenant_id>-bq/versions/latest --allow 'clgx-idap-bigquery-int-278e.ds.*'

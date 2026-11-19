@@ -13,7 +13,7 @@ Connection Manager in [one_data_navigator_mvp_dev_plan.md](one_data_navigator_mv
 3. **Store client and user profiles:** tenant name, domains, admins, auth method; user email, name, role,
    status, last sign-in.
 4. **Sign-in asks for organization + company email**, then routes to the right method.
-5. **Branding:** after sign-in the brand bar reads **"{tenant name} | Smart Data Navigator"**.
+5. **Branding:** after sign-in the brand bar reads **"{tenant name} | QueryMuse"**.
 6. **Tenant isolation from day 1** (guardrail 2): every Postgres row, GCS path, cache key and Secret Manager
    entry is partitioned by `tenant_id`, which is resolved from the *verified token* in the API (never from
    client input) and enforced in depth by Postgres Row-Level Security.
@@ -73,7 +73,7 @@ the ID token exactly like a Google token.
 - Wrong password and unknown email return different codes (`INVALID_PASSWORD` / `EMAIL_NOT_FOUND`): the BFF
   maps every failure to one generic message.
 - Project config: multi-tenancy on, password policy (≥ 12 chars, upper/lower/digit) enforced, authorized
-  domains include `odn.datahop.ai` and `localhost`; API key `odn-identity-platform` restricted to
+  domains include `app.querymuse.ai` (and, until retired, `odn.datahop.ai`) and `localhost`; API key `odn-identity-platform` restricted to
   `identitytoolkit` + `securetoken`.
 - Local dev uses the real Identity Platform with a dev tenant (free tier) instead of the emulator; tests use
   locally signed JWTs and mocked HTTP.
@@ -227,7 +227,7 @@ Rules:
 
 - `GET /v1/me` returns `{user: {id, email, name, role}, tenant: {slug, name, theme}}`.
 - `page.tsx` (server component) fetches it with the session token and renders
-  **`{tenant.name} | Smart Data Navigator`** (company slot = tenant name); the HTML title follows.
+  **`{tenant.name} | QueryMuse`** (company slot = tenant name); the HTML title follows.
 - Before sign-in, no tenant is known: the brand bar shows the platform brand and product name only.
 - `tenants.theme` replaces the deployment-wide `ODN_THEME` after sign-in (Cotality keeps theme A;
   others use `default`). Pre-sign-in uses the platform default.
@@ -313,8 +313,8 @@ Estimates are focused engineering days. Each phase lists its exit check.
       removed.
 
 ### U5 — Branding (1 day)
-- [x] Brand bar `{tenant name} | Smart Data Navigator` from `/v1/me`; page title; per-tenant `theme`.
-- **Exit:** Cotality users see "Cotality | Smart Data Navigator", Indulge users "Indulge | Smart Data Navigator".
+- [x] Brand bar `{tenant name} | QueryMuse` from `/v1/me`; page title; per-tenant `theme`.
+- **Exit:** Cotality users see "Cotality | QueryMuse", Indulge users "Indulge | QueryMuse".
 
 ### U6 — Isolation hardening (2 days)
 - [x] `assert_tenant_key` for every GCS read/write/sign; attachment-note cache key gets tenant+user.

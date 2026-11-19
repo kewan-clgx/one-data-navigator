@@ -1,4 +1,4 @@
-# Deploying One Data Navigator to a GCP VM
+# Deploying QueryMuse to a GCP VM
 
 The production environment is a single Compute Engine VM running the same Docker Compose stack as local
 development, plus `docker-compose.prod.yml`. There is no CI/CD: you deploy the committed `HEAD` from your
@@ -7,7 +7,7 @@ Mac with `deploy/deploy.sh`.
 | | Local (Mac) | Prod (`odn-prod` VM, project `datahop-514819`) |
 |---|---|---|
 | Compose files | `docker-compose.yml` | `docker-compose.yml` + `docker-compose.prod.yml` |
-| Entry point | `http://localhost:3100` | `https://odn.datahop.ai` (Caddy, Let's Encrypt) |
+| Entry point | `http://localhost:3100` | `https://app.querymuse.ai` (Caddy, Let's Encrypt; `querymuse.ai`, `www` redirect) |
 | Sign-in | mock OIDC (`oidc` container) | Google (OIDC); `cotality.com` → tenant `cotality`, others → `datahop` |
 | Workspace storage | fake GCS, or `gs://datahop` with a key file | `gs://datahop/odn/` via the VM service account (no key file) |
 | Warehouse credentials | `file:` key in `./keys` | Secret Manager `odn-<tenant_id>-*` (read by the VM service account) |
@@ -32,14 +32,15 @@ Prerequisites: `gcloud` authenticated as an owner/editor of `datahop-514819`, an
    and an `e2-standard-4` Debian 12 VM with Docker installed by its startup script. Defaults are in
    `deploy/gcp/config.sh` and can be overridden through environment variables.
 
-2. **DNS**: add an `A` record `odn.datahop.ai` → the static IP printed by the script. Caddy obtains the TLS
+2. **DNS**: add `A` records `app`, `@` (and `www`) for `querymuse.ai` → the static IP printed by the script
+   (details in [section 5](#5-moving-to-a-new-domain-querymuseai)). Caddy obtains the TLS
    certificate on first start, so DNS must resolve before step 5.
 
 3. **Google OAuth client** (Console → Google Auth Platform):
    - Audience: **External** (so both personal Google accounts and `cotality.com` accounts can sign in).
      Scopes: `openid`, `email`, `profile`. While the app is in *Testing*, add test users or publish it.
    - Clients → Create → **Web application**. Authorized redirect URI:
-     `https://odn.datahop.ai/auth/callback`. Copy the client ID and secret.
+     `https://app.querymuse.ai/auth/callback`. Copy the client ID and secret.
 
 4. **Production settings**: copy `deploy/.env.prod.example` to `deploy/.env.prod` (gitignored), fill it
    in, then upload it:
@@ -63,7 +64,7 @@ Prerequisites: `gcloud` authenticated as an owner/editor of `datahop-514819`, an
 6. **Tenants** (signing in fails with "tenant is not provisioned" until they exist):
 
    ```sh
-   deploy/deploy.sh provision tenant datahop --name "DataHop"
+   deploy/deploy.sh provision tenant datahop --name "QueryMuse"
    deploy/deploy.sh provision tenant cotality --name "Cotality"
    deploy/deploy.sh provision show        # prints tenant ids
    ```
@@ -137,3 +138,57 @@ Signed-in users manage these themselves in the app's **Settings** tab; no operat
   API, so this is accepted for the single-VM MVP. To narrow it, grant `secretAccessor` on the individual
   secret instead of the project. The Cloud Run design gives each service its own identity.
 - **Restore**: create a disk from a snapshot of the boot disk and recreate the VM from it.
+
+## 5. Moving to a new domain (querymuse.ai)
+
+The product is **QueryMuse**: the app is `https://app.querymuse.ai`, the website `www.querymuse.ai` (for now
+it and the apex redirect to the app), and the product email is `support@querymuse.ai`. `odn.datahop.ai` is
+retired after the cutover (no redirect). The VM, static IP `136.71.108.203`, GCP project and bucket stay
+the same, so **clients' database firewall allowlists do not change**.
+
+1. **DNS at the registrar (GoDaddy → querymuse.ai → DNS)**:
+
+   | Type | Name | Value | Notes |
+   |---|---|---|---|
+   | A | `app` | `136.71.108.203` | the app |
+   | A | `@` | `136.71.108.203` | replace GoDaddy's default "Parked"/website A record; turn off Domain Forwarding |
+   | CNAME | `www` | `@` (or `app.querymuse.ai`) | GoDaddy usually creates `www → @`; keep it |
+   | CAA | `@` | `0 issue "letsencrypt.org"` | optional; only Let's Encrypt may issue certificates |
+   | TXT | `_dmarc` | `v=DMARC1; p=none; rua=mailto:support@querymuse.ai` | start with `p=none`, tighten to `quarantine` once mail flows |
+
+   Plus the **mailbox provider's** records for `support@querymuse.ai` (MX, one SPF `TXT @ "v=spf1 include:… ~all"`,
+   DKIM), copied from its setup page; and later the **transactional sender's** records (e.g. Resend: MX/SPF on
+   `send` and `resend._domainkey`; they don't clash with the mailbox's SPF). Only one `v=spf1` TXT may exist on `@`.
+   Check: `dig +short app.querymuse.ai querymuse.ai www.querymuse.ai` all return `136.71.108.203`.
+
+2. **Google OAuth** (Console → Google Auth Platform, project `datahop-514819`):
+   - Clients → the web client → add redirect URI `https://app.querymuse.ai/auth/callback` (keep the old one
+     until the cutover is verified).
+   - Branding: app name **QueryMuse**, home page `https://www.querymuse.ai`, authorized domain `querymuse.ai`,
+     developer contact `support@querymuse.ai`. (The user-support email must be a Google account or group you
+     own.) A published External app may ask you to verify `querymuse.ai` in Search Console (a DNS TXT record).
+
+3. **Identity Platform** (operator, via API or Console → Identity Platform → Settings): add authorized domain
+   `app.querymuse.ai`; email template sender name **QueryMuse**, reply-to `support@querymuse.ai` (once the mailbox
+   exists).
+
+4. **Prod settings** in `/opt/odn/.env` (or `deploy/deploy.sh env <file>`):
+
+   ```sh
+   ODN_HOSTNAME=app.querymuse.ai
+   ODN_REDIRECT_HOSTS=querymuse.ai, www.querymuse.ai
+   ACME_EMAIL=support@querymuse.ai   # optional
+   ```
+
+5. **Deploy and rename the staff tenant** (only after step 1 resolves; Caddy then issues the certificates):
+
+   ```sh
+   deploy/deploy.sh up
+   deploy/deploy.sh provision tenant datahop --name "QueryMuse"
+   ```
+
+   Everyone signs in again at the new address (cookies are per host). Re-send pending, unused invites, and tell
+   Cotality and Indulge users the new URL.
+
+6. **Retire `odn.datahop.ai`** once sign-in works on the new host: delete its A record at GoDaddy, remove its
+   OAuth redirect URI and Identity Platform authorized domain.

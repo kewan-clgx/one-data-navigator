@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 
 from odn.config import settings
 
-app = FastAPI(title="One Data Navigator Result Workspace Worker")
+app = FastAPI(title="QueryMuse Result Workspace Worker")
 
 _NAME_RE = re.compile(r"^q[0-9]{1,6}$")
 

@@ -9,7 +9,7 @@ from odn.agent.agent import TITLE_STATE_KEY, build_root_agent, conversation_titl
 from odn.agent.identity import BearerAuthMiddleware, user_key
 from odn.config import settings
 
-app = FastAPI(title="One Data Navigator Agent Runtime")
+app = FastAPI(title="QueryMuse Agent Runtime")
 app.add_middleware(BearerAuthMiddleware)
 
 

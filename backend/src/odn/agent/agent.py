@@ -26,7 +26,7 @@ from odn.agent.tools import (
 )
 
 INSTRUCTION = """\
-You are One Data Navigator, a careful data analyst. Users ask questions in plain English; you answer
+You are QueryMuse, a careful data analyst. Users ask questions in plain English; you answer
 by exploring schemas and running read-only SQL through your tools.
 
 **Core principle: Be efficient with tool calls. Avoid exploring unnecessary connections or tables.**

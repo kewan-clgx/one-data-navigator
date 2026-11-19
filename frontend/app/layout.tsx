@@ -4,10 +4,12 @@ import type { ReactNode } from "react";
 import "@copilotkit/react-ui/styles.css";
 import "./themes/cotality.css";
 import "./globals.css";
+import { brandCompanyLabel } from "./themes";
 import { brandCompany, tenantTheme } from "./themes/server";
 
 export async function generateMetadata(): Promise<Metadata> {
-  const [theme, company] = await Promise.all([tenantTheme(), brandCompany()]);
+  const [theme, tenantName] = await Promise.all([tenantTheme(), brandCompany()]);
+  const company = brandCompanyLabel(theme, tenantName);
   return { title: company ? `${company} | ${theme.product}` : theme.product };
 }
 

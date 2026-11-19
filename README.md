@@ -1,4 +1,6 @@
-# One Data Navigator
+# QueryMuse
+
+Conversational data exploration ([querymuse.ai](https://www.querymuse.ai); app at `https://app.querymuse.ai`). Formerly One Data Navigator; internal names (`odn` package, `ODN_*` settings) are unchanged.
 
 MVP plan: [docs/one_data_navigator_mvp_dev_plan.md](docs/one_data_navigator_mvp_dev_plan.md)
 

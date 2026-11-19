@@ -120,6 +120,7 @@ services:
     restart: unless-stopped
     environment:
       ODN_HOSTNAME: ${ODN_HOSTNAME:?set in .env}
+      ODN_REDIRECT_HOSTS: ${ODN_REDIRECT_HOSTS:-localhost}
       ACME_EMAIL: ${ACME_EMAIL:?set in .env}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro

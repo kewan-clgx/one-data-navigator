@@ -13,7 +13,7 @@ g services enable compute.googleapis.com secretmanager.googleapis.com iap.google
 
 echo "== Service account $ODN_VM_SA_EMAIL"
 exists g iam service-accounts describe "$ODN_VM_SA_EMAIL" ||
-  g iam service-accounts create "$ODN_VM_SA" --display-name "One Data Navigator VM"
+  g iam service-accounts create "$ODN_VM_SA" --display-name "QueryMuse VM"
 # Connection credentials (e.g. an enterprise client's BigQuery key) live in Secret Manager as odn-<tenant_id>-*.
 g projects add-iam-policy-binding "$GCP_PROJECT" --condition=None --quiet \
   --member "serviceAccount:$ODN_VM_SA_EMAIL" --role roles/secretmanager.secretAccessor >/dev/null
@@ -59,7 +59,7 @@ cat <<MSG
 
 Done. Static IP: $IP
 Next:
-  1. DNS: A record  ${ODN_HOSTNAME:-odn.datahop.ai}  ->  $IP
+  1. DNS: A record  ${ODN_HOSTNAME:-app.querymuse.ai}  ->  $IP
   2. Fill a copy of deploy/.env.prod.example, then:  deploy/deploy.sh env <file> && deploy/deploy.sh up
   See docs/deploy_gcp_vm.md for the Google OAuth client and tenant/connection provisioning.
 MSG

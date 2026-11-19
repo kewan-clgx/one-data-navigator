@@ -15,3 +15,9 @@
 	}
 	reverse_proxy frontend:3000
 }
+
+# Apex/www (ODN_REDIRECT_HOSTS, comma-separated) -> the app. Unset or empty means localhost, which
+# needs no public certificate, so the block is harmless.
+{$ODN_REDIRECT_HOSTS:localhost} {
+	redir https://{$ODN_HOSTNAME}{uri} permanent
+}

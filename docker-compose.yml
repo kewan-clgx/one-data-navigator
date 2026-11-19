@@ -1,4 +1,4 @@
-# One Data Navigator MVP: local Docker development stack.
+# QueryMuse (formerly One Data Navigator) MVP: local Docker development stack.
 # See docs/one_data_navigator_mvp_dev_plan.md. Local emulation of the GCP target:
 #   Cloud SQL (Postgres + pgvector) -> postgres
 #   GCS workspace bucket            -> gcs (fake-gcs-server)

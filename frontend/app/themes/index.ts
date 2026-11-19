@@ -26,7 +26,7 @@ export type Theme = {
 const cotality: Theme = {
   id: "cotality",
   company: "cotality",
-  product: "Smart Data Navigator",
+  product: "QueryMuse",
   tag: "Beta",
   themeColor: "#1e1405",
   about: [
@@ -66,6 +66,12 @@ const cotality: Theme = {
 export const THEMES: Record<string, Theme> = { cotality };
 
 export const DEFAULT_THEME_ID = "cotality";
+
+/** The tenant name to show next to the product, or none when it is the product itself (QueryMuse staff). */
+export function brandCompanyLabel(theme: Theme, company: string | null | undefined): string | undefined {
+  const name = company?.trim();
+  return name && name.toLowerCase() !== theme.product.toLowerCase() ? name : undefined;
+}
 
 export function resolveTheme(id: string | undefined): Theme {
   return (id && THEMES[id]) || THEMES[DEFAULT_THEME_ID];

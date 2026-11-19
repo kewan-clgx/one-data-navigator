@@ -1,14 +1,15 @@
-import type { Theme } from "../themes";
+import { brandCompanyLabel, type Theme } from "../themes";
 
 /** "{company} | {product}"; before sign-in there is no tenant yet, so only the product is shown. */
 export default function BrandBar({ theme, company, user }: { theme: Theme; company?: string; user?: string }) {
+  const shown = brandCompanyLabel(theme, company);
   return (
     <header className="odn-brandbar">
       <div className="odn-brand">
         <span aria-hidden className="odn-brand-mark" />
-        {company && (
+        {shown && (
           <>
-            <span className="odn-brand-company">{company}</span>
+            <span className="odn-brand-company">{shown}</span>
             <span aria-hidden className="odn-brand-sep">|</span>
           </>
         )}
