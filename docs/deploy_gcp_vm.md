@@ -141,8 +141,8 @@ Signed-in users manage these themselves in the app's **Settings** tab; no operat
 
 ## 5. Moving to a new domain (querymuse.ai)
 
-The product is **QueryMuse**: the app is `https://app.querymuse.ai`, the website `www.querymuse.ai` (for now
-it and the apex redirect to the app), and the product email is `support@querymuse.ai`. `odn.datahop.ai` is
+The product is **QueryMuse**: the app is `https://app.querymuse.ai`, the website `www.querymuse.ai` (home page
+and `/privacy`, served by the same frontend; the apex redirects to it), and the product email is `support@querymuse.ai`. `odn.datahop.ai` is
 retired after the cutover (no redirect). The VM, static IP `136.71.108.203`, GCP project and bucket stay
 the same, so **clients' database firewall allowlists do not change**.
 
