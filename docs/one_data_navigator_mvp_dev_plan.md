@@ -215,7 +215,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 1. **Domain & mail follow-ups (operator, in consoles):**
    - Confirm the branded reset email reached the Indulge admin's inbox (not spam); Resend → Logs shows delivery.
    - Turn on DKIM for the `support@querymuse.ai` mailbox (GoDaddy Email & Office dashboard; adds `selector1/selector2._domainkey` CNAMEs). DMARC is `p=quarantine`, so without DKIM forwarded mail can land in spam.
-   - Delete the `odn` A record in `datahop.ai` DNS and the old OAuth redirect URI `https://odn.datahop.ai/auth/callback`; set Google Auth Platform branding (name QueryMuse, home page `https://www.querymuse.ai`, authorized domain `querymuse.ai`).
+   - Delete the `odn` A record in `datahop.ai` DNS and the old OAuth redirect URI `https://odn.datahop.ai/auth/callback`. Google Auth Platform branding: app name set to **QueryMuse.ai** (2026-11-19); it is shown on Google's sign-in screens only after brand verification, which needs a public home page on `www.querymuse.ai` (not just a sign-in page; today it redirects to the app), a privacy policy on the same domain, and `querymuse.ai` verified in Search Console.
    - Tell Cotality and Indulge users the new URL `https://app.querymuse.ai`.
 2. **Production hardening:**
    - CI image builds; widen ruff to `odn/platform` and `tests/platform` after fixing their existing findings.
