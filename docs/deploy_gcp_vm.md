@@ -7,7 +7,7 @@ Mac with `deploy/deploy.sh`.
 | | Local (Mac) | Prod (`odn-prod` VM, project `datahop-514819`) |
 |---|---|---|
 | Compose files | `docker-compose.yml` | `docker-compose.yml` + `docker-compose.prod.yml` |
-| Entry point | `http://localhost:3100` | `https://app.querymuse.ai` (Caddy, Let's Encrypt; `querymuse.ai`, `www` redirect) |
+| Entry point | `http://localhost:3100` | `https://app.querymuse.ai` (Caddy, Let's Encrypt); website `https://www.querymuse.ai` (home + `/privacy`); `querymuse.ai` → www |
 | Sign-in | mock OIDC (`oidc` container) | Google (OIDC); `cotality.com` → tenant `cotality`, others → `datahop` |
 | Workspace storage | fake GCS, or `gs://datahop` with a key file | `gs://datahop/odn/` via the VM service account (no key file) |
 | Warehouse credentials | `file:` key in `./keys` | Secret Manager `odn-<tenant_id>-*` (read by the VM service account) |
@@ -176,7 +176,8 @@ the same, so **clients' database firewall allowlists do not change**.
 
    ```sh
    ODN_HOSTNAME=app.querymuse.ai
-   ODN_REDIRECT_HOSTS=querymuse.ai, www.querymuse.ai
+   ODN_SITE_HOSTNAME=www.querymuse.ai   # public home page + /privacy; other paths redirect to the app
+   ODN_REDIRECT_HOSTS=querymuse.ai      # -> the website
    ACME_EMAIL=support@querymuse.ai   # optional
    ```
 

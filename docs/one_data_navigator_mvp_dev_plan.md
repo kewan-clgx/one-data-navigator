@@ -215,7 +215,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 1. **Domain & mail follow-ups (operator, in consoles):**
    - Confirm the branded reset email reached the Indulge admin's inbox (not spam); Resend → Logs shows delivery.
    - Turn on DKIM for the `support@querymuse.ai` mailbox (GoDaddy Email & Office dashboard; adds `selector1/selector2._domainkey` CNAMEs). DMARC is `p=quarantine`, so without DKIM forwarded mail can land in spam.
-   - Delete the `odn` A record in `datahop.ai` DNS and the old OAuth redirect URI `https://odn.datahop.ai/auth/callback`. Google Auth Platform branding: app name set to **QueryMuse.ai** (2026-11-19); it is shown on Google's sign-in screens only after brand verification, which needs a public home page on `www.querymuse.ai` (not just a sign-in page; today it redirects to the app), a privacy policy on the same domain, and `querymuse.ai` verified in Search Console.
+   - Delete the `odn` A record in `datahop.ai` DNS and the old OAuth redirect URI `https://odn.datahop.ai/auth/callback`. Google Auth Platform branding: app name **QueryMuse.ai** (2026-11-19). Public website live (2026-11-19, `8ccdc33`): home page `https://www.querymuse.ai` ("the conversational data analytics platform") and privacy policy `https://www.querymuse.ai/privacy` (draft wording, to be reviewed). Next: verify `querymuse.ai` in Search Console (DNS TXT), enter the home page and privacy URLs in Branding, submit for brand verification.
    - Tell Cotality and Indulge users the new URL `https://app.querymuse.ai`.
 2. **Production hardening:**
    - CI image builds; widen ruff to `odn/platform` and `tests/platform` after fixing their existing findings.
@@ -230,7 +230,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 7. **Phase 5 (post-v1):** Collibra catalog integration.
 8. **Phase 6 (TBD):** the 50-question gold benchmark, per-IP sign-in rate limiting and two-factor sign-in.
 9. **Later options:**
-   - A QueryMuse website at `www.querymuse.ai` (today it redirects to the app) and a QueryMuse default theme for non-Cotality tenants.
+   - A fuller QueryMuse website (today: home + privacy pages served by the app's frontend), terms of service, and a QueryMuse default theme for non-Cotality tenants.
    - Pass attached images to vision-capable models; today the agent knows an image was attached but cannot see it.
    - Additional enterprise themes (B, C, D) as clients onboard (Indulge uses the default theme).
    - A small usage view for telemetry.
