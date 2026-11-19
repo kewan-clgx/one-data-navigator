@@ -40,7 +40,7 @@ The question was how Indulge users can sign in with email and password. There ar
 |---|---|---|---|
 | What it is | Google's managed CIAM (the enterprise tier of Firebase Auth). One **Identity Platform tenant per client**, each with its own users and providers: email/password, Google, SAML, OIDC. | Open-source IdP; one realm (or org) per client. | Our own `password_hash` (argon2id) + reset emails + lockout + MFA. |
 | Passwords stored by | Google | Us (Keycloak DB on the VM) | Us |
-| Reset / verify emails | Built in (`sendOobCode`), templated per tenant | Built in (needs SMTP) | We build it (needs SMTP) |
+| Reset / verify emails | Built in (`sendOobCode`), templated per tenant (we now send branded ones via Resend with `returnOobLink`, falling back to these) | Built in (needs SMTP) | We build it (needs SMTP) |
 | Brute-force, password policy, MFA | Built in (password policy, email-enumeration protection, TOTP/SMS MFA) | Built in | We build all of it |
 | Later move a client to SSO | Add a SAML/OIDC provider to their IdP tenant, no app change | Add an IdP to the realm | New integration |
 | Tokens our API verifies | RS256 JWT, `iss = https://securetoken.google.com/<project>`, `aud = <project>`, tenant in the `firebase.tenant` claim | RS256 JWT per realm | Our own JWT |

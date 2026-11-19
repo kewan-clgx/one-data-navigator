@@ -190,5 +190,17 @@ the same, so **clients' database firewall allowlists do not change**.
    Everyone signs in again at the new address (cookies are per host). Re-send pending, unused invites, and tell
    Cotality and Indulge users the new URL.
 
-6. **Retire `odn.datahop.ai`** once sign-in works on the new host: delete its A record at GoDaddy, remove its
+6. **Branded emails (Resend)**: domain `querymuse.ai` verified in Resend; a sending-only API key stored in
+   Secret Manager without passing through chat or shell history:
+
+   ```sh
+   read -rs K && printf %s "$K" | gcloud secrets create odn-resend-api-key \
+     --project datahop-514819 --replication-policy automatic --data-file=- ; unset K
+   ```
+
+   and `ODN_RESEND_API_KEY_SECRET=projects/datahop-514819/secrets/odn-resend-api-key/versions/latest` in the prod
+   `.env`. Rotate with `gcloud secrets versions add` and restart the api. Without it, invites use Identity Platform's
+   own email.
+
+7. **Retire `odn.datahop.ai`** once sign-in works on the new host: delete its A record at GoDaddy, remove its
    OAuth redirect URI and Identity Platform authorized domain.
