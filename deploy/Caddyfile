@@ -4,7 +4,7 @@
 	email {$ACME_EMAIL}
 }
 
-{$ODN_HOSTNAME} {
+(security_headers) {
 	encode zstd gzip
 	header {
 		Strict-Transport-Security "max-age=31536000"
@@ -13,11 +13,25 @@
 		Referrer-Policy "strict-origin-when-cross-origin"
 		-Server
 	}
+}
+
+{$ODN_HOSTNAME} {
+	import security_headers
 	reverse_proxy frontend:3000
 }
 
-# Apex/www (ODN_REDIRECT_HOSTS, comma-separated) -> the app. Unset or empty means localhost, which
-# needs no public certificate, so the block is harmless.
+# Public website (ODN_SITE_HOSTNAME, e.g. www.querymuse.ai): home page and privacy policy, served by the same
+# frontend; any other path belongs to the app. Unset means site.localhost (no public certificate needed).
+{$ODN_SITE_HOSTNAME:site.localhost} {
+	import security_headers
+	@app not path / /site /privacy /_next/*
+	redir @app https://{$ODN_HOSTNAME}{uri}
+	rewrite / /site
+	reverse_proxy frontend:3000
+}
+
+# Other hostnames (ODN_REDIRECT_HOSTS, comma-separated, e.g. the apex) -> the website, else the app.
+# Unset or empty means localhost, which needs no public certificate, so the block is harmless.
 {$ODN_REDIRECT_HOSTS:localhost} {
-	redir https://{$ODN_HOSTNAME}{uri} permanent
+	redir https://{$ODN_REDIRECT_TARGET}{uri} permanent
 }

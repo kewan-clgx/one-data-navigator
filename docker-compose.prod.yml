@@ -125,6 +125,8 @@ services:
     environment:
       ODN_HOSTNAME: ${ODN_HOSTNAME:?set in .env}
       ODN_REDIRECT_HOSTS: ${ODN_REDIRECT_HOSTS:-localhost}
+      ODN_SITE_HOSTNAME: ${ODN_SITE_HOSTNAME:-site.localhost}
+      ODN_REDIRECT_TARGET: ${ODN_SITE_HOSTNAME:-${ODN_HOSTNAME}}
       ACME_EMAIL: ${ACME_EMAIL:?set in .env}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro

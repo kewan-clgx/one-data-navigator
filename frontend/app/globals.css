@@ -884,3 +884,39 @@ textarea.mono {
   .odn-slide { min-height: 0; }
   .odn-slide-title { font-size: 1.5rem; }
 }
+
+/* ============ Public site (www: home, privacy) ============ */
+
+.odn-site { min-height: 100vh; display: flex; flex-direction: column; }
+.odn-site-main { flex: 1; width: 100%; max-width: 72rem; margin: 0 auto; padding: 3rem 1.75rem 4rem; }
+.odn-site-hero { max-width: 46rem; padding: 2rem 0 3rem; }
+.odn-site-kicker {
+  margin: 0 0 0.75rem; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--accent-strong);
+}
+.odn-site-hero h1 { font-size: clamp(2rem, 4.5vw, 3.1rem); line-height: 1.1; margin: 0 0 1.25rem; }
+.odn-site-lead { font-size: 1.15rem; line-height: 1.6; color: var(--fg-muted); margin: 0 0 2rem; }
+.odn-site-cta { display: flex; flex-wrap: wrap; align-items: center; gap: 1.25rem; }
+.odn-site-cta .odn-btn { text-decoration: none; }
+.odn-site-steps, .odn-site-features {
+  display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); margin-bottom: 1rem;
+}
+.odn-site-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.4rem;
+}
+.odn-site-card h2 { font-size: 1.05rem; margin: 0 0 0.5rem; }
+.odn-site-card p { margin: 0; line-height: 1.55; color: var(--fg-muted); }
+.odn-site-step { font-size: 0.8rem; font-weight: 700; color: var(--accent-strong); margin-bottom: 0.35rem !important; }
+.odn-site-section { max-width: 46rem; padding-top: 2.5rem; }
+.odn-site-section h2 { font-size: 1.3rem; margin: 0 0 0.6rem; }
+.odn-site-section p { line-height: 1.6; color: var(--fg-muted); }
+.odn-site-doc { max-width: 46rem; line-height: 1.65; }
+.odn-site-doc h1 { font-size: 2rem; margin: 0 0 0.25rem; }
+.odn-site-doc h2 { font-size: 1.2rem; margin: 2rem 0 0.5rem; }
+.odn-site-doc li { margin-bottom: 0.4rem; }
+.odn-site-muted { color: var(--fg-muted); }
+.odn-site-footer {
+  display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem; padding: 1.25rem 1.75rem;
+  background: var(--chrome-bg); color: var(--chrome-fg); font-size: 0.85rem;
+}
+.odn-site-footer nav { display: flex; flex-wrap: wrap; gap: 1.25rem; }
