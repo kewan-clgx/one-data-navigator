@@ -87,7 +87,7 @@ def invite(
     if profile["auth_method"] == "password":
         if not profile["idp_tenant_id"]:
             raise DirectoryError("this organization has no password sign-in configured")
-        identity_platform.invite(profile["idp_tenant_id"], email)
+        identity_platform.invite(profile["idp_tenant_id"], email, org_name=profile["name"])
     assert row is not None
     return dict(row)
 

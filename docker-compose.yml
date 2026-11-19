@@ -22,6 +22,9 @@ x-backend-env: &backend-env
   # Password sign-in tenants (Google Identity Platform); empty = disabled.
   ODN_IDP_PROJECT: ${ODN_IDP_PROJECT:-}
   ODN_IDP_API_KEY: ${ODN_IDP_API_KEY:-}
+  # Branded invite/reset emails via Resend; empty key = Identity Platform's own emails.
+  ODN_PUBLIC_URL: http://localhost:3100
+  ODN_RESEND_API_KEY: ${ODN_RESEND_API_KEY:-}
   ODN_WORKER_URL: http://worker:8000
   ODN_AGENT_URL: http://agent:8000
 

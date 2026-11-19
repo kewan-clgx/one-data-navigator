@@ -7,13 +7,18 @@ mapped to `SignInFailed` without saying whether the account exists.
 
 from __future__ import annotations
 
+import logging
 import secrets
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
 
 from odn.config import settings
+from odn.platform import auth_emails, mailer
+
+log = logging.getLogger(__name__)
 
 _ITK = "https://identitytoolkit.googleapis.com"
 _STS = "https://securetoken.googleapis.com/v1/token"
@@ -108,8 +113,44 @@ def confirm_reset(idp_tenant_id: str, oob_code: str, new_password: str) -> str:
     return _reset_call({"oobCode": oob_code, "tenantId": idp_tenant_id, "newPassword": new_password})["email"]
 
 
-def send_password_email(idp_tenant_id: str, email: str) -> None:
-    """Identity Platform emails a set/reset-password link. Silent for unknown emails (no enumeration)."""
+def password_link(idp_tenant_id: str, email: str) -> str:
+    """Admin-generated set/reset-password link on our own /auth/action page (nothing is emailed)."""
+    data = _admin_call(
+        "POST",
+        f"v1/projects/{settings.idp_project}/accounts:sendOobCode",
+        {"requestType": "PASSWORD_RESET", "email": email, "tenantId": idp_tenant_id, "returnOobLink": True},
+    )
+    code = data.get("oobCode") or parse_qs(urlparse(data["oobLink"]).query)["oobCode"][0]
+    query = urlencode({"mode": "resetPassword", "oobCode": code, "tenantId": idp_tenant_id})
+    return f"{settings.public_url.rstrip('/')}/auth/action?{query}"
+
+
+def _send_branded(idp_tenant_id: str, email: str, invite: bool, org_name: str | None) -> bool:
+    """True when sent (or the account does not exist); False means fall back to Identity Platform's email."""
+    try:
+        link = password_link(idp_tenant_id, email)
+    except IdentityPlatformError as exc:
+        if "EMAIL_NOT_FOUND" in str(exc):
+            return True
+        log.warning("branded email: link generation failed (%s); using Identity Platform email", exc)
+        return False
+    except Exception as exc:  # noqa: BLE001 - any failure falls back to Identity Platform's email
+        log.warning("branded email: link generation failed (%s); using Identity Platform email", type(exc).__name__)
+        return False
+    try:
+        mailer.send(email, *auth_emails.password_email(link, invite=invite, org_name=org_name))
+    except Exception as exc:  # noqa: BLE001 - any failure falls back to Identity Platform's email
+        log.warning("branded email: send failed (%s); using Identity Platform email", exc)
+        return False
+    return True
+
+
+def send_password_email(idp_tenant_id: str, email: str, *, invite: bool = False, org_name: str | None = None) -> None:
+    """Email a set/reset-password link. Silent for unknown emails (no enumeration).
+
+    Branded through our mail provider when configured, else (or if that fails) Identity Platform's email."""
+    if mailer.enabled() and _send_branded(idp_tenant_id, email, invite, org_name):
+        return
     try:
         _key_call("accounts:sendOobCode", {"requestType": "PASSWORD_RESET", "email": email, "tenantId": idp_tenant_id})
     except IdentityPlatformError as exc:
@@ -117,7 +158,7 @@ def send_password_email(idp_tenant_id: str, email: str) -> None:
             raise
 
 
-def invite(idp_tenant_id: str, email: str) -> None:
+def invite(idp_tenant_id: str, email: str, *, org_name: str | None = None) -> None:
     """Create the IdP account (unusable random password) if needed, then email the set-password link.
 
     Setting the password through the link marks the email verified, which is what lets the invited user in."""
@@ -129,7 +170,7 @@ def invite(idp_tenant_id: str, email: str) -> None:
     except IdentityPlatformError as exc:
         if "EMAIL_EXISTS" not in str(exc):
             raise
-    send_password_email(idp_tenant_id, email)
+    send_password_email(idp_tenant_id, email, invite=True, org_name=org_name)
 
 
 # Admin calls ------------------------------------------------------------------------------------------

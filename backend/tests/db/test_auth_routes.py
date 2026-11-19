@@ -93,7 +93,7 @@ def test_forgot_is_always_accepted_and_only_emails_password_orgs(
 ) -> None:
     s = orgs
     sent = []
-    monkeypatch.setattr(identity_platform, "send_password_email", lambda t, e: sent.append((t, e)))
+    monkeypatch.setattr(identity_platform, "send_password_email", lambda t, e, **kw: sent.append((t, e)))
     for org, email in ((f"pw-{s}", f"b@pw-{s}.com"), (f"sso-{s}", f"b@sso-{s}.com"), ("nope", "x@y.com")):
         assert client.post("/v1/auth/forgot", json={"organization": org, "email": email}).status_code == 202
     assert sent == [(f"idp-{s}", f"b@pw-{s}.com")]

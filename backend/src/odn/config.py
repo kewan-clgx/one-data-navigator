@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     # Google Identity Platform (password sign-in tenants); empty project = disabled.
     idp_project: str = ""
     idp_api_key: str = ""
+    # Branded invite/reset emails via Resend (odn.platform.mailer); no key = Identity Platform's own emails.
+    public_url: str = ""  # app origin used in email links, e.g. https://app.querymuse.ai
+    resend_api_key: str = ""
+    resend_api_key_secret: str = ""  # Secret Manager version name, e.g. projects/<p>/secrets/<s>/versions/latest
+    mail_from: str = "QueryMuse <noreply@querymuse.ai>"
+    mail_reply_to: str = "support@querymuse.ai"
     # Local-only credential files for connections with secret_ref "file:<name>".
     keys_dir: str = "/app/keys"
     confirm_bytes_threshold: int = 10 * 1024**3

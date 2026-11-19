@@ -136,7 +136,7 @@ def forgot(body: DiscoverIn) -> dict[str, str]:
     tenant = _discover(body.organization, body.email)
     if tenant and tenant["auth_method"] == "password" and tenant["idp_tenant_id"]:
         try:
-            identity_platform.send_password_email(tenant["idp_tenant_id"], body.email.strip())
+            identity_platform.send_password_email(tenant["idp_tenant_id"], body.email.strip(), org_name=tenant["name"])
         except identity_platform.IdentityPlatformError:
             pass
     return message
