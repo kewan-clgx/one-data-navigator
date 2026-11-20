@@ -1,6 +1,6 @@
 # Phase 5: Collibra Catalog Integration — Plan & Tracker
 
-**Status:** Option A chosen (2026-11-19) and built in QueryMuse (`/v1/collibra/*`, agent tools, JWKS); **waiting on Cotality's Collibra admin** to trust QueryMuse's token issuer ([§4.2](#42-collibra-admin-setup-one-time-per-environment)).
+**Status:** Two routes built (2026-11-19). **Stopgap, usable now:** the QueryMuse Collibra Bridge browser extension ([§4.4](#43-stopgap-collibra-bridge-browser-extension-no-collibra-change)) reads Collibra with the user's own browser session; no Collibra change needed. **Long-term:** option A (QueryMuse-issued per-user tokens) is built and waits on Cotality's Collibra admin to trust QueryMuse's token issuer ([§4.2](#42-collibra-admin-setup-one-time-per-environment)).
 **Owner:** QueryMuse team · **First client:** Cotality (`cotality` tenant) · **Updated:** 2026-11-19
 **Parent plan:** [one_data_navigator_mvp_dev_plan.md → Phase 5](one_data_navigator_mvp_dev_plan.md#phase-5-collibra-catalog-integration-post-v1-not-yet-scheduled)
 
@@ -111,7 +111,27 @@ for another issuer, it must be coordinated (e.g. a combined JWKS). Trusting Quer
 act as Cotality Collibra users who sign in to QueryMuse; mitigations above, plus logs of every Collibra call
 (user, environment, operation) and key rotation via a new secret version.
 
-### 4.3 Alternative kept for later
+### 4.3 Stopgap: Collibra Bridge browser extension (no Collibra change)
+
+Same model as the KWAgent connector (the user's own Collibra SSO session stays on their machine), moved into
+the browser so it works with the hosted app:
+
+- **Extension** [`browser-extension/collibra-bridge`](../browser-extension/collibra-bridge/README.md) (Chrome/Edge
+  MV3): a content script on QueryMuse pages relays requests to the service worker, which performs allowlisted
+  read-only `GET /rest/2.0/...` calls with the browser's Collibra session (`credentials: "include"`). Cookies are
+  never read or returned; SSO redirects are reported as "not signed in".
+- **Frontend tools** (`frontend/app/components/CollibraBrowserTools.tsx`): `collibra_browser_status`, `_search_assets`,
+  `_describe_assets`, `_get_relations`, `_get_api_fields`, registered with CopilotKit `useFrontendTool` only when the
+  extension is present; same output as the server tools.
+- **Agent:** `AGUIToolset(tool_filter=BROWSER_TOOL_NAMES)` exposes only those frontend tools; instructions use the
+  server tools when `collibra_environments` is configured, else the browser tools.
+- **Verified end to end** with Playwright Chromium + the extension + a fake Collibra requiring a browser session:
+  not-signed-in detection, refused paths, cookie sent after sign-in, and a correct chat answer built only from
+  Collibra data. **Not yet run against the real Collibra tenant** (cookie/SameSite behaviour, SSO redirect shape).
+- Trade-offs: needs the extension installed (developer mode for the pilot; Web Store/managed policy later) and the
+  user signed in to Collibra in the same browser; agent turns using Collibra need the browser tab open.
+
+### 4.4 Alternative kept for later
 
 **B. Tenant service account** (OAuth client credentials) — no Collibra-side JWT change, but everyone sees the
 service account's view. Can be added as a second credential provider if Cotality prefers it.
@@ -175,4 +195,5 @@ and nothing is invented.
 |---|---|
 | 2026-11-17 | Phase 5 added after the invented-definitions incident. |
 | 2026-11-19 | Auth research: SSO session not reusable on the server; options A (JWT) / B (service account); KWAgent wrapper design reviewed; tracker created. |
+| 2026-11-19 | Browser-extension stopgap built and verified end to end against a fake Collibra (no Collibra-side change needed); next: try with a real Cotality Collibra session. |
 | 2026-11-19 | Option A chosen (no service account available). Built: QueryMuse-signed per-user tokens + JWKS, `collibra_environments` (RLS), `/v1/collibra/*`, five agent tools, provision CLI, tests against a fake Collibra that verifies our JWKS. Prod signing key created. Next: Collibra admin JWT setup, then live test and the Collibra UI tab. |

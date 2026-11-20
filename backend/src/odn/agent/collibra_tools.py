@@ -113,6 +113,13 @@ async def collibra_get_api_fields(environment: str, asset_id: str, limit: int = 
     return resp.json() if resp.status_code == 200 else {"error": _detail(resp)}
 
 
+# Run in the user's browser through the QueryMuse Collibra Bridge extension (frontend/app/components/
+# CollibraBrowserTools.tsx), with the user's own Collibra session. Only these frontend tools reach the agent.
+BROWSER_TOOL_NAMES = [
+    "collibra_browser_status", "collibra_browser_search_assets", "collibra_browser_describe_assets",
+    "collibra_browser_get_relations", "collibra_browser_get_api_fields",
+]
+
 COLLIBRA_TOOLS = [
     collibra_environments, collibra_search_assets, collibra_describe_assets, collibra_get_relations,
     collibra_get_api_fields,

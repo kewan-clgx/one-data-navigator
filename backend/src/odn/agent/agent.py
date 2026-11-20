@@ -6,14 +6,14 @@ import os
 import re
 from typing import Any
 
-from ag_ui_adk import CONTEXT_STATE_KEY
+from ag_ui_adk import CONTEXT_STATE_KEY, AGUIToolset
 from google.adk.agents import LlmAgent
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.readonly_context import ReadonlyContext
 
 from odn.agent.attachments import describe_attachments
 from odn.agent.budget import RoutedLiteLlm, record_usage
-from odn.agent.collibra_tools import COLLIBRA_TOOLS
+from odn.agent.collibra_tools import BROWSER_TOOL_NAMES, COLLIBRA_TOOLS
 from odn.agent.tools import (
     generate_chart,
     get_my_tables,
@@ -85,9 +85,14 @@ How to work:
 
 **Collibra data catalog** (business definitions, field mappings, lineage):
 - Use the collibra_* tools when the user asks about Collibra, business/catalog definitions, or mapping requested
-  field names to catalog fields. Call `collibra_environments` first; if it is empty, say Collibra is not connected
-  for their organization. If several environments exist (e.g. prd, int) and the user did not say which, ask, or
+  field names to catalog fields. Call `collibra_environments` first. If it lists environments, use the server
+  tools (collibra_search_assets, ...); if several exist (e.g. prd, int) and the user did not say which, ask, or
   search each one they asked for.
+- If `collibra_environments` is empty but the collibra_browser_* tools are available (the user installed the
+  QueryMuse Collibra Bridge extension, see context), use those instead: same results, run in the user's browser
+  with their own Collibra session. Start with `collibra_browser_status`; if not signed in, tell the user to sign in
+  to Collibra in this browser (give the login URL) and ask again. If neither is available, say Collibra is not
+  connected and that they can install the bridge extension or ask their admin.
 - Search with short name fragments and synonyms (`collibra_search_assets`), then read definitions with
   `collibra_describe_assets` (batch up to 20 ids). Use `collibra_get_api_fields` / `collibra_get_relations` to
   see fields of a table/API asset or lineage.
@@ -172,5 +177,6 @@ def build_root_agent() -> LlmAgent:
         tools=[
             list_connections, get_my_tables, search_tables_by_keyword, list_tables, get_table_schema, 
             run_sql, query_workspace, list_workspace, generate_chart, *COLLIBRA_TOOLS,
+            AGUIToolset(tool_filter=BROWSER_TOOL_NAMES),
         ],
     )

@@ -11,6 +11,7 @@ import { CHAT_ATTACH_ACCEPT, FILES_CHANGED, UPLOAD_MAX_BYTES, uploadChatAttachme
 import type { Theme } from "../themes";
 import AboutSlides from "./AboutSlides";
 import { AgentStepsToggle, ShowResultsContext, useAgentStepRenderers } from "./AgentSteps";
+import { CollibraBrowserTools } from "./CollibraBrowserTools";
 import ArtifactsPanel from "./ArtifactsPanel";
 import ChatsPanel, { useConversations } from "./Conversations";
 import Explorer, { type ActiveConnection, type TableScope } from "./Explorer";
@@ -420,6 +421,7 @@ export default function AppShell({ theme, role, userId }: { theme: Theme; role?:
         <ScopeContext scope={scope} connection={connection} />
         <UploadsContext sessionId={sessionId} revision={revision} />
         <ChatRenderers />
+        <CollibraBrowserTools />
         <SplitPane
           className={`odn-main${panelOpen ? "" : " odn-main--collapsed"}`}
           storageKey="odn.split.shell"
