@@ -16,7 +16,7 @@ type Artifact =
   | { kind: "chart"; name: string; title: string; result: ChartData }
   | { kind: "file"; id: string; name: string; mime_type: string; size_bytes: number };
 export type Share = {
-  id: string; title: string; owner_name: string | null; owner_email: string; created_at: string; expires_at: string;
+  id: string; kind: "conversation" | "answer"; title: string; owner_name: string | null; owner_email: string; created_at: string; expires_at: string;
   status: "active" | "expired" | "revoked"; include_results: boolean; is_owner: boolean; url: string;
   messages: Message[]; artifacts: Artifact[];
 };
@@ -46,15 +46,16 @@ function Transcript({ messages }: { messages: Message[] }) {
 }
 
 function Artifacts({ share }: { share: Share }) {
+  const open = share.kind === "answer";
   if (!share.artifacts.length) {
     return share.include_results ? null : <p className="muted">Results weren&apos;t included in this share (questions, answers and SQL only).</p>;
   }
   return (
     <section className="shared-artifacts" aria-label="Results">
-      <h2>Results</h2>
+      {share.kind !== "answer" && <h2>Results</h2>}
       {share.artifacts.map((a) =>
         a.kind === "table" ? (
-          <details key={a.name} className="shared-artifact">
+          <details key={a.name} className="shared-artifact" open={open}>
             <summary><strong>{a.name}</strong> · {a.row_count.toLocaleString()} {a.row_count === 1 ? "row" : "rows"}{a.truncated ? " (partial)" : ""}</summary>
             <pre>{a.sql}</pre>
             <ResultsGrid
@@ -106,13 +107,17 @@ export default function SharedConversation({ shareId }: { shareId: string }) {
   return (
     <div className="shared-page">
       <header className="shared-head">
-        <p className="shared-kicker">Shared conversation</p>
+        <p className="shared-kicker">{share.kind === "answer" ? "Shared answer" : "Shared conversation"}</p>
         <h1>{share.title}</h1>
         <p className="muted">
           Shared by {share.is_owner ? "you" : owner} on {new Date(share.created_at).toLocaleDateString()} ·{" "}
           {share.status === "active" ? `link works until ${new Date(share.expires_at).toLocaleDateString()}` : `link ${share.status}`}
         </p>
-        <p className="muted">A read-only copy of the conversation as it was when shared.</p>
+        <p className="muted">
+          {share.kind === "answer"
+            ? "A question and its answer from a QueryMuse conversation, as it was when shared."
+            : "A read-only copy of the conversation as it was when shared."}
+        </p>
         <div className="settings-actions">
           <a className="odn-btn odn-btn--outline" href="/">Back to QueryMuse</a>
         </div>

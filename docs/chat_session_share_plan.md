@@ -213,8 +213,7 @@ link is optional:
 | Slack | Slack has no equivalent pre-filled link for people by email without a Slack app, so **Copy for Slack** (title + link) stays | — |
 | Phone/tablet | **Share…** uses the device's share sheet (`navigator.share`) when available | 0.1 day |
 
-Later (separate scope): share a **single result table or chart** instead of the whole conversation, and an optional
-**"Copy summary"** (owner-approved text of the final answer) for pasting into channels.
+~~Later: share a single result table or chart; "Copy summary"~~ — **done** as *Just the answer* (§10).
 
 ## 7. Security and privacy checklist
 
@@ -290,6 +289,20 @@ Recommendation: ship the MVP, see how teams use *Continue*, then decide on C.
 - Tests (`tests/db/test_shares.py`): chosen person can read, unchosen colleague and other organization get 404,
   artifacts copied under the share prefix, answers-only blanks results, expiry and revoke, organization switch,
   audit events. Verified locally end to end (10 result tables copied and paged from the copy).
+
+**2026-11-20 — "Just the answer" + Copy summary:**
+
+- The Share dialog now asks **What to share**: *Just the answer* (default) or *Whole conversation*.
+- *Just the answer* = one question (picker when there are several), its final answer, and the table or chart that
+  question produced (checkboxes; the chart is preselected, else the last table). Nothing else from the conversation
+  (steps, other questions, files) is stored in the share.
+- The server splits the conversation into questions (`turns`): a reply to the agent's clarifying question ("Which
+  source?" → "3") stays part of the original question, and budget/model-key notices are never taken as the answer.
+  Only results that question produced can be included, whatever the browser sends.
+- Migration `0018`: `shared_conversations.kind` (`conversation` | `answer`). The shared page shows *Shared answer*
+  with the result opened.
+- **Copy summary** (after sharing): question + final answer (≤ 1,500 characters) + link, for pasting into a
+  channel; the owner chooses to copy it, link previews still show no content.
 
 **Next:** phase 2 *Continue this conversation* (fork into the viewer's workspace + ADK session), phase 3 admin
 switch in the Organization tab (API exists).

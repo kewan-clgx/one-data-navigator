@@ -151,3 +151,63 @@ def test_answers_only_organization_audience_expiry_and_switch(env) -> None:
     assert admin.put("/v1/admin/sharing", json={"enabled": False}).json() == {"enabled": False}
     blocked = as_(ann).post("/v1/shares", json={"thread_id": THREAD, "audience": "organization"})
     assert blocked.status_code == 403
+
+
+TWO_TURNS = [
+    {"id": "u1", "role": "user", "content": "How many businesses?"},
+    {"id": "a0", "role": "assistant", "content": "Which data source should I query?"},
+    {"id": "u1b", "role": "user", "content": "3"},
+    {"id": "a1", "role": "assistant", "content": "There are 10."},
+    {"id": "u2", "role": "user", "content": "Top cities by count, as a chart"},
+    {"id": "a2", "role": "assistant", "content": "", "toolCalls": [
+        {"id": "t1", "type": "function", "function": {"name": "run_sql", "arguments": "{}"}},
+        {"id": "t2", "type": "function", "function": {"name": "generate_chart", "arguments":
+            '{"source": "q1", "title": "Top cities", "chart_type": "bar", "x": "city"}'}}]},
+    {"id": "r1", "role": "tool", "toolCallId": "t1", "content": '{"status": "ok", "workspace_table": "q1"}'},
+    {"id": "r2", "role": "tool", "toolCallId": "t2", "content": '{"status": "ok", "points_plotted": 3}'},
+    {"id": "a3", "role": "assistant", "content": "Irvine leads with 5."},
+    {"id": "a4", "role": "assistant", "content": "You've used today's free trial ... in Settings → AI model ..."},
+]
+
+
+def test_just_the_answer_shares_one_question_and_its_chosen_result(env, monkeypatch: pytest.MonkeyPatch) -> None:
+    tenant, user, as_, copies = env
+    slug = tenant()
+    ann, ben = user(slug, "ann"), user(slug, "ben")
+    add_table(ann)
+    with psycopg.connect(OWNER_URL) as conn:
+        conn.execute(
+            "INSERT INTO workspace_charts (tenant_id, user_id, session_id, name, title, chart_type, result) "
+            "VALUES (%s, %s, %s, 'c1', 'Top cities', 'bar', %s)",
+            (ann.tenant_id, ann.user_id, SESSION,
+             '{"spec": {"source": "q1", "type": "bar", "x": "city", "title": "Top cities"}, "points": []}'),
+        )
+
+    def agent(method, path, token, body=None):
+        if path == "/conversations":
+            return httpx.Response(200, json={"conversations": [{"threadId": THREAD, "sessionId": SESSION, "title": "t"}]})
+        return httpx.Response(200, json={"threadExists": True, "state": {}, "messages": TWO_TURNS})
+
+    monkeypatch.setattr(service, "_agent", agent)
+
+    turns = as_(ann).get("/v1/shares/preview", params={"thread_id": THREAD}).json()["turns"]
+    assert [t["question"] for t in turns] == ["How many businesses?", "Top cities by count, as a chart"]
+    assert turns[0]["answer"] == "There are 10."
+    last = turns[-1]
+    assert last["answer"] == "Irvine leads with 5." and [c["name"] for c in last["charts"]] == ["c1"]
+    assert [t["name"] for t in last["tables"]] == ["q1"] and last["default_artifacts"] == ["c1"]
+
+    share = as_(ann).post("/v1/shares", json={
+        "thread_id": THREAD, "audience": "organization", "mode": "answer", "turn_id": "u2",
+        "artifact_names": ["c1", "q99"],  # q99 is not from this question: ignored
+    }).json()
+    seen = as_(ben).get(f"/v1/shares/{share['id']}").json()
+    assert seen["kind"] == "answer"
+    assert seen["messages"] == [
+        {"id": "u2", "role": "user", "content": "Top cities by count, as a chart"},
+        {"id": "u2-answer", "role": "assistant", "content": "Irvine leads with 5."},
+    ]
+    assert [a["name"] for a in seen["artifacts"]] == ["c1"] and copies == []  # chart only, no table copied
+
+    assert as_(ann).post("/v1/shares", json={
+        "thread_id": THREAD, "audience": "organization", "mode": "answer", "turn_id": "nope"}).status_code == 422

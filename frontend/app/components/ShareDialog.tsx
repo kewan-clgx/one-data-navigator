@@ -5,11 +5,25 @@ import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 
 import { api } from "@/lib/client-api";
 
 type Person = { id: string; email: string; display_name: string | null };
+type Turn = {
+  id: string; question: string; answer: string;
+  tables: { name: string; row_count: number }[]; charts: { name: string; title: string }[];
+  default_artifacts: string[]; used_collibra: boolean; used_personal_connections: boolean;
+};
 type Preview = {
-  title: string; messages: number; tables: number; charts: number; files: number;
+  title: string; messages: number; tables: number; charts: number; files: number; turns: Turn[];
   used_personal_connections: boolean; used_collibra: boolean; sharing_enabled: boolean;
 };
-type Created = { id: string; title: string; url: string; expires_at: string; emailed: number; recipients: Person[] };
+type Created = {
+  id: string; title: string; url: string; expires_at: string; emailed: number; recipients: Person[];
+  kind: "conversation" | "answer";
+};
+
+/** Plain text for pasting into Slack/Teams: the question, the final answer and the link (the owner chooses to copy). */
+function summaryText(question: string, answer: string, url: string) {
+  const a = answer.length > 1500 ? `${answer.slice(0, 1500)}…` : answer;
+  return `${question}\n\n${a}\n\nOpen in QueryMuse: ${url}`;
+}
 type MyShare = {
   id: string; title: string; audience: string; status: string; expires_at: string; views: number;
   recipients: { id: string; email: string; name: string | null }[];
@@ -84,7 +98,7 @@ function PeoplePicker({ value, onChange }: { value: Person[]; onChange: (p: Pers
   );
 }
 
-function ShareResult({ created, onDone }: { created: Created; onDone: () => void }) {
+function ShareResult({ created, summary, onDone }: { created: Created; summary: string; onDone: () => void }) {
   const [copied, setCopied] = useState<string | null>(null);
   const message = `${created.title} — ${created.url}`;
   const copy = async (text: string, what: string) => {
@@ -116,6 +130,12 @@ function ShareResult({ created, onDone }: { created: Created; onDone: () => void
         <button type="button" className="odn-btn odn-btn--outline odn-btn--small" onClick={() => copy(message, "slack")}>
           {copied === "slack" ? "Copied ✓" : "Copy for Slack"}
         </button>
+        {summary && (
+          <button type="button" className="odn-btn odn-btn--outline odn-btn--small" onClick={() => copy(summary, "summary")}
+                  title="Question, answer and link as text, to paste into a channel">
+            {copied === "summary" ? "Copied ✓" : "Copy summary"}
+          </button>
+        )}
         {canShare && (
           <button type="button" className="odn-btn odn-btn--outline odn-btn--small"
                   onClick={() => navigator.share({ title: created.title, url: created.url }).catch(() => {})}>
@@ -185,6 +205,10 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
   const [days, setDays] = useState(30);
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<Created | null>(null);
+  const [mode, setMode] = useState<"answer" | "conversation">("answer");
+  const [turnId, setTurnId] = useState<string>("");
+  const [chosen, setChosen] = useState<string[]>([]);
+  const turn = preview?.turns.find((t) => t.id === turnId) ?? null;
 
   useEffect(() => {
     const d = ref.current;
@@ -197,7 +221,14 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
     if (!open) return;
     setPreview(null); setError(null); setCreated(null); setPeople([]); setAudience("people"); setIncludeResults(true); setDays(30);
     api<Preview>(`shares/preview?thread_id=${encodeURIComponent(threadId)}`)
-      .then((p) => { setPreview(p); setTitle(p.title); })
+      .then((p) => {
+        setPreview(p);
+        const last = p.turns[p.turns.length - 1];
+        setMode(last ? "answer" : "conversation");
+        setTurnId(last?.id ?? "");
+        setChosen(last?.default_artifacts ?? []);
+        setTitle(last ? last.question.slice(0, 200) : p.title);
+      })
       .catch((e: Error) => setError(e.message));
   }, [open, threadId]);
 
@@ -210,7 +241,8 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
         method: "POST",
         body: JSON.stringify({
           thread_id: threadId, title, audience, recipient_ids: audience === "people" ? people.map((p) => p.id) : [],
-          include_results: includeResults, expires_days: days,
+          include_results: mode === "answer" ? chosen.length > 0 : includeResults, expires_days: days,
+          mode, turn_id: mode === "answer" ? turnId : null, artifact_names: mode === "answer" ? chosen : [],
         }),
       });
       setCreated(share);
@@ -223,24 +255,87 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
   }
 
   const hasResults = preview && preview.tables + preview.charts + preview.files > 0;
+  const lastTurn = preview?.turns[preview.turns.length - 1];
+  const summary = created
+    ? mode === "answer" && turn
+      ? summaryText(turn.question, turn.answer, created.url)
+      : lastTurn ? summaryText(created.title, lastTurn.answer, created.url) : ""
+    : "";
+  const pickTurn = (id: string) => {
+    const t = preview?.turns.find((x) => x.id === id);
+    setTurnId(id);
+    setChosen(t?.default_artifacts ?? []);
+    if (t) setTitle(t.question.slice(0, 200));
+  };
+  const warnPersonal = mode === "answer" ? !!turn?.used_personal_connections && chosen.some((n) => n.startsWith("q")) : preview?.used_personal_connections;
+  const warnCollibra = mode === "answer" ? !!turn?.used_collibra : preview?.used_collibra;
+  const showWarning = (mode === "answer" || includeResults) && (warnPersonal || warnCollibra);
 
   return (
     <dialog ref={ref} className="share-dialog" aria-labelledby={`${ids}-h`} onClose={onClose}>
       <div className="share-head">
-        <h2 id={`${ids}-h`}>Share conversation</h2>
+        <h2 id={`${ids}-h`}>Share</h2>
         <button type="button" className="link" aria-label="Close" onClick={onClose}>✕</button>
       </div>
       {created ? (
-        <ShareResult created={created} onDone={onClose} />
+        <ShareResult created={created} summary={summary} onDone={onClose} />
       ) : !preview ? (
         error ? <p className="error" role="alert">{error}</p> : <p className="muted">Loading…</p>
       ) : !preview.sharing_enabled ? (
         <p className="muted">Sharing is turned off for your organization. Ask an admin to turn it on.</p>
       ) : (
         <form className="settings-form" onSubmit={submit}>
+          <fieldset>
+            <legend>What to share</legend>
+            <label className="connection-share">
+              <input type="radio" name={`${ids}-mode`} checked={mode === "answer"} disabled={!preview.turns.length}
+                     onChange={() => { setMode("answer"); if (turn) setTitle(turn.question.slice(0, 200)); }} />{" "}
+              Just the answer — one question, its final answer and the related table or chart
+            </label>
+            <label className="connection-share">
+              <input type="radio" name={`${ids}-mode`} checked={mode === "conversation"}
+                     onChange={() => { setMode("conversation"); setTitle(preview.title); }} />{" "}
+              Whole conversation — every question, answer, step and result
+            </label>
+          </fieldset>
+          {mode === "answer" && turn && (
+            <div className="share-turn">
+              {preview.turns.length > 1 && (
+                <label>
+                  Question
+                  <select value={turnId} onChange={(e) => pickTurn(e.target.value)}>
+                    {preview.turns.map((t) => (
+                      <option key={t.id} value={t.id}>{t.question.length > 90 ? `${t.question.slice(0, 90)}…` : t.question}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <blockquote className="share-answer">{turn.answer.length > 400 ? `${turn.answer.slice(0, 400)}…` : turn.answer}</blockquote>
+              {turn.tables.length + turn.charts.length > 0 ? (
+                <div className="share-artifacts">
+                  <span>Include:</span>
+                  {turn.charts.map((c) => (
+                    <label key={c.name} className="connection-share">
+                      <input type="checkbox" checked={chosen.includes(c.name)}
+                             onChange={(e) => setChosen((x) => (e.target.checked ? [...x, c.name] : x.filter((n) => n !== c.name)))} />{" "}
+                      Chart {c.name}{c.title ? ` · ${c.title}` : ""}
+                    </label>
+                  ))}
+                  {turn.tables.map((t) => (
+                    <label key={t.name} className="connection-share">
+                      <input type="checkbox" checked={chosen.includes(t.name)}
+                             onChange={(e) => setChosen((x) => (e.target.checked ? [...x, t.name] : x.filter((n) => n !== t.name)))} />{" "}
+                      Table {t.name} · {t.row_count.toLocaleString()} {t.row_count === 1 ? "row" : "rows"}
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p className="muted">This answer has no table or chart.</p>
+              )}
+            </div>
+          )}
           <p className="muted">
-            Teammates in your organization get a read-only copy of this conversation as it is now, and can continue it
-            with their own follow-up questions. Your conversation isn&apos;t changed.
+            Teammates in your organization get a read-only copy as it is now. Your conversation isn&apos;t changed.
           </p>
           <label>
             Title
@@ -256,6 +351,7 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
             </label>
           </fieldset>
           {audience === "people" && <PeoplePicker value={people} onChange={setPeople} />}
+          {mode === "conversation" && (
           <fieldset>
             <legend>Include</legend>
             <label className="connection-share">
@@ -263,14 +359,15 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
               {hasResults ? ` (${[preview.tables && `${preview.tables} tables`, preview.charts && `${preview.charts} charts`, preview.files && `${preview.files} files`].filter(Boolean).join(", ")})` : ""}
               {" "}— otherwise only questions, answers and SQL
             </label>
-            {includeResults && (preview.used_personal_connections || preview.used_collibra) && (
-              <p className="share-warning" role="note">
-                ⚠ This conversation used{" "}
-                {[preview.used_personal_connections && "your personal data connection", preview.used_collibra && "Collibra with your permissions"].filter(Boolean).join(" and ")}.
-                {" "}People you share with will see these results even if they can&apos;t access that data themselves.
-              </p>
-            )}
           </fieldset>
+          )}
+          {showWarning && (
+            <p className="share-warning" role="note">
+              ⚠ This {mode === "answer" ? "answer" : "conversation"} used{" "}
+              {[warnPersonal && "your personal data connection", warnCollibra && "Collibra with your permissions"].filter(Boolean).join(" and ")}.
+              {" "}People you share with will see these results even if they can&apos;t access that data themselves.
+            </p>
+          )}
           <label>
             Link expires after
             <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
@@ -280,7 +377,7 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
             </select>
           </label>
           <div className="settings-actions">
-            <button type="submit" disabled={busy || !title.trim() || (audience === "people" && people.length === 0)}>
+            <button type="submit" disabled={busy || !title.trim() || (audience === "people" && people.length === 0) || (mode === "answer" && !turn)}>
               {busy ? "Sharing…" : "Share"}
             </button>
             <button type="button" onClick={onClose}>Cancel</button>

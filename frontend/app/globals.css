@@ -986,3 +986,6 @@ a.odn-chat-open { text-decoration: none; display: block; }
 .shared-artifacts h2 { font-size: 1.05rem; margin: 0.5rem 0 0; }
 .shared-artifact { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.6rem 0.8rem; }
 .shared-artifact pre { white-space: pre-wrap; font-size: 0.75rem; }
+.share-turn { display: flex; flex-direction: column; gap: 0.5rem; }
+.share-answer { margin: 0; padding: 0.5rem 0.7rem; border-left: 3px solid var(--accent); background: var(--surface-alt); font-size: 0.8rem; line-height: 1.5; white-space: pre-wrap; max-height: 10rem; overflow: auto; }
+.share-artifacts { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; }

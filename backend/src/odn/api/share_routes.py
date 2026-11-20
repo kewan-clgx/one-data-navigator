@@ -42,6 +42,9 @@ class ShareIn(BaseModel):
     recipient_ids: list[UUID] = Field(default_factory=list, max_length=50)
     include_results: bool = True
     expires_days: int = 30
+    mode: service.Mode = "conversation"
+    turn_id: str | None = Field(default=None, max_length=200)
+    artifact_names: list[str] = Field(default_factory=list, max_length=20)
 
 
 class ExtendIn(BaseModel):
@@ -67,6 +70,7 @@ async def create(body: ShareIn, request: Request, ctx: Context) -> dict[str, Any
         share = await run_in_threadpool(
             service.create, ctx, _token(request), thread_id=body.thread_id, title=body.title, audience=body.audience,
             recipient_ids=body.recipient_ids, include_results=body.include_results, expires_days=body.expires_days,
+            mode=body.mode, turn_id=body.turn_id, artifact_names=body.artifact_names,
         )
     except service.ShareError as exc:
         raise _http(exc) from None

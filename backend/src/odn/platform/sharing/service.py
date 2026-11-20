@@ -36,6 +36,8 @@ MAX_ARTIFACTS = 60
 RESULTS_OMITTED = '{"omitted": "Results were not included in this share."}'
 
 Audience = Literal["people", "organization"]
+Mode = Literal["conversation", "answer"]
+MAX_TURNS = 30
 
 
 class ShareError(Exception):
@@ -115,6 +117,79 @@ def _clean_messages(messages: list[dict[str, Any]], include_results: bool) -> li
     return out
 
 
+def _parse(content: Any) -> Any:
+    if not isinstance(content, str):
+        return content
+    try:
+        return json.loads(content)
+    except ValueError:
+        return None
+
+
+# Budget/model-key notices the agent sends instead of an answer (odn.agent.budget); never shared as "the answer".
+_NOTICE_MARKERS = ("in Settings → AI model", "I can't check your AI usage budget")
+
+
+def _is_notice(text: str) -> bool:
+    return any(marker in text for marker in _NOTICE_MARKERS)
+
+
+def turns(messages: list[dict[str, Any]], charts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Question/answer turns with the result tables and charts each produced.
+
+    A turn starts at a user message; its answer is the last assistant text before the next question. Tables come
+    from tool results (`workspace_table`); charts are matched to saved charts (c1..) by source, title and type.
+    """
+    results = {m.get("toolCallId"): _parse(m.get("content")) for m in messages if m.get("role") == "tool"}
+    unused = list(charts)
+    out: list[dict[str, Any]] = []
+    for m in messages:
+        role = m.get("role")
+        if role == "user":
+            text = m.get("content") if isinstance(m.get("content"), str) else ""
+            prev = out[-1] if out else None
+            if prev and prev["answer"].endswith("?") and not (prev["tables"] or prev["charts"]):
+                # A reply to the agent's clarifying question ("Which source?" → "3") continues that question.
+                prev["answer"] = ""
+                continue
+            out.append({"id": str(m.get("id")), "question": text.strip(), "answer": "", "tables": [], "charts": [],
+                        "tools": []})
+            continue
+        if not out or role != "assistant":
+            continue
+        turn = out[-1]
+        text = m["content"].strip() if isinstance(m.get("content"), str) else ""
+        if text and not _is_notice(text):
+            turn["answer"] = text
+        for call in m.get("toolCalls") or []:
+            fn = call.get("function") or {}
+            name = fn.get("name")
+            turn["tools"].append(name)
+            result = results.get(call.get("id"))
+            if not isinstance(result, dict) or result.get("status") not in (None, "ok"):
+                continue
+            if isinstance(result.get("workspace_table"), str):
+                turn["tables"].append(result["workspace_table"])
+            if name == "generate_chart":
+                args = _parse(fn.get("arguments")) or {}
+                for c in unused:
+                    spec = (c.get("result") or {}).get("spec") or {}
+                    if (spec.get("source"), spec.get("title") or "", spec.get("type")) == (
+                        args.get("source"), args.get("title") or "", args.get("chart_type")
+                    ):
+                        turn["charts"].append(c["name"])
+                        unused.remove(c)
+                        break
+    return [t for t in out if t["question"]]
+
+
+def default_artifacts(turn: dict[str, Any]) -> list[str]:
+    """The chart if the answer drew one (it usually summarizes the result), else the last table."""
+    if turn["charts"]:
+        return [turn["charts"][-1]]
+    return turn["tables"][-1:]
+
+
 # -- artifacts ------------------------------------------------------------------------------------------------
 
 
@@ -144,7 +219,17 @@ def preview(ctx: RequestContext, token: str, thread_id: str) -> dict[str, Any]:
     convo = fetch_conversation(token, thread_id)
     with tenant_transaction(ctx.tenant_id, ctx.user_id) as conn:
         arts = _session_artifacts(conn, ctx, convo["session_id"])
+    qa = [t for t in turns(convo["messages"], arts["charts"]) if t["answer"]][-MAX_TURNS:]
+    tables = {t["name"]: t for t in arts["tables"]}
     return {
+        "turns": [{
+            "id": t["id"], "question": t["question"][:300], "answer": t["answer"][:4000],
+            "tables": [{"name": n, "row_count": tables[n]["row_count"]} for n in t["tables"] if n in tables],
+            "charts": [{"name": c["name"], "title": c["title"]} for c in arts["charts"] if c["name"] in t["charts"]],
+            "default_artifacts": default_artifacts(t),
+            "used_collibra": any((n or "").startswith("collibra") for n in t["tools"]),
+            "used_personal_connections": any(tables[n]["personal"] for n in t["tables"] if n in tables),
+        } for t in qa],
         "title": convo["title"] or "Shared conversation",
         "messages": sum(1 for m in convo["messages"] if m.get("role") in ("user", "assistant") and m.get("content")),
         "tables": len(arts["tables"]), "charts": len(arts["charts"]), "files": len(arts["files"]),
@@ -175,6 +260,7 @@ def _active_recipients(conn: Any, ctx: RequestContext, ids: list[uuid.UUID]) -> 
 def create(
     ctx: RequestContext, token: str, *, thread_id: str, title: str, audience: Audience,
     recipient_ids: list[uuid.UUID], include_results: bool, expires_days: int,
+    mode: Mode = "conversation", turn_id: str | None = None, artifact_names: list[str] | None = None,
 ) -> dict[str, Any]:
     if not sharing_enabled(ctx):
         raise ShareError("Sharing is turned off for your organization.", 403)
@@ -184,6 +270,13 @@ def create(
         raise ShareError("Pick at least one person to share with.", 422)
     convo = fetch_conversation(token, thread_id)
     messages = _clean_messages(convo["messages"], include_results)
+    turn: dict[str, Any] | None = None
+    if mode == "answer":
+        turn = next((t for t in turns(convo["messages"], []) if t["id"] == turn_id and t["answer"]), None)
+        if turn is None:
+            raise ShareError("Pick a question that has an answer.", 422)
+        messages = [{"id": turn["id"], "role": "user", "content": turn["question"]},
+                    {"id": f"{turn['id']}-answer", "role": "assistant", "content": turn["answer"]}]
     if len(json.dumps(messages)) > MAX_SNAPSHOT_BYTES:
         raise ShareError("This conversation is too long to share; start a new one with the key questions.", 413)
     share_id = new_share_id()
@@ -191,6 +284,16 @@ def create(
     with tenant_transaction(ctx.tenant_id, ctx.user_id) as conn:
         recipients = _active_recipients(conn, ctx, recipient_ids) if audience == "people" else []
         arts = _session_artifacts(conn, ctx, convo["session_id"])
+        tool_names = _tool_names(messages)
+        if turn is not None:
+            # Only the chosen table/chart(s), and only ones this question produced.
+            produced = turns(convo["messages"], arts["charts"])
+            produced_turn = next(t for t in produced if t["id"] == turn["id"])
+            allowed = set(produced_turn["tables"]) | set(produced_turn["charts"])
+            chosen = set(artifact_names or []) & allowed
+            arts = {"tables": [t for t in arts["tables"] if t["name"] in chosen],
+                    "charts": [c for c in arts["charts"] if c["name"] in chosen], "files": []}
+            tool_names = {n for n in produced_turn["tools"] if n}
         used_personal = any(t["personal"] for t in arts["tables"])
         artifacts: list[dict[str, Any]] = []
         if include_results:
@@ -215,12 +318,12 @@ def create(
         expires = datetime.now(UTC) + timedelta(days=expires_days)
         conn.execute(
             "INSERT INTO shared_conversations (id, tenant_id, owner_user_id, source_thread_id, source_session_id, title, "
-            "audience, include_results, messages, artifacts, used_personal_connections, used_collibra, expires_at) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "audience, include_results, messages, artifacts, used_personal_connections, used_collibra, expires_at, kind) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (share_id, ctx.tenant_id, ctx.user_id, thread_id, convo["session_id"],
              final_title, audience, include_results,
              Jsonb(messages), Jsonb(artifacts), used_personal,
-             any(n.startswith("collibra") for n in _tool_names(messages)), expires),
+             any(n.startswith("collibra") for n in tool_names), expires, mode),
         )
         for r in recipients:
             conn.execute(
@@ -230,17 +333,17 @@ def create(
         conn.execute(
             "INSERT INTO admin_events (tenant_id, actor_user_id, action, target, detail) VALUES (%s, %s, %s, %s, %s)",
             (ctx.tenant_id, ctx.user_id, "share.created", share_id,
-             Jsonb({"audience": audience, "recipients": [r["email"] for r in recipients],
+             Jsonb({"kind": mode, "audience": audience, "recipients": [r["email"] for r in recipients],
                     "include_results": include_results, "expires_days": expires_days})),
         )
-    return {"id": share_id, "title": final_title, "expires_at": expires.isoformat(),
+    return {"id": share_id, "title": final_title, "kind": mode, "expires_at": expires.isoformat(),
             "recipients": [dict(r) for r in recipients]}
 
 
 # -- reading ----------------------------------------------------------------------------------------------------
 
 _SUMMARY = (
-    "s.id, s.title, s.audience, s.include_results, s.created_at, s.expires_at, s.revoked_at, s.source_thread_id, "
+    "s.id, s.kind, s.title, s.audience, s.include_results, s.created_at, s.expires_at, s.revoked_at, s.source_thread_id, "
     "s.used_personal_connections, s.used_collibra, s.owner_user_id, u.display_name AS owner_name, u.email AS owner_email"
 )
 
