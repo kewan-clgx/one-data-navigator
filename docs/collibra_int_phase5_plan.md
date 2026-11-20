@@ -105,12 +105,82 @@ flowchart LR
 - **Use the Collibra search API** (full-text across names, descriptions and attributes) instead of name-only asset
   search when allowed; it finds "employee numbers" via definitions, not just names.
 - **Batch describe:** read attributes for several assets in one request (`assetId` list) instead of one per asset.
+- **GraphQL for lookups (later, if speed matters):** a lookup is ~15 REST calls; Collibra's GraphQL Knowledge Graph API
+  could return the same in 1–2 queries. Only as fixed query templates shipped in the extension (page supplies just
+  the search text and ids), never free-form queries; keep REST as the default for simplicity and security review.
 - **Telemetry:** count Collibra calls, errors (not signed in / forbidden) and latency per organization, to see
   adoption and catch session expiry problems.
 - **Token mode first for new clients:** it needs no install on users' machines; keep browser mode for clients who
   cannot change Collibra settings.
 - **Extension hygiene:** publish one store listing for all clients (address comes from QueryMuse), pin a minimum
   version in the app (already supported), and keep the request allowlist unchanged unless reviewed.
+
+### 0.5 FAQ (how browser mode works)
+
+**Does searching in the Collibra tab use the AI model or tokens?** No. Searching, opening an asset and following
+relations in the tab go straight to Collibra (through the extension in browser mode, or the API in token mode); no
+model call, no tokens, nothing counted against LLM budgets. *Use in chat* only stores the selected asset; the next
+chat message carries its name and id as a few tokens of context. Questions asked **in chat** use the model.
+
+**Does browser mode use the Collibra connector (`idap_agents_glb-ag_foundation-collibra_connector`)?** No. It uses
+QueryMuse's own **Collibra Bridge** extension. Same principle (the user's Collibra session stays on their machine;
+read-only, bounded requests; the user's own permissions), different mechanism:
+
+| | Collibra connector (KWAgent) | QueryMuse Collibra Bridge |
+|---|---|---|
+| What it is | Node.js CLI + local helper process | Chrome/Edge extension |
+| Collibra sign-in | Opens its own dedicated Chrome window for SSO/MFA | Uses the sign-in already in the user's normal browser |
+| Session | Cookies held in the helper's memory | Kept by the browser; the extension never reads cookies |
+| Caller | KWAgent's agent on the same computer | The QueryMuse page, on behalf of the hosted agent |
+| Allowed reads | Any bounded `GET /rest/2.0/...` (explicit `limit` 1–100) | Five fixed reads only (current user, asset search, asset, attributes, relations) |
+| Install | npm + Node 20 + Chrome | Zip today; Add to Chrome after publishing |
+
+Both call the **same Collibra Core REST API** (`/rest/2.0/`); neither offers writes or GraphQL. The extension's
+allowlist and the agent tools were modelled on the connector's `get` rules and KWAgent's wrapper tools.
+
+**How does the bridge query Collibra?**
+
+```
+QueryMuse page ──postMessage──▶ content script ──chrome.runtime──▶ service worker ──HTTPS GET──▶ Collibra REST API
+ (app.querymuse.ai)              (on QueryMuse pages only)          (extension background)        (*.collibra.com)
+        ▲                                                                                              │
+        └──────────────────────────── JSON result, same path back ◀───────────────────────────────────┘
+```
+
+1. **Page** (`frontend/lib/collibra.ts`): a `collibra_browser_*` tool call or a Collibra-tab search posts a request
+   (read type, parameters, the admin-configured Collibra address) to its own window.
+2. **Content script** (`content.js`): runs only on QueryMuse pages, accepts messages only from that page, relays them.
+3. **Service worker** (`background.js`, rules in `policy.js`): accepts only QueryMuse tabs and `https://*.collibra.com`
+   addresses, validates the read against the allowlist, then calls Collibra with `fetch(…, credentials: "include")`;
+   the browser attaches the user's Collibra session (the extension has host permission for `*.collibra.com`).
+
+   | Purpose | Collibra REST call |
+   |---|---|
+   | Sign-in check | `GET /rest/2.0/users/current` |
+   | Search by name | `GET /rest/2.0/assets?name=…&nameMatchMode=…&limit=…` |
+   | Asset details | `GET /rest/2.0/assets/{id}` |
+   | Definitions / attributes | `GET /rest/2.0/attributes?assetId={id}&limit=…` |
+   | Relations / lineage | `GET /rest/2.0/relations?sourceId={id}` (or `targetId`) |
+
+   SSO redirect / 401 / HTML page → "not signed in" with reason and sign-in link; 403, 404, 429, timeouts and
+   responses over 2 MB are reported as such.
+4. **Page shapes the JSON:** HTML definitions to plain text, profiling statistics dropped, ranking applied, same
+   result format as the server tools, successful reads cached 10 minutes. One lookup ≈ 1 search + details and
+   attributes for the top 5 (4 in parallel) + relations for the top 3.
+
+The shaped catalog metadata goes to the agent as the tool result (and from there to the model). In browser mode
+QueryMuse's server never calls Collibra and never holds Collibra credentials.
+
+**Does the Collibra REST API use GraphQL?** No. `/rest/2.0/...` is Collibra's Core REST API: plain GETs with query
+parameters returning JSON. Collibra also has a **separate** GraphQL Knowledge Graph API (e.g.
+`/graphql/knowledgeGraph/v1`); the connector repo has captured responses from it, so it is available on
+Cotality's Collibra, but neither the connector nor the bridge uses it (the bridge blocks it).
+
+| | Core REST API (used) | GraphQL Knowledge Graph API |
+|---|---|---|
+| Style | One fixed request per resource | One query naming the fields and linked assets to return |
+| Asset + definition + related assets | Several requests | Usually one |
+| Locking down to bounded read-only use | Simple: fixed paths and parameters | Harder: query text must be checked or limited to fixed templates |
 
 ## 1. Goal
 
@@ -341,3 +411,4 @@ and nothing is invented.
 | 2026-11-19 | Extension distribution guide: [collibra_extension_publish.md](collibra_extension_publish.md) (Chrome Web Store unlisted + client IT force-install). |
 | 2026-11-19 | **Live for Cotality:** admin added `prd` in Settings (browser mode); extension v0.2.0 from the Settings download; Test connection, Collibra tab and chat working on the real tenant. Summary, diagrams and recommendations added (§0). |
 | 2026-11-19 | Optimizations: one-call lookup tools, ranking (business terms / accepted / readable names first), 10-minute per-user cache. |
+| 2026-11-19 | FAQ added (§0.5): tab searches use no tokens; bridge vs. Collibra connector; how the bridge calls the REST API; REST vs. GraphQL. |
