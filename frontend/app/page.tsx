@@ -14,6 +14,14 @@ export const dynamic = "force-dynamic";
 export default async function Home() {
   const identity = await currentIdentity();
   if (identity.kind === "expired") redirect("/auth/refresh");
+  // Back to the shared conversation the user opened before signing in (cookie set by /s/[id]; cleared there).
+  let returnTo = "";
+  try {
+    returnTo = decodeURIComponent(cookies().get("odn_return")?.value ?? "");
+  } catch {
+    // malformed cookie: ignore
+  }
+  if (identity.kind === "ok" && /^\/s\/[A-Za-z0-9_-]{22}$/.test(returnTo)) redirect(returnTo);
   if (identity.kind === "signed-out") {
     const theme = currentTheme();
     return (

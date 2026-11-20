@@ -17,18 +17,21 @@ export default function ResultsGrid({
   name,
   columns,
   initialRows,
+  rowsBase,
 }: {
   sessionId: string;
   name: string;
   columns: string[];
   initialRows: Record<string, unknown>[];
+  /** Alternative source (e.g. a shared conversation's copy); its `/rows` is used and CSV download is hidden. */
+  rowsBase?: string;
 }) {
   const [offset, setOffset] = useState(0);
   const [sort, setSort] = useState<{ col: string; desc: boolean } | null>(null);
   const [page, setPage] = useState<Page | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const base = `/api/odn/workspace/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(name)}`;
+  const base = rowsBase ?? `/api/odn/workspace/${encodeURIComponent(sessionId)}/artifacts/${encodeURIComponent(name)}`;
 
   useEffect(() => {
     setOffset(0);
@@ -58,8 +61,8 @@ export default function ResultsGrid({
     };
   }, [base, offset, sort]);
 
-  const rows = page?.rows ?? initialRows.slice(0, PAGE);
   const total = page?.total;
+  const rows = total === 0 ? [] : page?.rows ?? initialRows.slice(0, PAGE);
   const toggleSort = (col: string) => {
     setOffset(0);
     setSort((s) => (s?.col === col ? (s.desc ? null : { col, desc: true }) : { col, desc: false }));
@@ -86,9 +89,11 @@ export default function ResultsGrid({
           >
             Next ›
           </button>
-          <a className="download" href={`${base}/csv`} download={`${name}.csv`}>
-            Download CSV
-          </a>
+          {!rowsBase && (
+            <a className="download" href={`${base}/csv`} download={`${name}.csv`}>
+              Download CSV
+            </a>
+          )}
         </span>
       </div>
       {error && <p role="alert" className="error">{error}</p>}

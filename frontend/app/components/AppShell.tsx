@@ -18,6 +18,7 @@ import ArtifactsPanel from "./ArtifactsPanel";
 import ChatsPanel, { useConversations } from "./Conversations";
 import Explorer, { type ActiveConnection, type TableScope } from "./Explorer";
 import ResultsPanel, { AGENT_ID, type AgentState } from "./Results";
+import ShareDialog from "./ShareDialog";
 import Organization from "./Organization";
 import Settings from "./Settings";
 import SplitPane from "./SplitPane";
@@ -200,6 +201,7 @@ export default function AppShell({ theme, role, userId }: { theme: Theme; role?:
   const [scope, setScope] = useState<TableScope | null>(null);
   const [connection, setConnection] = useState<ActiveConnection | null>(null);
   const [workbenchOpen, setWorkbenchOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const [workbenchHost, setWorkbenchHost] = useState<HTMLDivElement | null>(null);
   const tabRefs = useRef<Partial<Record<TabId, HTMLButtonElement | null>>>({});
 
@@ -376,6 +378,15 @@ export default function AppShell({ theme, role, userId }: { theme: Theme; role?:
         </div>
         <div className="odn-chat-toolbar-actions">
           <AgentStepsToggle />
+          <button
+            type="button"
+            className="odn-btn odn-btn--outline odn-btn--small"
+            onClick={() => setShareOpen(true)}
+            disabled={!conversations?.some((c) => c.threadId === threadId)}
+            title="Share this conversation with teammates"
+          >
+            Share
+          </button>
           <button type="button" className="odn-btn odn-btn--small" onClick={startNewConversation}>
             New conversation
           </button>
@@ -430,6 +441,7 @@ export default function AppShell({ theme, role, userId }: { theme: Theme; role?:
         </div>
         <div ref={setWorkbenchHost} className="odn-workbench-host" />
       </div>
+      {threadId && <ShareDialog threadId={threadId} open={shareOpen} onClose={() => setShareOpen(false)} />}
     </section>
   );
 

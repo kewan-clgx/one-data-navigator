@@ -2,6 +2,52 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { api } from "@/lib/client-api";
+
+import { SHARES_CHANGED } from "./ShareDialog";
+
+type SharedWithMe = {
+  id: string; title: string; owner_name: string | null; owner_email: string; created_at: string;
+  first_viewed_at: string | null;
+};
+
+/** Conversations teammates shared with the signed-in user (newest first; "new" until opened). */
+function SharedWithMeList() {
+  const [items, setItems] = useState<SharedWithMe[]>([]);
+  const load = useCallback(() => {
+    api<SharedWithMe[]>("shares?scope=with_me").then(setItems).catch(() => setItems([]));
+  }, []);
+  useEffect(() => {
+    load();
+    window.addEventListener(SHARES_CHANGED, load);
+    window.addEventListener("focus", load);
+    return () => {
+      window.removeEventListener(SHARES_CHANGED, load);
+      window.removeEventListener("focus", load);
+    };
+  }, [load]);
+  if (!items.length) return null;
+  const unseen = items.filter((s) => !s.first_viewed_at).length;
+  return (
+    <section aria-label="Shared with me">
+      <span className="odn-panel-heading">Shared with me{unseen ? ` · ${unseen} new` : ""}</span>
+      <ul className="odn-chat-list">
+        {items.map((s) => (
+          <li key={s.id} className={`odn-chat-item${s.first_viewed_at ? "" : " odn-chat-item--active"}`}>
+            <a className="odn-chat-open" href={`/s/${s.id}`}>
+              <span className="odn-chat-title">{s.title}</span>
+              <span className="odn-chat-meta">
+                from {s.owner_name || s.owner_email} · {new Date(s.created_at).toLocaleDateString()}
+                {s.first_viewed_at ? "" : " · new"}
+              </span>
+            </a>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export type Conversation = { threadId: string; sessionId: string; title: string; updatedAt: number };
 
 /** The signed-in user's conversations; refetches whenever `revision` changes. */
@@ -78,6 +124,7 @@ export default function ChatsPanel({
       {error && <p className="error" role="alert">{error}</p>}
       {deleteError && <p className="error" role="alert">{deleteError}</p>}
       {items === null && !error && <p className="odn-panel-note">Loading…</p>}
+      <SharedWithMeList />
       {items?.length === 0 && <p className="odn-panel-note">No saved conversations yet. Ask a question to start one.</p>}
       {items && items.length > 0 && !current && (
         <p className="odn-panel-note">You&apos;re in a new conversation; it appears here after your first message.</p>

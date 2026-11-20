@@ -80,8 +80,10 @@ const TAG: Record<Outcome["kind"], string> = {
   awaiting: "Awaiting approval",
 };
 
-function StepCard({ name, status, args, result }: { name: string; status: string; args: unknown; result: unknown }) {
-  const showSteps = useShowAgentSteps();
+export function StepCard({
+  name, status, args, result, readOnly = false,
+}: { name: string; status: string; args: unknown; result: unknown; readOnly?: boolean }) {
+  const showSteps = useShowAgentSteps() || readOnly;
   const showResults = useContext(ShowResultsContext);
   const complete = status === "complete";
   const outcome = complete ? outcomeOf(parse(result)) : null;
@@ -115,7 +117,7 @@ function StepCard({ name, status, args, result }: { name: string; status: string
       {problem && <div className="odn-step-error">{problem.message}</div>}
       {outcome?.kind === "cancelled" && <div className="odn-step-summary">{outcome.message}</div>}
       {outcome?.kind === "ok" && outcome.summary && <div className="odn-step-summary">{outcome.summary}</div>}
-      {outcome?.kind === "ok" && RESULT_TOOLS.has(name) && (
+      {!readOnly && outcome?.kind === "ok" && RESULT_TOOLS.has(name) && (
         <button type="button" className="odn-btn odn-btn--outline odn-btn--small" onClick={showResults}>
           View in Results
         </button>

@@ -39,6 +39,26 @@ def assert_tenant_key(tenant_id: object, user_id: object, key: str) -> str:
     return key
 
 
+def share_key(tenant_id: object, share_id: str, *parts: str) -> str:
+    """Object key of a shared conversation's copied artifacts: <prefix>/<tenant>/shares/<share>/...
+
+    "shares" can't collide with a user directory (those are UUIDs)."""
+    return workspace_prefix(str(tenant_id), "shares", share_id, *parts)
+
+
+def assert_share_key(tenant_id: object, share_id: str, key: str) -> str:
+    """Refuse any object key outside one share's copied artifacts."""
+    prefix = share_key(tenant_id, share_id) + "/"
+    if not key.startswith(prefix) or any(p in ("", ".", "..") for p in key[len(prefix):].split("/")):
+        raise PermissionError("object key is outside the share")
+    return key
+
+
+def copy_object(src: str, dst: str) -> None:
+    bucket = gcs_client().bucket(settings.gcs_bucket)
+    bucket.copy_blob(bucket.blob(src), bucket, dst)
+
+
 def check_access() -> None:
     """Raises unless objects under the workspace prefix can be listed (bucket-level IAM is not required)."""
     next(iter(gcs_client().list_blobs(settings.gcs_bucket, prefix=workspace_prefix(""), max_results=1)), None)

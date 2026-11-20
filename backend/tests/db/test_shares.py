@@ -1,0 +1,153 @@
+"""/v1/shares against the real Postgres: who can read a shared conversation, artifacts copied, revoke/expiry."""
+
+import dataclasses
+import uuid
+
+import httpx
+import psycopg
+import pytest
+from fastapi.testclient import TestClient
+
+from odn.api.deps import request_context
+from odn.api.main import app
+from odn.config import settings
+from odn.db import pool
+from odn.db.migrate import migrate
+from odn.db.provision import add_domain, upsert_tenant
+from odn.platform.sharing import service
+from odn.platform.workspace.storage import tenant_key
+from odn.tenancy.context import resolve_context
+from odn.tenancy.oidc import VerifiedToken
+from tests.db.test_rls import APP_URL, OWNER_URL, _reachable
+
+pytestmark = pytest.mark.skipif(not _reachable(), reason="local Postgres not running")
+
+THREAD = "thread-1"
+SESSION = "session-1"
+MESSAGES = [
+    {"id": "m1", "role": "user", "content": "How many businesses per state?"},
+    {"id": "m2", "role": "assistant", "content": "", "toolCalls": [
+        {"id": "t1", "type": "function", "function": {"name": "run_sql", "arguments": '{"sql": "SELECT 1"}'}}]},
+    {"id": "m3", "role": "tool", "toolCallId": "t1", "content": '{"rows": [{"state": "CA", "n": 5}]}'},
+    {"id": "m4", "role": "assistant", "content": "CA has 5."},
+    {"id": "m5", "role": "system", "content": "internal"},
+]
+
+
+@pytest.fixture
+def env(monkeypatch: pytest.MonkeyPatch):
+    migrate(OWNER_URL)
+    monkeypatch.setattr(settings, "database_url", APP_URL)
+    monkeypatch.setattr(settings, "public_url", "https://app.example.com")
+    monkeypatch.setattr(settings, "resend_api_key", "")
+    pool.cache_clear()
+    created: list[uuid.UUID] = []
+    copies: list[tuple[str, str]] = []
+    monkeypatch.setattr(service, "copy_object", lambda src, dst: copies.append((src, dst)))
+
+    def fake_agent(method, path, token, body=None):
+        if path == "/conversations":
+            return httpx.Response(200, json={"conversations": [{"threadId": THREAD, "sessionId": SESSION, "title": "Biz by state"}]})
+        assert body == {"threadId": THREAD}
+        return httpx.Response(200, json={"threadExists": True, "state": {}, "messages": MESSAGES})
+
+    monkeypatch.setattr(service, "_agent", fake_agent)
+
+    def tenant() -> str:
+        slug = f"t-{uuid.uuid4().hex[:12]}"
+        created.append(upsert_tenant(OWNER_URL, slug, slug, auth="google", join="domain"))
+        add_domain(OWNER_URL, slug, f"{slug}.com", attest=True)
+        return slug
+
+    def user(slug: str, name: str, role: str = "member"):
+        dom = f"{slug}.com"
+        ctx = resolve_context(VerifiedToken("https://accounts.google.com", f"{name}-{dom}", dom, f"{name}@{dom}", True, name))
+        return dataclasses.replace(ctx, role=role) if role != "member" else ctx
+
+    def as_(ctx) -> TestClient:
+        app.dependency_overrides[request_context] = lambda: ctx
+        return TestClient(app, headers={"Authorization": "Bearer test-token"})
+
+    yield tenant, user, as_, copies
+    app.dependency_overrides.clear()
+    pool.cache_clear()
+    with psycopg.connect(OWNER_URL) as conn:
+        conn.execute("DELETE FROM tenants WHERE id = ANY(%s)", (created,))
+
+
+def add_table(ctx) -> None:
+    with psycopg.connect(OWNER_URL) as conn:
+        conn.execute(
+            "INSERT INTO workspace_artifacts (tenant_id, user_id, session_id, name, kind, sql_text, object_key, row_count, "
+            "arrow_bytes, truncated, columns) VALUES (%s, %s, %s, 'q1', 'warehouse', 'SELECT 1', %s, 1, 10, false, '[]')",
+            (ctx.tenant_id, ctx.user_id, SESSION, tenant_key(ctx.tenant_id, ctx.user_id, SESSION, "a.parquet")),
+        )
+
+
+def test_share_with_people_copies_results_and_controls_access(env) -> None:
+    tenant, user, as_, copies = env
+    slug, other = tenant(), tenant()
+    ann, ben, cat = user(slug, "ann"), user(slug, "ben"), user(slug, "cat")
+    outsider = user(other, "ann")
+    add_table(ann)
+
+    preview = as_(ann).get("/v1/shares/preview", params={"thread_id": THREAD}).json()
+    assert preview["title"] == "Biz by state" and preview["tables"] == 1 and preview["used_personal_connections"] is False
+
+    people = as_(ann).get("/v1/shares/people", params={"q": "ben"}).json()
+    assert [p["email"] for p in people] == [f"ben@{slug}.com"]  # not herself, not other organizations
+
+    resp = as_(ann).post("/v1/shares", json={"thread_id": THREAD, "recipient_ids": [str(ben.user_id)]})
+    assert resp.status_code == 201, resp.text
+    share = resp.json()
+    assert share["url"] == f"https://app.example.com/s/{share['id']}" and share["emailed"] == 0
+    src, dst = copies[0]
+    assert src.endswith("/a.parquet") and f"/{ann.tenant_id}/shares/{share['id']}/q1.parquet" in dst
+
+    seen = as_(ben).get(f"/v1/shares/{share['id']}").json()
+    assert seen["title"] == "Biz by state" and seen["owner_email"] == f"ann@{slug}.com"
+    assert [m["role"] for m in seen["messages"]] == ["user", "assistant", "tool", "assistant"]  # system dropped
+    assert seen["artifacts"][0]["name"] == "q1" and "object_key" not in seen["artifacts"][0]
+    assert [s["id"] for s in as_(ben).get("/v1/shares", params={"scope": "with_me"}).json()] == [share["id"]]
+
+    assert as_(cat).get(f"/v1/shares/{share['id']}").status_code == 404  # same org, not chosen
+    assert as_(outsider).get(f"/v1/shares/{share['id']}").status_code == 404  # other organization
+    assert as_(cat).delete(f"/v1/shares/{share['id']}").status_code == 404
+
+    mine = as_(ann).get("/v1/shares", params={"scope": "mine", "thread_id": THREAD}).json()
+    assert mine[0]["views"] == 1 and mine[0]["recipients"][0]["email"] == f"ben@{slug}.com"
+
+    assert as_(ann).delete(f"/v1/shares/{share['id']}").status_code == 204
+    assert as_(ben).get(f"/v1/shares/{share['id']}").status_code == 404
+    assert as_(ann).get(f"/v1/shares/{share['id']}").json()["status"] == "revoked"
+
+    admin = as_(user(slug, "boss", role="admin"))
+    actions = {e["action"] for e in admin.get("/v1/admin/events").json()}
+    assert {"share.created", "share.viewed", "share.revoked"} <= actions
+
+
+def test_answers_only_organization_audience_expiry_and_switch(env) -> None:
+    tenant, user, as_, copies = env
+    slug = tenant()
+    ann, ben = user(slug, "ann"), user(slug, "ben")
+    add_table(ann)
+
+    share = as_(ann).post("/v1/shares", json={
+        "thread_id": THREAD, "audience": "organization", "include_results": False, "expires_days": 7,
+    }).json()
+    seen = as_(ben).get(f"/v1/shares/{share['id']}").json()
+    assert seen["artifacts"] == [] and copies == []
+    assert next(m for m in seen["messages"] if m["role"] == "tool")["content"] == service.RESULTS_OMITTED
+
+    with psycopg.connect(OWNER_URL) as conn:
+        conn.execute("UPDATE shared_conversations SET expires_at = now() - interval '1 minute' WHERE id = %s", (share["id"],))
+    assert as_(ben).get(f"/v1/shares/{share['id']}").status_code == 404
+
+    assert as_(ann).post("/v1/shares", json={"thread_id": THREAD}).status_code == 422  # people audience needs people
+    assert as_(ann).post("/v1/shares", json={"thread_id": THREAD, "audience": "organization", "expires_days": 365}).status_code == 422
+    assert as_(ann).post("/v1/shares", json={"thread_id": "someone-elses", "audience": "organization"}).status_code == 404
+
+    admin = as_(user(slug, "boss", role="admin"))
+    assert admin.put("/v1/admin/sharing", json={"enabled": False}).json() == {"enabled": False}
+    blocked = as_(ann).post("/v1/shares", json={"thread_id": THREAD, "audience": "organization"})
+    assert blocked.status_code == 403

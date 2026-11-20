@@ -11,6 +11,8 @@ from odn.api.collibra_routes import jwks_router
 from odn.api.collibra_routes import router as collibra_router
 from odn.api.me_routes import router as me_router
 from odn.api.routes import router
+from odn.api.share_routes import admin_router as sharing_admin_router
+from odn.api.share_routes import router as share_router
 from odn.api.shared_connections_routes import router as shared_connections_router
 from odn.api.usage_routes import router as usage_router
 from odn.api.workspace_routes import router as workspace_router
@@ -30,6 +32,8 @@ app.include_router(admin_router)
 app.include_router(collibra_router)
 app.include_router(collibra_admin_router)
 app.include_router(jwks_router)
+app.include_router(share_router)
+app.include_router(sharing_admin_router)
 
 
 @app.exception_handler(auth_exc.RefreshError)

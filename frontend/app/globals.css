@@ -943,3 +943,46 @@ textarea.mono {
 .collibra-setup a.odn-btn { text-decoration: none; display: inline-block; }
 .collibra-panel-link { color: var(--panel-focus, var(--accent)); text-decoration: underline; }
 .collibra-back { align-self: flex-start; }
+
+/* ============ Sharing ============ */
+
+.share-dialog {
+  width: min(560px, calc(100vw - 2rem)); max-height: calc(100vh - 4rem); overflow: auto;
+  border: 1px solid var(--border); border-radius: var(--radius); padding: 1.25rem 1.4rem;
+  background: var(--surface); color: var(--fg); font-size: 0.85rem;
+}
+.share-dialog::backdrop { background: rgba(0, 0, 0, 0.45); }
+.share-dialog h2 { font-size: 1.05rem; margin: 0; }
+.share-dialog h3 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-muted); margin: 1rem 0 0.4rem; }
+.share-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
+.share-people { display: flex; flex-direction: column; gap: 0.35rem; position: relative; }
+.share-people > label { font-size: 0.8rem; }
+.share-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.share-chips li { border: 1px solid var(--border); border-radius: var(--radius); padding: 0.15rem 0.2rem 0.15rem 0.5rem; font-size: 0.78rem; }
+.share-chips button { background: none; border: 0; cursor: pointer; color: var(--fg-muted); }
+.share-options { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius); max-height: 12rem; overflow: auto; }
+.share-options button { width: 100%; text-align: left; background: none; border: 0; padding: 0.45rem 0.6rem; cursor: pointer; font: inherit; color: inherit; }
+.share-options button:hover, .share-options button:focus-visible { background: var(--surface-alt); }
+.share-warning { margin: 0.25rem 0 0; font-size: 0.78rem; padding: 0.45rem 0.6rem; background: var(--warning-bg); border-radius: var(--radius); }
+.share-result { display: flex; flex-direction: column; gap: 0.7rem; }
+.share-link { display: flex; gap: 0.5rem; }
+.share-link input { flex: 1; padding: 0.45rem 0.6rem; border: 1px solid var(--border); border-radius: var(--radius); font: inherit; font-size: 0.8rem; }
+.share-result a.odn-btn, .settings-actions a.odn-btn { text-decoration: none; }
+.share-mine { border-top: 1px solid var(--border); margin-top: 1rem; }
+a.odn-chat-open { text-decoration: none; display: block; }
+
+.odn-app--page { height: auto; min-height: 100vh; }
+.shared-main { flex: 1; display: flex; justify-content: center; padding: 2rem 1.5rem 4rem; }
+.shared-page { width: min(860px, 100%); display: flex; flex-direction: column; gap: 1rem; }
+.shared-head h1 { font-size: 1.5rem; margin: 0.2rem 0 0.4rem; }
+.shared-head p { margin: 0 0 0.3rem; }
+.shared-kicker { font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent-strong); }
+.shared-transcript { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.9rem; }
+.shared-msg { display: flex; flex-direction: column; gap: 0.5rem; line-height: 1.55; }
+.shared-msg--user { align-items: flex-end; }
+.shared-user { margin: 0; max-width: 85%; background: var(--primary); color: var(--primary-fg); padding: 0.6rem 0.85rem; border-radius: var(--radius); white-space: pre-wrap; }
+.shared-msg--assistant { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.75rem 1rem; }
+.shared-artifacts { display: flex; flex-direction: column; gap: 0.6rem; }
+.shared-artifacts h2 { font-size: 1.05rem; margin: 0.5rem 0 0; }
+.shared-artifact { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.6rem 0.8rem; }
+.shared-artifact pre { white-space: pre-wrap; font-size: 0.75rem; }

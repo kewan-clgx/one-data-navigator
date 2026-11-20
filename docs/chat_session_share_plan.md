@@ -1,6 +1,6 @@
 # Share a chat session with teammates (Teams / Slack) — plan for review
 
-**Status:** Reviewed (2026-11-19); all questions decided — ready to build phase 1. No code yet. **Decided:** MVP = model A (snapshot + continue); live shared thread (model C) is a nice-to-have, sized in §8.1. Audience: pick people by default. Expiry: 30 days by default. Results included by default (with warnings). Admins can turn sharing off. Delivery: in-app + email + Teams chat link (§6.1).
+**Status:** Phase 1 + 1b built (2026-11-20); next: phase 2 *Continue* and the admin switch in the UI. See [§10](#10-progress). **Decided:** MVP = model A (snapshot + continue); live shared thread (model C) is a nice-to-have, sized in §8.1. Audience: pick people by default. Expiry: 30 days by default. Results included by default (with warnings). Admins can turn sharing off. Delivery: in-app + email + Teams chat link (§6.1).
 **Goal:** a user shares a conversation (questions, answers, SQL, result tables, charts) through a link they paste
 in Microsoft Teams or Slack; a teammate in the same organization opens it in QueryMuse and **asks follow-up
 questions** that build on it.
@@ -264,3 +264,32 @@ Recommendation: ship the MVP, see how teams use *Continue*, then decide on C.
 4. ~~Include results by default?~~ **Decided:** yes, with the personal-connection / Collibra warning and the *answers and SQL only* option.
 5. ~~Admin switch?~~ **Decided:** yes; sharing on by default, admins can turn it off for their organization.
 6. ~~Teams/Slack level?~~ **Decided:** level 1 (link + Share to Teams + copy for Slack), plus the direct delivery in §6.1.
+
+## 10. Progress
+
+**2026-11-20 — Phase 1 + 1b built** (share, view, direct delivery):
+
+- Migration `0017`: `shared_conversations` (snapshot of messages, copied artifacts, flags, expiry, revoke),
+  `shared_conversation_recipients`, `shared_conversation_views`, `tenant_sharing_settings`; RLS on all.
+- API `/v1/shares`: `preview`, `people` (type-ahead, active members of the organization), create, list (`mine` /
+  `with_me`), get, table rows, file download, extend, revoke; `/v1/admin/sharing` (on/off). The snapshot is read
+  **server-side from the agent with the owner's own token** (never sent by the browser); tool results are blanked
+  for *answers and SQL only*; system messages dropped. Result tables and files are copied to
+  `odn/<tenant>/shares/<share>/` (`share_key` / `assert_share_key`); charts are copied inline.
+- Access: owner, chosen people, or everyone in the organization; same tenant only; expiry (7/30/90 days) and revoke
+  enforced; others get 404. Activity log: `share.created`, `share.viewed` (first view), `share.revoked`,
+  `share.settings_saved`.
+- Email to recipients (Resend, title only), **Send in Teams** (chat with the chosen people, message pre-filled),
+  **Share to Teams…**, **Copy for Slack**, device share sheet.
+- UI: **Share** button in the chat toolbar → dialog (title, people picker / everyone, results on/off with warnings for
+  personal connections and Collibra, expiry; then link + delivery buttons; links for this conversation with views,
+  *Extend 30 days*, *Revoke*); **Shared with me** in the Chats tab (new until opened); read-only page `/s/<id>`
+  (transcript with step cards and SQL, results tables with paging, charts, files); signed-out visitors are asked to
+  sign in and returned to the link afterwards; link previews show only *"QueryMuse — shared conversation · Sign in
+  to view"* (verified: no title or data in the unauthenticated HTML).
+- Tests (`tests/db/test_shares.py`): chosen person can read, unchosen colleague and other organization get 404,
+  artifacts copied under the share prefix, answers-only blanks results, expiry and revoke, organization switch,
+  audit events. Verified locally end to end (10 result tables copied and paged from the copy).
+
+**Next:** phase 2 *Continue this conversation* (fork into the viewer's workspace + ADK session), phase 3 admin
+switch in the Organization tab (API exists).
