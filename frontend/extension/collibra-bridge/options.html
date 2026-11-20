@@ -16,13 +16,13 @@
   <body>
     <h1>QueryMuse Collibra Bridge</h1>
     <p>Lets QueryMuse read your Collibra catalog using your own Collibra sign-in in this browser. Read-only.</p>
-    <label for="base">Collibra address</label>
+    <label for="base">Collibra address (if QueryMuse does not provide one)</label>
     <input id="base" type="url" placeholder="https://yourcompany.collibra.com" />
     <button id="save" type="button">Save</button>
     <button id="test" type="button">Test connection</button>
     <div id="status" role="status"></div>
     <pre id="details" style="white-space: pre-wrap; font-size: 12px; background: #f4f4f5; padding: 6px; display: none"></pre>
-    <p>Sign in to Collibra in this browser as usual (SSO), then use QueryMuse.</p>
+    <p>QueryMuse uses the Collibra address your admin set up. Sign in to Collibra in this browser as usual (SSO), then use QueryMuse.</p>
     <script type="module" src="options.js"></script>
   </body>
 </html>

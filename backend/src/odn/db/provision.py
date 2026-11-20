@@ -17,7 +17,8 @@ Tenant directory (docs/Tenant_Isolation_User_system.md):
     provision invite indulge alice@indulgetheapp.com --role admin
     provision user indulge bob@indulgetheapp.com --status disabled
     provision idp datahop https://accounts.google.com '*'  # issuer fallback tenant (personal Google accounts)
-    provision collibra cotality prd --url https://example.collibra.com --audience querymuse-collibra
+    provision collibra cotality prd --url https://example.collibra.com                     # users' own browser sign-in
+    provision collibra cotality prd --url https://example.collibra.com --audience querymuse-collibra   # token mode
 """
 
 from __future__ import annotations
@@ -217,17 +218,23 @@ def set_budget(url: str, tenant: str, tokens: int) -> None:
 
 
 def upsert_collibra(
-    url: str, tenant: str, env: str, base_url: str, audience: str, principal_format: str = "email", enabled: bool = True
+    url: str, tenant: str, env: str, base_url: str, audience: str | None = None, principal_format: str = "email",
+    enabled: bool = True,
 ) -> None:
-    """Point a tenant at a Collibra environment that trusts QueryMuse tokens (docs/collibra_int_phase5_plan.md)."""
+    """Connect a tenant to a Collibra environment (docs/collibra_int_phase5_plan.md).
+
+    With an audience: token mode (Collibra trusts QueryMuse-signed tokens). Without: browser mode (each user's own
+    Collibra sign-in through the QueryMuse Collibra Bridge extension). Admins can also manage this in Settings.
+    """
+    mode = "token" if audience else "browser"
     with _conn(url) as conn:
         tenant_id = _tenant_id(conn, tenant)
         conn.execute(
-            "INSERT INTO collibra_environments (tenant_id, env, base_url, audience, principal_format, enabled) "
-            "VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (tenant_id, env) DO UPDATE SET base_url = EXCLUDED.base_url, "
-            "audience = EXCLUDED.audience, principal_format = EXCLUDED.principal_format, enabled = EXCLUDED.enabled, "
-            "updated_at = now()",
-            (tenant_id, env, base_url.rstrip("/"), audience, principal_format, enabled),
+            "INSERT INTO collibra_environments (tenant_id, env, base_url, access_mode, audience, principal_format, enabled) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (tenant_id, env) DO UPDATE SET base_url = EXCLUDED.base_url, "
+            "access_mode = EXCLUDED.access_mode, audience = EXCLUDED.audience, principal_format = EXCLUDED.principal_format, "
+            "enabled = EXCLUDED.enabled, updated_at = now()",
+            (tenant_id, env, base_url.rstrip("/"), mode, audience, principal_format, enabled),
         )
 
 
@@ -259,10 +266,11 @@ def show(url: str) -> None:
                 print(f"  connection {c['name']}  project={c['config'].get('project')}  secret_ref={c['secret_ref']}")
                 print(f"    allowed: {', '.join(c['allowed_objects'])}")
             for e in conn.execute(
-                "SELECT env, base_url, audience, principal_format, enabled FROM collibra_environments "
+                "SELECT env, base_url, access_mode, audience, principal_format, enabled FROM collibra_environments "
                 "WHERE tenant_id = %s ORDER BY env", (tid,),
             ):
-                print(f"  collibra {e['env']}  {e['base_url']}  audience={e['audience']}  sub={e['principal_format']}"
+                token = f"  audience={e['audience']}  sub={e['principal_format']}" if e["access_mode"] == "token" else ""
+                print(f"  collibra {e['env']}  {e['base_url']}  mode={e['access_mode']}{token}"
                       + ("" if e["enabled"] else "  DISABLED"))
             for u in conn.execute(
                 "SELECT email, role, status, last_login_at FROM users WHERE tenant_id = %s ORDER BY email", (tid,)
@@ -329,7 +337,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("tenant")
     p.add_argument("env", help="environment label, e.g. prd or int")
     p.add_argument("--url", required=True, help="Collibra origin, e.g. https://example.collibra.com")
-    p.add_argument("--audience", required=True, help="JWT audience configured in that Collibra environment")
+    p.add_argument("--audience", help="token mode: JWT audience configured in Collibra (omit for browser mode)")
     p.add_argument("--principal", choices=["email", "email_local_part"], default="email",
                    help="Collibra username format (JWT sub)")
     p.add_argument("--disable", action="store_true")

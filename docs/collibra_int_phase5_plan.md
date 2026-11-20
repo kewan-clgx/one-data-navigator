@@ -1,6 +1,6 @@
 # Phase 5: Collibra Catalog Integration — Plan & Tracker
 
-**Status:** Two routes built (2026-11-19). **Stopgap, usable now:** the QueryMuse Collibra Bridge browser extension ([§4.4](#43-stopgap-collibra-bridge-browser-extension-no-collibra-change)) reads Collibra with the user's own browser session; no Collibra change needed. **Long-term:** option A (QueryMuse-issued per-user tokens) is built and waits on Cotality's Collibra admin to trust QueryMuse's token issuer ([§4.2](#42-collibra-admin-setup-one-time-per-environment)).
+**Status:** Two routes built (2026-11-19). **Stopgap, usable now:** the QueryMuse Collibra Bridge browser extension ([§4.3](#43-stopgap-collibra-bridge-browser-extension-no-collibra-change)) reads Collibra with the user's own browser session; no Collibra change needed. **Long-term:** option A (QueryMuse-issued per-user tokens) is built and waits on Cotality's Collibra admin to trust QueryMuse's token issuer ([§4.2](#42-collibra-admin-setup-one-time-per-environment)).
 **Owner:** QueryMuse team · **First client:** Cotality (`cotality` tenant) · **Updated:** 2026-11-19
 **Parent plan:** [one_data_navigator_mvp_dev_plan.md → Phase 5](one_data_navigator_mvp_dev_plan.md#phase-5-collibra-catalog-integration-post-v1-not-yet-scheduled)
 
@@ -116,7 +116,7 @@ act as Cotality Collibra users who sign in to QueryMuse; mitigations above, plus
 Same model as the KWAgent connector (the user's own Collibra SSO session stays on their machine), moved into
 the browser so it works with the hosted app:
 
-- **Extension** [`browser-extension/collibra-bridge`](../browser-extension/collibra-bridge/README.md) (Chrome/Edge
+- **Extension** [`frontend/extension/collibra-bridge`](../frontend/extension/collibra-bridge/README.md) (Chrome/Edge
   MV3): a content script on QueryMuse pages relays requests to the service worker, which performs allowlisted
   read-only `GET /rest/2.0/...` calls with the browser's Collibra session (`credentials: "include"`). Cookies are
   never read or returned; SSO redirects are reported as "not signed in".
@@ -138,7 +138,29 @@ the browser so it works with the hosted app:
 - Trade-offs: needs the extension installed (developer mode for the pilot; Web Store/managed policy later) and the
   user signed in to Collibra in the same browser; agent turns using Collibra need the browser tab open.
 
-### 4.4 Alternative kept for later
+### 4.4 Collibra as an admin-managed data source (2026-11-19)
+
+Not every organization has Collibra, so it is set up per organization like a data source:
+
+- **Settings → Collibra data catalog** (admins): add/edit/remove environments (name e.g. `prd`, Collibra address,
+  access mode **browser** = each user's own Collibra sign-in via the extension, or **token** = QueryMuse sign-in,
+  showing the JWKS URL/issuer to give the Collibra admin, plus audience and username format). Saved in
+  `collibra_environments` (migration `0016`: `access_mode`, admin writes under tenant RLS), each change recorded in
+  the organization's activity log. API: `GET/PUT/DELETE /v1/admin/collibra/environments[/{env}]`.
+- **Gating:** the **Collibra** tab, the Settings section for users, the agent context and the browser tools appear
+  only when the organization has an enabled environment. Server-side reads refuse browser-mode environments (409).
+- **Extension download & guidance:** `https://app.querymuse.ai/downloads/querymuse-collibra-bridge.zip` (built on
+  request from `frontend/extension/collibra-bridge`, versioned file name). Settings and the Collibra tab show
+  the extension status, a **Download extension** button, four setup steps and **Test connection** (with a *Sign in
+  to Collibra* link). When a user asks about Collibra in chat without the extension, the agent replies with the same
+  steps and the download link. The extension now uses the Collibra address the admin configured (still restricted
+  to `https://*.collibra.com`); its own setting is only a fallback.
+- **Collibra tab:** environment picker, name search (contains / starts with / exact, paging), asset details
+  (definition, attributes without profiling statistics, outgoing/incoming relations you can click through),
+  **Open in Collibra** and **Use in chat**, which scopes the chat to that asset (chip above the chat; the agent
+  receives the asset id and environment).
+
+### 4.5 Alternative kept for later
 
 **B. Tenant service account** (OAuth client credentials) — no Collibra-side JWT change, but everyone sees the
 service account's view. Can be added as a second credential provider if Cotality prefers it.
@@ -179,9 +201,9 @@ Port the KWAgent wrapper's tool set:
       connected; with option B, say answers reflect the shared catalog view.
 
 ### 5.3 UI
-- [ ] **Collibra** side-panel tab: status, search, asset detail; selecting an asset scopes the chat.
+- [x] **Collibra** side-panel tab: status, search, asset detail; **Use in chat** scopes the chat to the asset.
 - [ ] Explorer dictionary shows Collibra definitions with provenance ("Collibra · PRD").
-- [ ] Settings / Organization (admins): connect and test Collibra per environment.
+- [x] Settings (admins): add, edit, remove and test Collibra per environment; users get extension download + steps + test.
 
 ### 5.4 Security & tests
 - [x] Credentials only via Secret Manager / encrypted store; never in prompts, logs or tool output.
@@ -203,5 +225,6 @@ and nothing is invented.
 | 2026-11-17 | Phase 5 added after the invented-definitions incident. |
 | 2026-11-19 | Auth research: SSO session not reusable on the server; options A (JWT) / B (service account); KWAgent wrapper design reviewed; tracker created. |
 | 2026-11-19 | Browser-extension stopgap built and verified end to end against a fake Collibra (no Collibra-side change needed). |
-| 2026-11-19 | Bridge verified on the real Collibra tenant with the user's SSO session; diagnostics + profiling-attribute trimming added. Next: field-mapping workflow to a workspace table, Collibra UI tab, extension distribution. |
+| 2026-11-19 | Bridge verified on the real Collibra tenant with the user's SSO session; diagnostics + profiling-attribute trimming added. |
+| 2026-11-19 | Collibra as an admin-managed data source (Settings), Collibra tab with asset scope, extension download + setup guidance in Settings, the tab and chat. Next: field-mapping workflow to a workspace table, extension distribution (Web Store unlisted / managed policy). |
 | 2026-11-19 | Option A chosen (no service account available). Built: QueryMuse-signed per-user tokens + JWKS, `collibra_environments` (RLS), `/v1/collibra/*`, five agent tools, provision CLI, tests against a fake Collibra that verifies our JWKS. Prod signing key created. Next: Collibra admin JWT setup, then live test and the Collibra UI tab. |

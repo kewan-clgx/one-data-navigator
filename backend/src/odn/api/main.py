@@ -6,6 +6,7 @@ from google.auth import exceptions as auth_exc
 from odn.api.admin_routes import router as admin_router
 from odn.api.artifacts_routes import router as artifacts_router
 from odn.api.auth_routes import router as auth_router
+from odn.api.collibra_routes import admin_router as collibra_admin_router
 from odn.api.collibra_routes import jwks_router
 from odn.api.collibra_routes import router as collibra_router
 from odn.api.me_routes import router as me_router
@@ -27,6 +28,7 @@ app.include_router(artifacts_router)
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(collibra_router)
+app.include_router(collibra_admin_router)
 app.include_router(jwks_router)
 
 

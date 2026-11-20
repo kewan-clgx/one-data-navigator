@@ -1,5 +1,6 @@
 """/v1/collibra/* against the real Postgres: per-tenant environments (RLS), user identity, JWKS."""
 
+import dataclasses
 import uuid
 
 import psycopg
@@ -49,9 +50,11 @@ def env(monkeypatch: pytest.MonkeyPatch):
             upsert_collibra(OWNER_URL, slug, "prd", "https://catalog.example.com", f"{slug}.com")
         return slug
 
-    def as_(slug: str, name: str = "ann") -> TestClient:
+    def as_(slug: str, name: str = "ann", role: str = "member") -> TestClient:
         dom = f"{slug}.com"
         ctx = resolve_context(VerifiedToken("https://accounts.google.com", f"{name}-{dom}", dom, f"{name}@{dom}", True, name))
+        if role != "member":
+            ctx = dataclasses.replace(ctx, role=role)
         app.dependency_overrides[request_context] = lambda: ctx
         return TestClient(app)
 
@@ -69,7 +72,7 @@ def test_environments_are_per_tenant_and_calls_run_as_the_user(env) -> None:
 
     ann = as_(a)
     assert ann.get("/v1/collibra/environments").json() == {
-        "environments": [{"env": "prd", "base_url": "https://catalog.example.com"}]
+        "environments": [{"env": "prd", "base_url": "https://catalog.example.com", "access_mode": "token"}]
     }
     status = ann.get("/v1/collibra/prd/status").json()
     assert status["authenticated"] is True and status["username"] == f"ann@{a}.com"
@@ -104,3 +107,37 @@ def test_input_bounds_and_public_jwks(env) -> None:
     app.dependency_overrides.clear()
     keys = TestClient(app).get("/.well-known/jwks.json")
     assert keys.status_code == 200 and keys.json()["keys"][0]["alg"] == "RS256"
+
+
+def test_admin_manages_collibra_as_a_data_source(env) -> None:
+    tenant, as_, seen = env
+    slug = tenant(False)
+
+    member = as_(slug, "ann")  # the override applies to the most recent as_() call
+    assert member.get("/v1/admin/collibra/environments").status_code == 403
+    assert member.put("/v1/admin/collibra/environments/prd", json={"base_url": "https://x.collibra.com"}).status_code == 403
+
+    admin = as_(slug, "boss", role="admin")
+    listing = admin.get("/v1/admin/collibra/environments").json()
+    assert listing["environments"] == [] and listing["jwks_url"] == "https://app.example.com/.well-known/jwks.json"
+    saved = admin.put("/v1/admin/collibra/environments/prd", json={"base_url": "https://Corp.Collibra.com/"}).json()
+    assert saved["base_url"] == "https://corp.collibra.com" and saved["access_mode"] == "browser"
+    assert admin.put("/v1/admin/collibra/environments/int",
+                     json={"base_url": "https://x.collibra.com", "access_mode": "token"}).status_code == 422
+    assert admin.put("/v1/admin/collibra/environments/prd", json={"base_url": "http://x.collibra.com"}).status_code == 422
+    assert admin.put("/v1/admin/collibra/environments/Bad", json={"base_url": "https://x.collibra.com"}).status_code == 422
+
+    # Members see it as a data source; server-side reads are refused for browser mode (no Collibra call made).
+    member = as_(slug, "ann")
+    assert member.get("/v1/collibra/environments").json()["environments"] == [
+        {"env": "prd", "base_url": "https://corp.collibra.com", "access_mode": "browser"}
+    ]
+    calls = len(seen)
+    assert member.get("/v1/collibra/prd/assets", params={"q": "revenue"}).status_code == 409
+    assert len(seen) == calls
+
+    admin = as_(slug, "boss", role="admin")
+    assert admin.delete("/v1/admin/collibra/environments/prd").status_code == 204
+    assert admin.delete("/v1/admin/collibra/environments/prd").status_code == 404
+    actions = {e["action"] for e in admin.get("/v1/admin/events").json()}
+    assert {"collibra.environment_saved", "collibra.environment_removed"} <= actions

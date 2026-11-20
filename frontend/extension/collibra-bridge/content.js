@@ -21,7 +21,7 @@
     if (!msg || msg.source !== APP) return;
     if (msg.type === "ping") return announce();
     if (msg.type !== "get" || typeof msg.id !== "string") return;
-    chrome.runtime.sendMessage({ type: "get", path: msg.path, params: msg.params }, (result) => {
+    chrome.runtime.sendMessage({ type: "get", path: msg.path, params: msg.params, base_url: msg.base_url }, (result) => {
       if (chrome.runtime.lastError) {
         reply(msg.id, { type: "result", result: { ok: false, error: "bridge_error", message: "The Collibra bridge extension did not respond; reload the page." } });
         return;

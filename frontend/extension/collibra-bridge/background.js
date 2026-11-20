@@ -33,8 +33,10 @@ async function redirectTarget(url) {
   }
 }
 
-async function collibraGet(path, params) {
-  const base = await baseUrl();
+async function collibraGet(path, params, requestedBase) {
+  // The organization's Collibra address comes from QueryMuse (admin setting); it must still be a Collibra origin.
+  const base = requestedBase ? validBaseUrl(requestedBase) : await baseUrl();
+  if (!base) return { ok: false, error: "refused", message: "Not a Collibra address (https://<name>.collibra.com)." };
   let relative;
   try {
     relative = checkRequest(path, params);
@@ -88,7 +90,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
   if (message?.type === "get") {
-    collibraGet(message.path, message.params).then(sendResponse);
+    collibraGet(message.path, message.params, message.base_url).then(sendResponse);
     return true;
   }
   sendResponse({ ok: false, error: "refused", message: "unknown request" });

@@ -7,13 +7,19 @@ permissions. It is the stopgap until Collibra trusts QueryMuse's token issuer (o
 
 ## Install (Chrome or Edge, developer mode)
 
-1. Open `chrome://extensions` (or `edge://extensions`) and turn on **Developer mode**.
-2. **Load unpacked** → choose this folder (`browser-extension/collibra-bridge`).
-3. Click the extension's icon: the Collibra address defaults to `https://corelogic.collibra.com`; change and
-   **Save** if yours differs.
-4. Sign in to Collibra in the **same browser profile** as usual (SSO/MFA).
-5. Open (or reload) `https://app.querymuse.ai` and ask, e.g. *"Using Collibra, what is the definition of
-   Corporate Revenue?"* The chat shows `collibra_browser_*` steps.
+Your QueryMuse admin first adds the organization's Collibra in **Settings → Collibra data catalog** (browser mode).
+Then each user:
+
+1. Downloads the zip from **Settings → Collibra** (or the Collibra tab, or the link the assistant gives):
+   `https://app.querymuse.ai/downloads/querymuse-collibra-bridge.zip`, and unzips it.
+2. Opens `chrome://extensions` (or `edge://extensions`), turns on **Developer mode**, clicks **Load unpacked** and
+   chooses the unzipped `querymuse-collibra-bridge` folder.
+3. Signs in to Collibra in the **same browser profile** as usual (SSO/MFA).
+4. Reloads QueryMuse and uses the **Collibra** tab or asks, e.g. *"Using Collibra, what is the definition of
+   Corporate Revenue?"*
+
+The extension uses the Collibra address your admin configured; its own setting (icon → address) is only a
+fallback. Developers can also load this folder (`frontend/extension/collibra-bridge`) directly.
 
 If Collibra says you are not signed in, open the Collibra address in a tab, sign in, and ask again.
 

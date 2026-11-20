@@ -11,7 +11,9 @@ import { CHAT_ATTACH_ACCEPT, FILES_CHANGED, UPLOAD_MAX_BYTES, uploadChatAttachme
 import type { Theme } from "../themes";
 import AboutSlides from "./AboutSlides";
 import { AgentStepsToggle, ShowResultsContext, useAgentStepRenderers } from "./AgentSteps";
-import { CollibraBrowserTools } from "./CollibraBrowserTools";
+import { CollibraBrowserTools, type CollibraScope } from "./CollibraBrowserTools";
+import CollibraPanel from "./CollibraPanel";
+import { useCollibraBridge, useCollibraEnvironments } from "@/lib/collibra";
 import ArtifactsPanel from "./ArtifactsPanel";
 import ChatsPanel, { useConversations } from "./Conversations";
 import Explorer, { type ActiveConnection, type TableScope } from "./Explorer";
@@ -24,6 +26,7 @@ const TABS = [
   { id: "about", label: "About" },
   { id: "chats", label: "Chats" },
   { id: "explorer", label: "Explorer" },
+  { id: "collibra", label: "Collibra" },
   { id: "results", label: "Results" },
   { id: "artifacts", label: "Artifacts" },
   { id: "settings", label: "Settings" },
@@ -181,7 +184,13 @@ function ChatRenderers() {
 
 export default function AppShell({ theme, role, userId }: { theme: Theme; role?: string; userId?: string }) {
   // The Organization tab (people, invites) is for tenant admins only; the API enforces it too.
-  const tabs = role === "admin" ? TABS : TABS.filter((t) => t.id !== "organization");
+  const { envs: collibraEnvs } = useCollibraEnvironments();
+  const collibraBridge = useCollibraBridge();
+  const [collibraScope, setCollibraScope] = useState<CollibraScope | null>(null);
+  // Collibra appears only for organizations whose admin set it up (Settings → Collibra).
+  const tabs = TABS.filter(
+    (t) => (t.id !== "organization" || role === "admin") && (t.id !== "collibra" || (collibraEnvs?.length ?? 0) > 0),
+  );
   const [panelOpen, setPanelOpen] = useState(true);
   const [tab, setTab] = useState<TabId>("about");
   const [resultsUnseen, setResultsUnseen] = useState(false);
@@ -322,6 +331,11 @@ export default function AppShell({ theme, role, userId }: { theme: Theme; role?:
           onWorkbenchOpenChange={setWorkbenchOpen}
         />
       </div>
+      {(collibraEnvs?.length ?? 0) > 0 && (
+        <div role="tabpanel" id="tabpanel-collibra" aria-labelledby="tab-collibra" hidden={tab !== "collibra"} className="odn-tabpanel">
+          <CollibraPanel envs={collibraEnvs ?? []} scope={collibraScope} onScopeChange={setCollibraScope} />
+        </div>
+      )}
       <div role="tabpanel" id="tabpanel-results" aria-labelledby="tab-results" hidden={tab !== "results"} className="odn-tabpanel">
         <div className="odn-sheet">
           <ResultsPanel />
@@ -339,7 +353,7 @@ export default function AppShell({ theme, role, userId }: { theme: Theme; role?:
       </div>
       <div role="tabpanel" id="tabpanel-settings" aria-labelledby="tab-settings" hidden={tab !== "settings"} className="odn-tabpanel">
         <div className="odn-sheet">
-          <Settings role={role} />
+          <Settings role={role} collibraEnvs={collibraEnvs} />
         </div>
       </div>
       {role === "admin" && (
@@ -373,6 +387,14 @@ export default function AppShell({ theme, role, userId }: { theme: Theme; role?:
           selectTab("settings");
         }}
       />
+      {collibraScope && (
+        <div className="odn-scope-chip">
+          Collibra: <code>{collibraScope.name}</code>
+          <button type="button" aria-label="Clear Collibra asset" onClick={() => setCollibraScope(null)}>
+            ✕
+          </button>
+        </div>
+      )}
       {scope && (
         <div className="odn-scope-chip">
           Scoped to <code>{scope.path.join(".")}</code>
@@ -421,7 +443,7 @@ export default function AppShell({ theme, role, userId }: { theme: Theme; role?:
         <ScopeContext scope={scope} connection={connection} />
         <UploadsContext sessionId={sessionId} revision={revision} />
         <ChatRenderers />
-        <CollibraBrowserTools />
+        <CollibraBrowserTools envs={collibraEnvs} bridge={collibraBridge} scope={collibraScope} />
         <SplitPane
           className={`odn-main${panelOpen ? "" : " odn-main--collapsed"}`}
           storageKey="odn.split.shell"

@@ -920,3 +920,26 @@ textarea.mono {
   background: var(--chrome-bg); color: var(--chrome-fg); font-size: 0.85rem;
 }
 .odn-site-footer nav { display: flex; flex-wrap: wrap; gap: 1.25rem; }
+
+/* ============ Collibra tab and setup ============ */
+
+.collibra-panel { gap: 0.75rem; }
+.collibra-search { display: flex; align-items: flex-end; gap: 0.5rem; flex-wrap: wrap; }
+.collibra-search label { flex: 1 1 12rem; }
+.collibra-search select { width: auto; }
+.sidebar input[type="search"], .sidebar .collibra-search select { min-width: 0; }
+.collibra-results, .collibra-detail { display: flex; flex-direction: column; gap: 0.5rem; }
+.collibra-title { margin: 0.25rem 0 0; font-size: 0.95rem; overflow-wrap: anywhere; }
+.collibra-name code { font-size: 0.68rem; overflow-wrap: anywhere; }
+.collibra-definition { margin: 0; font-size: 0.82rem; line-height: 1.5; }
+.collibra-attrs { margin: 0; display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.75rem; }
+.collibra-attrs div { display: grid; grid-template-columns: minmax(7rem, 38%) 1fr; gap: 0.5rem; }
+.collibra-attrs dt { color: var(--panel-muted); }
+.collibra-attrs dd { margin: 0; overflow-wrap: anywhere; }
+.collibra-setup { display: flex; flex-direction: column; gap: 0.5rem; }
+.collibra-steps { margin: 0; padding-left: 1.2rem; font-size: 0.8rem; line-height: 1.5; display: flex; flex-direction: column; gap: 0.2rem; }
+.collibra-setup--dark .collibra-steps { color: var(--panel-fg); }
+.collibra-env-row { font-size: 0.78rem; padding: 0.4rem 0; }
+.collibra-setup a.odn-btn { text-decoration: none; display: inline-block; }
+.collibra-panel-link { color: var(--panel-focus, var(--accent)); text-decoration: underline; }
+.collibra-back { align-self: flex-start; }

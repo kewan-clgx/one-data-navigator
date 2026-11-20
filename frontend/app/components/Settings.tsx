@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
 
 import { api, CONNECTIONS_CHANGED, LLM_CHANGED, notify, type Budget, type Connection } from "@/lib/client-api";
+import type { CollibraEnv } from "@/lib/collibra";
+import CollibraSettings from "./CollibraSettings";
 import PostgresConnectionForm, { EMPTY_POSTGRES_DRAFT, draftOfPostgres } from "./PostgresConnectionForm";
 
 // ---------------------------------------------------------------------------------------------
@@ -558,11 +560,12 @@ function ConnectionsSection({ canManageShared = false }: { canManageShared?: boo
   );
 }
 
-export default function Settings({ role }: { role?: string }) {
+export default function Settings({ role, collibraEnvs = null }: { role?: string; collibraEnvs?: CollibraEnv[] | null }) {
   return (
     <div className="settings">
       <LlmKeySection />
       <ConnectionsSection canManageShared={role === "admin" || role === "data_lead"} />
+      <CollibraSettings envs={collibraEnvs} isAdmin={role === "admin"} />
     </div>
   );
 }
