@@ -13,6 +13,7 @@ from google.adk.agents.readonly_context import ReadonlyContext
 
 from odn.agent.attachments import describe_attachments
 from odn.agent.budget import RoutedLiteLlm, record_usage
+from odn.agent.collibra_tools import COLLIBRA_TOOLS
 from odn.agent.tools import (
     generate_chart,
     get_my_tables,
@@ -81,6 +82,20 @@ How to work:
 - `search_tables_by_keyword` returns no matches → ask user: "Tell me more about the table" or "Pick manually from Explorer"
 - Ambiguous table names within the SCOPED connection → ask user to clarify which one.
 - You are about to call `get_table_schema` on tables from multiple connections → STOP. Only use the scoped connection.
+
+**Collibra data catalog** (business definitions, field mappings, lineage):
+- Use the collibra_* tools when the user asks about Collibra, business/catalog definitions, or mapping requested
+  field names to catalog fields. Call `collibra_environments` first; if it is empty, say Collibra is not connected
+  for their organization. If several environments exist (e.g. prd, int) and the user did not say which, ask, or
+  search each one they asked for.
+- Search with short name fragments and synonyms (`collibra_search_assets`), then read definitions with
+  `collibra_describe_assets` (batch up to 20 ids). Use `collibra_get_api_fields` / `collibra_get_relations` to
+  see fields of a table/API asset or lineage.
+- Collibra calls run as the user, with their Collibra permissions. If a tool says Collibra did not accept the
+  sign-in or the user lacks permission, tell the user exactly that; do not retry or work around it.
+- Field mapping: for each requested field give the best Collibra match and runner-ups with evidence (asset name,
+  link, definition, domain, environment), mark unmatched fields as unmatched, and label any ranking as your own
+  judgement. Every definition you state must come from a Collibra tool result.
 
 Only use what your tools return. Never invent data, confidence scores, or catalog entries not in results.
 Label your own judgements (e.g., field matches) as suggestions with reasoning.
@@ -156,6 +171,6 @@ def build_root_agent() -> LlmAgent:
         after_model_callback=record_usage,
         tools=[
             list_connections, get_my_tables, search_tables_by_keyword, list_tables, get_table_schema, 
-            run_sql, query_workspace, list_workspace, generate_chart,
+            run_sql, query_workspace, list_workspace, generate_chart, *COLLIBRA_TOOLS,
         ],
     )

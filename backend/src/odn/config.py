@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     resend_api_key_secret: str = ""  # Secret Manager version name, e.g. projects/<p>/secrets/<s>/versions/latest
     mail_from: str = "QueryMuse <noreply@querymuse.ai>"
     mail_reply_to: str = "support@querymuse.ai"
+    # Collibra (docs/collibra_int_phase5_plan.md): QueryMuse signs short-lived per-user tokens that Collibra trusts
+    # through our JWKS (/.well-known/jwks.json). RSA private key PEM, or a Secret Manager version name; local dev
+    # without either uses an ephemeral key.
+    collibra_signing_key: str = ""
+    collibra_signing_key_secret: str = ""
+    collibra_token_ttl_s: int = 300
+    collibra_timeout_s: float = 20.0
     # Local-only credential files for connections with secret_ref "file:<name>".
     keys_dir: str = "/app/keys"
     confirm_bytes_threshold: int = 10 * 1024**3

@@ -1,6 +1,6 @@
 # Phase 5: Collibra Catalog Integration — Plan & Tracker
 
-**Status:** Research done; **blocked on the authentication decision** (see [§4](#4-authentication-decision-blocking)).
+**Status:** Option A chosen (2026-11-19) and built in QueryMuse (`/v1/collibra/*`, agent tools, JWKS); **waiting on Cotality's Collibra admin** to trust QueryMuse's token issuer ([§4.2](#42-collibra-admin-setup-one-time-per-environment)).
 **Owner:** QueryMuse team · **First client:** Cotality (`cotality` tenant) · **Updated:** 2026-11-19
 **Parent plan:** [one_data_navigator_mvp_dev_plan.md → Phase 5](one_data_navigator_mvp_dev_plan.md#phase-5-collibra-catalog-integration-post-v1-not-yet-scheduled)
 
@@ -55,56 +55,100 @@ ADK agent tools (collibra_*) ─────────────┘         
 - Configured **per tenant and per environment** (PRD, INT): base URL, auth mode, credential reference.
 - No catalog content shared across tenants or users (cache keys include tenant and, for option A, user).
 
-## 4. Authentication decision (blocking)
+## 4. Authentication: option A, QueryMuse-issued per-user tokens (decided 2026-11-19)
 
-| | **A. Per-user single sign-on (JWT bearer)** | **B. Tenant service account (OAuth client credentials)** |
-|---|---|---|
-| User experience | No extra login; uses the QueryMuse Google session | No extra login; admin connects once |
-| Permissions | Each user's own Collibra permissions | Whatever the service account can see, for everyone |
-| Collibra setup | Admin enables JWT: JWKS `https://www.googleapis.com/oauth2/v3/certs`, issuer `https://accounts.google.com`, audience = QueryMuse OAuth client ID, principal claim `email` (usernames must match) | Admin registers a read-only OAuth app; client ID/secret into Secret Manager `odn-<tenant>-collibra-<env>` |
-| QueryMuse work | Forward the user's Google ID token (session already holds and refreshes it) | Token fetch + cache per tenant/env; log the asking user |
-| Risks | One JWT config per environment (may clash with an existing one); needs Cotality security approval; proof test required (user tokens not explicitly documented) | Over-broad visibility; answers must be labelled as service-account view |
-| Effort | Small in QueryMuse, gated on Collibra admin change | Small; fastest to ship |
+No service account is available, so QueryMuse calls Collibra **as the signed-in user**. Users sign in once
+(to QueryMuse); they never sign in to Collibra inside the app, and their own Collibra permissions apply.
 
-**Recommended path:** B first (unblocks the catalog features), designed so A can replace the credential
-provider later without changing tools or UI.
+### 4.1 Design
 
-- [ ] Decision recorded (A, B, or B → A) with Cotality platform/Collibra owner approval.
+Instead of forwarding the user's Google token, **QueryMuse signs its own short-lived token for Collibra**
+(Collibra's JWT bearer authentication), after its own checks:
+
+```
+User ─(Google SSO / password)─▶ QueryMuse API: verified token → tenant, active user, verified-domain email
+      API mints JWT {iss: https://app.querymuse.ai, aud: <env audience>, sub: <work email>, exp: +5 min} (RS256)
+      API ──Authorization: Bearer <JWT>──▶ Collibra ── verifies via https://app.querymuse.ai/.well-known/jwks.json
+                                                   └─ maps sub → Collibra user → that user's permissions
+```
+
+Why this beats forwarding Google ID tokens:
+- Google tokens never leave QueryMuse; the Collibra token is useless against our API (different issuer and audience).
+- Works for every sign-in method (Google SSO, Identity Platform password, future Okta/Entra), one issuer for Collibra.
+- QueryMuse enforces what Collibra cannot: tokens are minted only for **active users** whose email is **verified and
+  on the organization's verified domains**, and only for Collibra environments configured for **that organization**.
+- 5-minute lifetime, audience bound per environment, `jti` per token; key in Secret Manager.
+
+Implementation: `odn/platform/collibra/token.py` (key, JWKS, mint), `client.py` (bounded REST GETs),
+`api/collibra_routes.py`, `agent/collibra_tools.py`, table `collibra_environments` (migration `0015`, RLS),
+`provision collibra`, JWKS published by the frontend route `/.well-known/jwks.json`.
+Prod key: Secret Manager `odn-collibra-signing-key` (RSA 3072), `ODN_COLLIBRA_SIGNING_KEY_SECRET`.
+
+### 4.2 Collibra admin setup (one time, per environment)
+
+Collibra Console → Infrastructure → environment → Data Governance Center service → Configuration → Edit → **JWT**:
+
+| Setting | Value |
+|---|---|
+| JSON Web Key Set URL | `https://app.querymuse.ai/.well-known/jwks.json` |
+| JWT Token Types | `jwt` (default `at+jwt,jwt` also works) |
+| JWT Algorithms | `RS256` |
+| JWT Issuer | `https://app.querymuse.ai` |
+| JWT Audience | e.g. `querymuse-collibra-prd` (one per environment; must match QueryMuse's config) |
+| JWT Principal ID Claim Name | `sub` (default) — QueryMuse puts the user's work email there (or the part before `@`) |
+
+Save and restart the environment. Then the operator connects the tenant:
+
+```sh
+deploy/deploy.sh provision collibra cotality prd --url https://corelogic.collibra.com --audience querymuse-collibra-prd
+# --principal email_local_part if Collibra usernames are not full emails
+```
+
+Users check it with the agent ("is Collibra connected?") or `GET /v1/collibra/prd/status`.
+
+**Caveats to raise with Cotality:** Collibra has one JWT configuration per environment; if JWT auth is already used
+for another issuer, it must be coordinated (e.g. a combined JWKS). Trusting QueryMuse's issuer means QueryMuse can
+act as Cotality Collibra users who sign in to QueryMuse; mitigations above, plus logs of every Collibra call
+(user, environment, operation) and key rotation via a new secret version.
+
+### 4.3 Alternative kept for later
+
+**B. Tenant service account** (OAuth client credentials) — no Collibra-side JWT change, but everyone sees the
+service account's view. Can be added as a second credential provider if Cotality prefers it.
 
 ### Open questions for Cotality's Collibra / platform owners
 
-- [ ] Which identity provider fronts Collibra SSO (Okta, Entra ID, Google)?
+- [ ] Approve QueryMuse as a JWT issuer for Collibra (security review).
 - [ ] Is Collibra JWT authentication already configured (JWKS / issuer in use)?
 - [ ] Collibra username format — equal to the work email?
-- [ ] Is a read-only OAuth application (client credentials) allowed, and which permissions/communities may it read?
-- [ ] PRD and INT base URLs (known: `https://corelogic.collibra.com`), and rate limits.
+- [ ] Audience value per environment, PRD and INT base URLs (known: `https://corelogic.collibra.com`), rate limits.
 - [ ] Data-handling rules for catalog metadata sent to the LLM.
 
 ## 5. Work breakdown
 
 ### 5.1 Connector & access (API)
-- [ ] `CollibraClient` (httpx): bounded same-origin REST GETs only — asset search, asset, attributes,
+- [x] `CollibraClient` (httpx): bounded same-origin REST GETs only — asset search, asset, attributes,
       relations, field inventory; timeouts, retries on 429/5xx with backoff, `limit` 1–100, no mutation or GraphQL.
-- [ ] Credential providers behind one interface: `ServiceAccountProvider` (B) and `UserJwtProvider` (A).
-- [ ] Tenant config: migration for `collibra_environments` (tenant_id, env, base_url, auth_mode, secret_ref),
+- [x] Credential provider: QueryMuse-signed per-user JWT (A); service account (B) can be added behind the same client.
+- [x] Tenant config: migration for `collibra_environments` (tenant_id, env, base_url, auth_mode, secret_ref),
       RLS ENABLE+FORCE and grants (guard test `tests/db/test_rls.py`).
-- [ ] Endpoints: `GET /v1/collibra/status`, `/search`, `/assets/{id}`, `/assets/{id}/attributes`,
-      `/assets/{id}/relations`, `/assets/describe`, `/api-fields/{id}`; per-user rate limit; audit log entries.
-- [ ] Provision CLI: `provision collibra <tenant> <env> --url … --auth service|jwt --secret-ref …`.
+- [x] Endpoints: `/v1/collibra/environments`, `/{env}/status`, `/{env}/assets?q=`, `/{env}/assets/{id}`, `/attributes`,
+      `/relations`, `/fields`, `POST /{env}/describe`; per-user rate limit (120/min); every call logged (user, env, op).
+- [x] Provision CLI: `provision collibra <tenant> <env> --url … --auth service|jwt --secret-ref …`.
 
 ### 5.2 Agent tools & field-mapping workflow
 Port the KWAgent wrapper's tool set:
-- [ ] `collibra_search_assets` (text, optional domain, `ANYWHERE`/`START`/`EXACT`, limit/offset, environment)
-- [ ] `collibra_get_asset`, `collibra_get_attributes`, `collibra_get_relations` (incoming/outgoing)
-- [ ] `collibra_describe_assets` (1–20 ids, per-asset errors)
-- [ ] `collibra_get_api_fields` (field inventory with continuation, depth 0–2)
+- [x] `collibra_search_assets` (text, optional domain, `ANYWHERE`/`START`/`EXACT`, limit/offset, environment)
+- [x] `collibra_environments`, `collibra_get_relations` (incoming/outgoing); single asset/attributes via describe
+- [x] `collibra_describe_assets` (1–20 ids, per-asset errors)
+- [x] `collibra_get_api_fields` (field inventory with continuation; nested containers listed, not yet expanded)
 - [ ] Field mapping: for each requested field (e.g. rows of an uploaded template) search Collibra, prefer
       BigQuery-backed assets, return best match + runner-ups with evidence (asset link, definition,
       dataset · project · environment); heuristic scores labelled; unmatched fields labelled; result saved as
       a workspace table downloadable from Artifacts.
 - [ ] Cross-check matched columns against the user's connections: confirm schema when allowlisted, else
       "cataloged, not queryable here".
-- [ ] Agent instructions: cite Collibra assets for every definition; never invent; say when Collibra is not
+- [x] Agent instructions: cite Collibra assets for every definition; never invent; say when Collibra is not
       connected; with option B, say answers reflect the shared catalog view.
 
 ### 5.3 UI
@@ -113,8 +157,8 @@ Port the KWAgent wrapper's tool set:
 - [ ] Settings / Organization (admins): connect and test Collibra per environment.
 
 ### 5.4 Security & tests
-- [ ] Credentials only via Secret Manager / encrypted store; never in prompts, logs or tool output.
-- [ ] Tests: client bounds and error mapping (401/403/429/timeout/invalid JSON) with sanitized fixtures;
+- [x] Credentials only via Secret Manager / encrypted store; never in prompts, logs or tool output.
+- [x] Tests: client bounds and error mapping (401/403/429/timeout/invalid JSON) with sanitized fixtures;
       tenant isolation of config and caches; agent tool contracts.
 - [ ] Security review of the chosen auth mode (Phase 4 review scope).
 
@@ -131,3 +175,4 @@ and nothing is invented.
 |---|---|
 | 2026-11-17 | Phase 5 added after the invented-definitions incident. |
 | 2026-11-19 | Auth research: SSO session not reusable on the server; options A (JWT) / B (service account); KWAgent wrapper design reviewed; tracker created. |
+| 2026-11-19 | Option A chosen (no service account available). Built: QueryMuse-signed per-user tokens + JWKS, `collibra_environments` (RLS), `/v1/collibra/*`, five agent tools, provision CLI, tests against a fake Collibra that verifies our JWKS. Prod signing key created. Next: Collibra admin JWT setup, then live test and the Collibra UI tab. |

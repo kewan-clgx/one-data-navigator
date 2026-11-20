@@ -29,6 +29,8 @@ x-prod-backend-env: &prod-backend-env
   ODN_PUBLIC_URL: https://${ODN_HOSTNAME:?set in .env}
   ODN_RESEND_API_KEY_SECRET: ${ODN_RESEND_API_KEY_SECRET:-}
   ODN_MAIL_FROM: ${ODN_MAIL_FROM:-QueryMuse <noreply@querymuse.ai>}
+  # Collibra (option A): RSA key that signs per-user Collibra tokens; public part at /.well-known/jwks.json.
+  ODN_COLLIBRA_SIGNING_KEY_SECRET: ${ODN_COLLIBRA_SIGNING_KEY_SECRET:-}
   ODN_WORKER_TOKEN: ${ODN_WORKER_TOKEN:?set in .env}
   ODN_AGENT_TOKEN: ${ODN_AGENT_TOKEN:?set in .env}
 

@@ -227,7 +227,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 4. **Architecture sign-off:** close the [Open Decisions](#6-open-decisions-to-close-at-spike-sign-off).
 5. **Phase 3 remainder:** Postgres descriptions in the curated explorer; opt-in pgvector metadata sync and semantic (embedding) table retrieval to replace keyword matching; pinned joins and verified metrics; an SSH-tunnel test against a client's real bastion.
 6. **Phase 4:** Skills v2, column masking, security review (now including the sign-in flows, emails and tunnels), load test, pilot onboarding guide.
-7. **Phase 5:** Collibra catalog integration — research done, blocked on the auth decision ([collibra_int_phase5_plan.md](collibra_int_phase5_plan.md)).
+7. **Phase 5:** Collibra catalog integration — option A built; waiting on Cotality's Collibra admin to trust QueryMuse's token issuer ([collibra_int_phase5_plan.md](collibra_int_phase5_plan.md)).
 8. **Phase 6 (TBD):** the 50-question gold benchmark, per-IP sign-in rate limiting and two-factor sign-in.
 9. **Later options:**
    - A fuller QueryMuse website (today: home + privacy pages served by the app's frontend), terms of service, and a QueryMuse default theme for non-Cotality tenants.
@@ -380,9 +380,9 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 
 **Tracked in [collibra_int_phase5_plan.md](collibra_int_phase5_plan.md)** (findings, architecture, auth options, work breakdown, exit check).
 
-- *Status (2026-11-19):* research done; **blocked on the authentication decision**. A QueryMuse (Google SSO) sign-in does not give a Collibra session, and the existing desktop connector/MCP wrapper cannot run on the hosted server. Options: (A) per-user single sign-on via Collibra JWT trusting Google tokens, or (B) a read-only tenant service account (OAuth client credentials); recommended B first, designed for A later. Waiting on Cotality's Collibra/platform owners.
-- [ ] Collibra connector & access (API client, per-tenant/env config, credential provider)
-- [ ] Agent tools & field-mapping workflow
+- *Status (2026-11-19):* **option A built** — QueryMuse signs a short-lived per-user token (`sub` = verified work email) that Collibra trusts via `https://app.querymuse.ai/.well-known/jwks.json`, so users sign in once and keep their own Collibra permissions. API `/v1/collibra/*`, five agent tools, per-tenant environments (migration `0015`), provision CLI, tests. **Waiting on Cotality's Collibra admin** to add QueryMuse as a JWT issuer (settings in the tracker §4.2); then live test and the Collibra UI tab.
+- [x] Collibra connector & access (API client, per-tenant/env config, per-user token issuer) — live test pending Collibra admin setup
+- [x] Agent tools (search, describe, relations, fields); [ ] field-mapping workflow saved as a workspace table
 - [ ] UI (Collibra tab, dictionary provenance, admin connect/test)
 - [ ] **Exit Check:** the 2026-11-17 mapping template completed for PRD and INT with Collibra evidence for every match and nothing invented.
 

@@ -33,7 +33,7 @@ jobs:
         run: uv sync --frozen --extra api --extra agent --extra worker
       - name: Lint (packages that are clean today; widen as the rest is fixed)
         run: >-
-          uv run ruff check src/odn/tenancy src/odn/api src/odn/db src/odn/agent src/odn/worker src/odn/config.py
+          uv run ruff check src/odn/tenancy src/odn/api src/odn/db src/odn/agent src/odn/worker src/odn/platform/collibra src/odn/config.py
           src/odn/platform/identity_platform.py src/odn/platform/workspace src/odn/platform/connectors/postgres.py
           tests/tenancy tests/db tests/policy tests/workspace tests/agent tests/worker
       # Includes the adversarial SQL policy suite, RLS isolation + "every table forces RLS" guard,

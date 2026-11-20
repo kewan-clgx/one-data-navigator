@@ -42,6 +42,9 @@ class RequestContext:
     role: Role
     tenant_slug: str = ""
     email: str | None = None
+    # True when the email is verified and on one of the tenant's verified domains (gate for identity assertions
+    # to other systems, e.g. Collibra tokens).
+    email_domain_verified: bool = False
 
 
 @cache
@@ -97,6 +100,7 @@ def resolve_context(token: VerifiedToken) -> RequestContext:
         role=user["role"],
         tenant_slug=tenant["slug"],
         email=token.email,
+        email_domain_verified=bool(tenant["has_domains"] and token.email_verified and tenant["domain_ok"]),
     )
 
 
