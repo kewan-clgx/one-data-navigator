@@ -1,8 +1,112 @@
 # Phase 5: Collibra Catalog Integration — Plan & Tracker
 
-**Status:** Two routes built (2026-11-19). **Stopgap, usable now:** the QueryMuse Collibra Bridge browser extension ([§4.3](#43-stopgap-collibra-bridge-browser-extension-no-collibra-change)) reads Collibra with the user's own browser session; no Collibra change needed. **Long-term:** option A (QueryMuse-issued per-user tokens) is built and waits on Cotality's Collibra admin to trust QueryMuse's token issuer ([§4.2](#42-collibra-admin-setup-one-time-per-environment)).
+**Status (2026-11-19): live for Cotality in browser mode.** Collibra is an admin-managed data source; Cotality's admin added `prd` (`https://corelogic.collibra.com`) in Settings, users install the QueryMuse Collibra Bridge extension and use Collibra in chat and in the Collibra tab with their own Collibra sign-in. Token mode (no extension) is built and waits on Cotality's Collibra admin ([§4.2](#42-collibra-admin-setup-one-time-per-environment)). Summary: [§0](#0-summary-achieved-left-to-do-recommendations).
 **Owner:** QueryMuse team · **First client:** Cotality (`cotality` tenant) · **Updated:** 2026-11-19
 **Parent plan:** [one_data_navigator_mvp_dev_plan.md → Phase 5](one_data_navigator_mvp_dev_plan.md#phase-5-collibra-catalog-integration-post-v1-not-yet-scheduled)
+
+## 0. Summary: achieved, left to do, recommendations
+
+### 0.1 Achieved (2026-11-19)
+
+| Area | What works | Verified |
+|---|---|---|
+| Data source per organization | Admins add/edit/remove Collibra environments in **Settings → Collibra data catalog** (name, address, access mode); changes in the activity log; everything Collibra is hidden for organizations without it | Cotality `prd` live in production |
+| Browser mode (no Collibra change) | QueryMuse Collibra Bridge extension (Chrome/Edge MV3) reads Collibra with the user's own SSO session; read-only allowlist; never touches cookies | Real tenant, Cotality admin |
+| Token mode (no extension) | QueryMuse signs 5-minute per-user tokens (RS256, `sub` = verified work email); public JWKS at `https://app.querymuse.ai/.well-known/jwks.json`; key in Secret Manager | Fake Collibra verifying our JWKS (real tenant pending Collibra admin) |
+| Agent | Five server tools (`collibra_*`) and five browser tools (`collibra_browser_*`); picks by access mode; cites Collibra assets, never invents; gives setup steps + download link when the extension is missing | Real tenant ("Corporate Revenue" → product field → BigQuery column) |
+| Collibra tab | Environment picker, search (contains / starts with / exact, paging), definition, attributes, clickable relations, **Open in Collibra**, **Use in chat** (scopes the chat) | Locally; real-tenant use by Cotality admin |
+| Onboarding | **Download extension (zip)**, four steps and **Test connection** in Settings and the tab; same steps in chat | Production download (v0.2.0) |
+| Quality | Backend tests (tokens, client, routes, admin, tenant isolation), extension policy tests in CI, Playwright end-to-end run | CI green |
+
+### 0.2 How it works
+
+**Browser mode** (live): the agent runs on the server, but Collibra calls run in the user's browser.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as User (Chrome/Edge)
+    participant UI as QueryMuse page<br/>(app.querymuse.ai)
+    participant API as QueryMuse API
+    participant AG as Agent (ADK, server)
+    participant EXT as Collibra Bridge<br/>extension
+    participant C as Collibra<br/>(corelogic.collibra.com)
+
+    U->>C: Signs in once (company SSO/MFA)
+    UI->>API: GET /v1/collibra/environments
+    API-->>UI: prd · https://corelogic.collibra.com · browser
+    U->>UI: "What does Collibra say about corporate revenue?"
+    UI->>AG: message + context (environments, extension installed)
+    AG-->>UI: tool call collibra_browser_search_assets(prd, "corporate revenue")
+    UI->>EXT: postMessage (allowlisted read)
+    EXT->>C: GET /rest/2.0/assets?name=… (browser sends the user's session)
+    C-->>EXT: JSON (only what this user may see)
+    EXT-->>UI: result (cookies never read or returned)
+    UI-->>AG: tool result (catalog metadata)
+    AG-->>U: Answer with definitions and Collibra links
+```
+
+**Token mode** (built, waiting on Collibra admin): no extension; QueryMuse vouches for the signed-in user.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant AG as Agent (server)
+    participant API as QueryMuse API
+    participant C as Collibra
+    U->>AG: question
+    AG->>API: /v1/collibra/prd/assets?q=… (user's QueryMuse token)
+    API->>API: active user + verified domain email → sign JWT (5 min, aud per environment)
+    API->>C: GET /rest/2.0/assets (Authorization: Bearer JWT)
+    C->>API: fetch JWKS once, verify, map sub → Collibra user
+    C-->>API: JSON (that user's permissions)
+    API-->>AG: result → answer
+```
+
+**Setup by role**
+
+```mermaid
+flowchart LR
+    A[QueryMuse admin] -->|Settings → Collibra: add prd + address + mode| S[(collibra_environments<br/>per organization)]
+    S -->|browser mode| B[Users: download extension → Load unpacked → sign in to Collibra → Test connection]
+    S -->|token mode| T[Collibra admin: JWT settings trust QueryMuse JWKS + audience]
+    B --> R[Collibra tab + chat, user's own permissions]
+    T --> R
+```
+
+### 0.3 Left to do (priority order)
+
+1. **Extension distribution without developer mode** — Chrome Web Store (unlisted) + client IT force-install;
+   steps in [collibra_extension_publish.md](collibra_extension_publish.md). Then replace the zip button with
+   **Add to Chrome**.
+2. **Field-mapping workflow** (exit check): uploaded template → per field best match + runner-ups with evidence →
+   saved as a workspace table (downloadable from Artifacts); cross-check matched columns against the user's
+   connections ("cataloged, not queryable here").
+3. **Collibra definitions in the Explorer dictionary** with provenance ("Collibra · PRD"), using the column's
+   `dataset.table.column` name to find the Collibra column asset.
+4. **INT environment** for Cotality (address + test), then run the exit check on PRD and INT.
+5. **Token mode on the real tenant** after Cotality's security approval and JWT setup (§4.2), so users need no extension.
+6. **Security review** (Phase 4): extension permissions and messaging, token issuer, data sent to the LLM.
+
+### 0.4 Recommendations (optimization)
+
+- **Fewer agent round trips:** add one tool `collibra_lookup(text)` that searches and describes the top matches in a
+  single call (today: search → describe → relations = 3+ model turns). Expected: faster answers, fewer tokens.
+- **Rank results:** Collibra name search returns many technical assets (long physical names). Prefer Business Terms
+  / Product Fields / Data Attributes and *Accepted* status, then show columns via relations; let the agent filter by
+  asset type (`typeIds`) once the Cotality type ids are known.
+- **Short-lived cache:** cache describe/relations results per user and environment for ~10 minutes (never shared
+  across users, since permissions differ) to make follow-ups and the tab instant.
+- **Use the Collibra search API** (full-text across names, descriptions and attributes) instead of name-only asset
+  search when allowed; it finds "employee numbers" via definitions, not just names.
+- **Batch describe:** read attributes for several assets in one request (`assetId` list) instead of one per asset.
+- **Telemetry:** count Collibra calls, errors (not signed in / forbidden) and latency per organization, to see
+  adoption and catch session expiry problems.
+- **Token mode first for new clients:** it needs no install on users' machines; keep browser mode for clients who
+  cannot change Collibra settings.
+- **Extension hygiene:** publish one store listing for all clients (address comes from QueryMuse), pin a minimum
+  version in the app (already supported), and keep the request allowlist unchanged unless reviewed.
 
 ## 1. Goal
 
@@ -42,18 +146,17 @@ unavailable and labels its own matches as suggestions; this phase adds the real 
    authentication are distinct; one token must not be assumed valid for all three. With a shared identity,
    answers must not be presented as the user's own Collibra entitlements.
 
-## 3. Hosted architecture (target)
+## 3. Hosted architecture
 
-```
-Browser ── QueryMuse BFF (session) ── API /v1/collibra/* ── CollibraClient ──HTTPS──▶ Collibra (PRD / INT)
-                                          ▲                        │ credential provider (A or B, §4)
-ADK agent tools (collibra_*) ─────────────┘                        └─ per-tenant config, Secret Manager
-```
+See the diagrams in [§0.2](#02-how-it-works). Principles:
 
-- Read-only Collibra REST client **in the API** (not the agent), so tenant/user context, audit, rate limits and
-  credential access stay server-side; the agent calls it through `/v1/collibra/*` like other tools.
-- Configured **per tenant and per environment** (PRD, INT): base URL, auth mode, credential reference.
-- No catalog content shared across tenants or users (cache keys include tenant and, for option A, user).
+- Collibra is configured **per organization and per environment** (`collibra_environments`, tenant RLS), by the
+  organization's admin in Settings or by the operator CLI (`provision collibra`).
+- **Browser mode:** catalog reads run in the user's browser through the extension; the server never holds Collibra
+  credentials or sessions. **Token mode:** a read-only client in the API (not the agent) calls Collibra with a
+  QueryMuse-signed per-user token, so tenant/user checks, logs and rate limits stay server-side.
+- Read-only, bounded requests only (search, asset, attributes, relations, current user); no writes, workflows or
+  GraphQL. No catalog content is shared across organizations or users.
 
 ## 4. Authentication: option A, QueryMuse-issued per-user tokens (decided 2026-11-19)
 
@@ -177,13 +280,15 @@ service account's view. Can be added as a second credential provider if Cotality
 
 ### 5.1 Connector & access (API)
 - [x] `CollibraClient` (httpx): bounded same-origin REST GETs only — asset search, asset, attributes,
-      relations, field inventory; timeouts, retries on 429/5xx with backoff, `limit` 1–100, no mutation or GraphQL.
+      relations, field inventory; timeouts, `limit` 1–100, no mutation or GraphQL. *(Retry with backoff on 429/5xx
+      not yet added.)*
 - [x] Credential provider: QueryMuse-signed per-user JWT (A); service account (B) can be added behind the same client.
-- [x] Tenant config: migration for `collibra_environments` (tenant_id, env, base_url, auth_mode, secret_ref),
-      RLS ENABLE+FORCE and grants (guard test `tests/db/test_rls.py`).
+- [x] Tenant config: `collibra_environments` (tenant_id, env, base_url, access_mode, audience, principal_format,
+      enabled; migrations `0015`, `0016`), RLS ENABLE+FORCE and grants (guard test `tests/db/test_rls.py`).
 - [x] Endpoints: `/v1/collibra/environments`, `/{env}/status`, `/{env}/assets?q=`, `/{env}/assets/{id}`, `/attributes`,
       `/relations`, `/fields`, `POST /{env}/describe`; per-user rate limit (120/min); every call logged (user, env, op).
-- [x] Provision CLI: `provision collibra <tenant> <env> --url … --auth service|jwt --secret-ref …`.
+- [x] Provision CLI: `provision collibra <tenant> <env> --url … [--audience … for token mode] [--principal …] [--disable]`;
+      admin API `/v1/admin/collibra/environments` + Settings UI.
 
 ### 5.2 Agent tools & field-mapping workflow
 Port the KWAgent wrapper's tool set:
@@ -209,7 +314,8 @@ Port the KWAgent wrapper's tool set:
 - [x] Credentials only via Secret Manager / encrypted store; never in prompts, logs or tool output.
 - [x] Tests: client bounds and error mapping (401/403/429/timeout/invalid JSON) with sanitized fixtures;
       tenant isolation of config and caches; agent tool contracts.
-- [ ] Security review of the chosen auth mode (Phase 4 review scope).
+- [ ] Security review of both modes (Phase 4 review scope).
+- [ ] Extension published (Web Store unlisted) and force-installed by Cotality IT ([guide](collibra_extension_publish.md)).
 
 ## 6. Exit check
 
@@ -224,8 +330,9 @@ and nothing is invented.
 |---|---|
 | 2026-11-17 | Phase 5 added after the invented-definitions incident. |
 | 2026-11-19 | Auth research: SSO session not reusable on the server; options A (JWT) / B (service account); KWAgent wrapper design reviewed; tracker created. |
+| 2026-11-19 | Option A (token mode) built: QueryMuse-signed per-user tokens + JWKS, `collibra_environments` (RLS), `/v1/collibra/*`, five agent tools, provision CLI, tests against a fake Collibra that verifies our JWKS; prod signing key created. |
 | 2026-11-19 | Browser-extension stopgap built and verified end to end against a fake Collibra (no Collibra-side change needed). |
 | 2026-11-19 | Bridge verified on the real Collibra tenant with the user's SSO session; diagnostics + profiling-attribute trimming added. |
 | 2026-11-19 | Collibra as an admin-managed data source (Settings), Collibra tab with asset scope, extension download + setup guidance in Settings, the tab and chat. Next: field-mapping workflow to a workspace table, extension distribution (Web Store unlisted / managed policy). |
 | 2026-11-19 | Extension distribution guide: [collibra_extension_publish.md](collibra_extension_publish.md) (Chrome Web Store unlisted + client IT force-install). |
-| 2026-11-19 | Option A chosen (no service account available). Built: QueryMuse-signed per-user tokens + JWKS, `collibra_environments` (RLS), `/v1/collibra/*`, five agent tools, provision CLI, tests against a fake Collibra that verifies our JWKS. Prod signing key created. Next: Collibra admin JWT setup, then live test and the Collibra UI tab. |
+| 2026-11-19 | **Live for Cotality:** admin added `prd` in Settings (browser mode); extension v0.2.0 from the Settings download; Test connection, Collibra tab and chat working on the real tenant. Summary, diagrams and recommendations added (§0). |

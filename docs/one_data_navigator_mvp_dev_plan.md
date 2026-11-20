@@ -227,7 +227,7 @@ Each phase ends with an **Exit Check**. A phase is not closed until its Exit Che
 4. **Architecture sign-off:** close the [Open Decisions](#6-open-decisions-to-close-at-spike-sign-off).
 5. **Phase 3 remainder:** Postgres descriptions in the curated explorer; opt-in pgvector metadata sync and semantic (embedding) table retrieval to replace keyword matching; pinned joins and verified metrics; an SSH-tunnel test against a client's real bastion.
 6. **Phase 4:** Skills v2, column masking, security review (now including the sign-in flows, emails and tunnels), load test, pilot onboarding guide.
-7. **Phase 5:** Collibra catalog integration — browser-extension stopgap working on the real Collibra tenant; option A built, waiting on Cotality's Collibra admin ([collibra_int_phase5_plan.md](collibra_int_phase5_plan.md)).
+7. **Phase 5:** Collibra catalog integration — **live for Cotality** (browser mode, admin-managed in Settings, Collibra tab + chat). Left: extension publishing (Web Store unlisted + IT force-install), field-mapping workflow, Collibra definitions in Explorer, INT, token mode ([collibra_int_phase5_plan.md](collibra_int_phase5_plan.md) §0).
 8. **Phase 6 (TBD):** the 50-question gold benchmark, per-IP sign-in rate limiting and two-factor sign-in.
 9. **Later options:**
    - A fuller QueryMuse website (today: home + privacy pages served by the app's frontend), terms of service, and a QueryMuse default theme for non-Cotality tenants.
