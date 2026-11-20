@@ -103,8 +103,9 @@ def fake_collibra(users: set[str], seen: list[str] | None = None, audience: str 
             return httpx.Response(200, json={"id": FIELD, "name": "corp_revenue_amt", "type": {"name": "Column"}})
         if path == "/rest/2.0/attributes":
             value = "<p>Total annual revenue &amp; sales of the <b>corporate</b> entity.</p>"
-            return httpx.Response(200, json={"total": 1, "offset": 0, "limit": 100, "results": [
-                {"type": {"name": "Definition"}, "value": value}]})
+            return httpx.Response(200, json={"total": 3, "offset": 0, "limit": 100, "results": [
+                {"type": {"name": "Definition"}, "value": value}, {"type": {"name": "95th Percentile"}, "value": "6.6E6"},
+                {"type": {"name": "Technical Data Type"}, "value": "INT64"}]})
         if path == "/rest/2.0/relations":
             assert q["sourceId"] == ASSET
             return httpx.Response(200, json={"total": 1, "offset": 0, "limit": 20, "results": [
@@ -132,6 +133,8 @@ async def test_calls_run_as_the_user_and_are_summarised() -> None:
 
     described = (await c.describe_assets([ASSET]))["assets"][0]
     assert described["definition"] == "Total annual revenue & sales of the corporate entity."
+    assert [a["type"] for a in described["attributes"]] == ["Definition", "Technical Data Type"]
+    assert described["profiling_attributes_omitted"] == 1
 
     fields = await c.get_api_fields(ASSET)
     assert [f["name"] for f in fields["fields"]] == ["corp_revenue_amt"] and not fields["has_more"]

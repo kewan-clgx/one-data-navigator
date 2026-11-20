@@ -127,7 +127,14 @@ the browser so it works with the hosted app:
   server tools when `collibra_environments` is configured, else the browser tools.
 - **Verified end to end** with Playwright Chromium + the extension + a fake Collibra requiring a browser session:
   not-signed-in detection, refused paths, cookie sent after sign-in, and a correct chat answer built only from
-  Collibra data. **Not yet run against the real Collibra tenant** (cookie/SameSite behaviour, SSO redirect shape).
+  Collibra data.
+- **Verified on the real tenant (2026-11-19):** after the user signed in to `corelogic.collibra.com` with SSO in the
+  same browser, the agent found "Corporate Revenue" assets, followed relations from the product field *Firmographics
+  Brand and Corporation – Corporate Sales Revenue* to BigQuery column `corporate_revenue_sales_amount`
+  (`vw_edr_firmographics_enterprise`), and quoted definitions from Collibra. Before sign-in it correctly reported
+  "not signed in" with the login link. Follow-ups shipped: the extension reports why Collibra refused (redirect /
+  401 / HTML page) and has a **Test connection** button (v0.1.1); data-profiling statistics on columns (percentiles,
+  mean, variance…) are left out of `describe` results (count kept) to save model tokens.
 - Trade-offs: needs the extension installed (developer mode for the pilot; Web Store/managed policy later) and the
   user signed in to Collibra in the same browser; agent turns using Collibra need the browser tab open.
 
@@ -195,5 +202,6 @@ and nothing is invented.
 |---|---|
 | 2026-11-17 | Phase 5 added after the invented-definitions incident. |
 | 2026-11-19 | Auth research: SSO session not reusable on the server; options A (JWT) / B (service account); KWAgent wrapper design reviewed; tracker created. |
-| 2026-11-19 | Browser-extension stopgap built and verified end to end against a fake Collibra (no Collibra-side change needed); next: try with a real Cotality Collibra session. |
+| 2026-11-19 | Browser-extension stopgap built and verified end to end against a fake Collibra (no Collibra-side change needed). |
+| 2026-11-19 | Bridge verified on the real Collibra tenant with the user's SSO session; diagnostics + profiling-attribute trimming added. Next: field-mapping workflow to a workspace table, Collibra UI tab, extension distribution. |
 | 2026-11-19 | Option A chosen (no service account available). Built: QueryMuse-signed per-user tokens + JWKS, `collibra_environments` (RLS), `/v1/collibra/*`, five agent tools, provision CLI, tests against a fake Collibra that verifies our JWKS. Prod signing key created. Next: Collibra admin JWT setup, then live test and the Collibra UI tab. |

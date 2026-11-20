@@ -43,7 +43,10 @@ npm test        # request-policy tests (node --test)
 End to end (2026-11-19): local QueryMuse + this extension in Playwright Chromium + a fake Collibra that requires
 a browser session cookie and redirects to a login page otherwise. Verified: not-signed-in detection, refused
 paths, session cookie sent after sign-in, and a chat answer built only from Collibra data via the
-`collibra_browser_*` tools. Not yet verified against the real Collibra tenant.
+`collibra_browser_*` tools. Verified on the real `corelogic.collibra.com` tenant the same day after SSO sign-in.
+
+If it says "not signed in" although you are, click the extension icon → **Test connection**: it shows what
+Collibra answered (redirect to sign-in, 401, or a web page) and where a redirect leads.
 
 ## Distribution (later)
 

@@ -12,8 +12,25 @@ async function baseUrl() {
   return validBaseUrl(stored || DEFAULT_BASE_URL) || DEFAULT_BASE_URL;
 }
 
-function notSignedIn(base) {
-  return { ok: false, error: "not_signed_in", login_url: base, message: `Sign in to Collibra at ${base} in this browser, then retry.` };
+function notSignedIn(base, reason, diagnostics = {}) {
+  return {
+    ok: false,
+    error: "not_signed_in",
+    login_url: base,
+    reason,
+    diagnostics,
+    message: `Collibra did not accept this browser's session (${reason}). Sign in at ${base} in this browser profile, then retry.`,
+  };
+}
+
+/** Where an unauthenticated request ends up (follows redirects); explains "redirected to sign-in" vs other cases. */
+async function redirectTarget(url) {
+  try {
+    const r = await fetch(url, { credentials: "include", redirect: "follow", headers: { Accept: "application/json" } });
+    return { followed_to: new URL(r.url).origin + new URL(r.url).pathname, followed_status: r.status };
+  } catch {
+    return { followed_to: "an external sign-in page (not reachable by the extension)" };
+  }
 }
 
 async function collibraGet(path, params) {
@@ -40,24 +57,32 @@ async function collibraGet(path, params) {
   } finally {
     clearTimeout(timer);
   }
-  if (resp.type === "opaqueredirect" || resp.status === 401) return notSignedIn(base);
+  if (resp.type === "opaqueredirect") {
+    return notSignedIn(base, "Collibra redirected to sign-in", await redirectTarget(base + relative));
+  }
+  if (resp.status === 401) {
+    return notSignedIn(base, "Collibra answered 401", { www_authenticate: resp.headers.get("WWW-Authenticate") || null });
+  }
   if (resp.status === 403) return { ok: false, error: "forbidden", message: "Your Collibra account does not have permission to read this." };
   if (resp.status === 404) return { ok: false, error: "not_found", message: "Not found in Collibra." };
   if (resp.status === 429) return { ok: false, error: "rate_limited", message: "Collibra is rate-limiting requests; try again shortly." };
   if (!resp.ok) return { ok: false, error: "collibra_error", message: `Collibra returned an error (${resp.status}).` };
+  const contentType = resp.headers.get("Content-Type") || "";
   const text = await resp.text();
   if (text.length > MAX_BYTES) return { ok: false, error: "too_large", message: "Collibra response too large." };
   try {
     return { ok: true, base_url: base, data: JSON.parse(text) };
   } catch {
     // Some SSO setups answer with an HTML login page and status 200.
-    return notSignedIn(base);
+    return notSignedIn(base, "Collibra returned a web page instead of data", { status: resp.status, content_type: contentType });
   }
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const origin = sender.origin || (sender.url ? new URL(sender.url).origin : "");
-  if (sender.id !== chrome.runtime.id || !sender.tab || !APP_ORIGINS.includes(origin)) return false;
+  const fromApp = Boolean(sender.tab) && APP_ORIGINS.includes(origin);
+  const fromOwnPage = !sender.tab && sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`);
+  if (sender.id !== chrome.runtime.id || !(fromApp || fromOwnPage)) return false;
   if (message?.type === "info") {
     baseUrl().then((base) => sendResponse({ ok: true, base_url: base, version: chrome.runtime.getManifest().version }));
     return true;

@@ -19,6 +19,12 @@ MatchMode = Literal["ANYWHERE", "START", "EXACT"]
 _TAG = re.compile(r"<[^>]+>")
 _MAX_TEXT = 2000
 _DEFINITION_TYPES = ("definition", "description")
+# Data-profiling statistics Collibra attaches to columns: useful for analysts, noise for definitions/mapping.
+_PROFILING = re.compile(
+    r"percentile|quartile|decile|^mean$|^median$|variance|standard deviation|minimum value|maximum value|"
+    r"distinct values|row count|empty values|categorical data",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -212,7 +218,8 @@ class CollibraClient:
             attrs = await self.get_attributes(asset_id, limit=100, offset=0)
         except CollibraError as exc:
             return {"id": asset_id, "error": str(exc)}
-        attributes = attrs["results"]
+        profiling = [a for a in attrs["results"] if isinstance(a.get("type"), str) and _PROFILING.search(a["type"])]
+        attributes = [a for a in attrs["results"] if a not in profiling]
         definition = next(
             (a["value"] for t in _DEFINITION_TYPES for a in attributes
              if isinstance(a.get("type"), str) and t in a["type"].lower() and a.get("value")),
@@ -221,7 +228,7 @@ class CollibraClient:
         summary.pop("environment", None)
         summary.pop("retrieved_at", None)
         return {**summary, "definition": definition, "attributes": attributes,
-                "attributes_truncated": attrs["has_more"]}
+                "profiling_attributes_omitted": len(profiling), "attributes_truncated": attrs["has_more"]}
 
     async def describe_assets(self, asset_ids: list[str]) -> dict[str, Any]:
         sem = asyncio.Semaphore(4)
@@ -241,7 +248,8 @@ class CollibraClient:
         targets = [r["target"]["id"] for r in page["results"] if r.get("target") and isinstance(r["target"].get("id"), str)]
         described = (await self.describe_assets(targets))["assets"] if targets else []
         fields = [
-            {k: d.get(k) for k in ("id", "name", "type", "domain", "status", "definition", "url", "error") if d.get(k) is not None}
+            {k: d.get(k) for k in ("id", "name", "display_name", "type", "domain", "status", "definition", "url", "error")
+             if d.get(k) is not None}
             for d in described
         ]
         return self._stamp({

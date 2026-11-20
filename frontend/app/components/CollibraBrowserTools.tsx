@@ -14,8 +14,13 @@ const APP = "querymuse-app";
 const BRIDGE = "querymuse-collibra-bridge";
 const TIMEOUT_MS = 30000;
 const MAX_TEXT = 2000;
+// Data-profiling statistics Collibra attaches to columns: noise for definitions/mapping (same list as the server).
+const PROFILING =
+  /percentile|quartile|decile|^mean$|^median$|variance|standard deviation|minimum value|maximum value|distinct values|row count|empty values|categorical data/i;
 
-type BridgeResult = { ok: true; base_url: string; data: any } | { ok: false; error: string; message: string; login_url?: string };
+type BridgeResult =
+  | { ok: true; base_url: string; data: any }
+  | { ok: false; error: string; message: string; login_url?: string; reason?: string; diagnostics?: Json };
 type Json = Record<string, unknown>;
 
 export type BridgeInfo = { baseUrl: string; version: string } | null;
@@ -107,11 +112,16 @@ async function describeOne(assetId: string): Promise<Json> {
   try {
     const { base, data } = await get(`assets/${assetId}`);
     const attrs = await attributes(assetId);
+    const isProfiling = (a: any) => typeof a.type === "string" && PROFILING.test(a.type);
+    const kept = attrs.results.filter((a: any) => !isProfiling(a));
     const definition =
       ["definition", "description"]
-        .map((t) => attrs.results.find((a: any) => typeof a.type === "string" && a.type.toLowerCase().includes(t) && a.value))
+        .map((t) => kept.find((a: any) => typeof a.type === "string" && a.type.toLowerCase().includes(t) && a.value))
         .find(Boolean)?.value ?? null;
-    return { ...summary(base, data), definition, attributes: attrs.results, attributes_truncated: attrs.has_more };
+    return {
+      ...summary(base, data), definition, attributes: kept,
+      profiling_attributes_omitted: attrs.results.length - kept.length, attributes_truncated: attrs.has_more,
+    };
   } catch (e) {
     return { id: assetId, error: (e as Error).message };
   }
@@ -155,7 +165,7 @@ export function CollibraBrowserTools() {
       handler: async () =>
         run(async () => {
           const r = await bridgeGet("users/current");
-          if (!r.ok) return { signed_in: false, detail: r.message, login_url: r.login_url ?? null };
+          if (!r.ok) return { signed_in: false, detail: r.message, reason: r.reason ?? r.error, diagnostics: r.diagnostics ?? null, login_url: r.login_url ?? null };
           return stamp(r.base_url, { signed_in: true, username: r.data?.userName ?? null });
         }),
     },
@@ -248,7 +258,9 @@ export function CollibraBrowserTools() {
           const lim = clamp(limit, 1, 20, 20);
           const p = await page("relations", { sourceId: String(asset_id), limit: lim, offset: clamp(offset, 0, 100000, 0) }, lim);
           const ids = p.results.map((r: any) => r.target?.id).filter((x: unknown): x is string => typeof x === "string");
-          const fields = (await describe(ids)).map(({ attributes: _a, attributes_truncated: _t, display_name: _d, ...f }) => f);
+          const fields = (await describe(ids)).map(
+            ({ attributes: _a, attributes_truncated: _t, profiling_attributes_omitted: _p, ...f }) => f,
+          );
           return stamp(p.base, { api_asset_id: asset_id, fields, total: p.total, offset: p.offset, has_more: p.has_more, next_offset: p.next_offset });
         }),
     },
