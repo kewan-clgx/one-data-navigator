@@ -54,7 +54,7 @@ paths, session cookie sent after sign-in, and a chat answer built only from Coll
 If it says "not signed in" although you are, click the extension icon → **Test connection**: it shows what
 Collibra answered (redirect to sign-in, 401, or a web page) and where a redirect leads.
 
-## Distribution (later)
+## Distribution
 
-Developer-mode install is for the pilot. For wider use: Chrome Web Store (unlisted) or the company's managed
-extension policy (Cotality IT), with the extension ID pinned.
+Developer-mode install is for the pilot. Publishing (Chrome Web Store, unlisted) and client IT force-install are
+described in [docs/collibra_extension_publish.md](../../../docs/collibra_extension_publish.md).

@@ -227,4 +227,5 @@ and nothing is invented.
 | 2026-11-19 | Browser-extension stopgap built and verified end to end against a fake Collibra (no Collibra-side change needed). |
 | 2026-11-19 | Bridge verified on the real Collibra tenant with the user's SSO session; diagnostics + profiling-attribute trimming added. |
 | 2026-11-19 | Collibra as an admin-managed data source (Settings), Collibra tab with asset scope, extension download + setup guidance in Settings, the tab and chat. Next: field-mapping workflow to a workspace table, extension distribution (Web Store unlisted / managed policy). |
+| 2026-11-19 | Extension distribution guide: [collibra_extension_publish.md](collibra_extension_publish.md) (Chrome Web Store unlisted + client IT force-install). |
 | 2026-11-19 | Option A chosen (no service account available). Built: QueryMuse-signed per-user tokens + JWKS, `collibra_environments` (RLS), `/v1/collibra/*`, five agent tools, provision CLI, tests against a fake Collibra that verifies our JWKS. Prod signing key created. Next: Collibra admin JWT setup, then live test and the Collibra UI tab. |
