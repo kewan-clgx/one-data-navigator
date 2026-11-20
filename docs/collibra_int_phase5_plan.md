@@ -13,7 +13,7 @@
 | Data source per organization | Admins add/edit/remove Collibra environments in **Settings → Collibra data catalog** (name, address, access mode); changes in the activity log; everything Collibra is hidden for organizations without it | Cotality `prd` live in production |
 | Browser mode (no Collibra change) | QueryMuse Collibra Bridge extension (Chrome/Edge MV3) reads Collibra with the user's own SSO session; read-only allowlist; never touches cookies | Real tenant, Cotality admin |
 | Token mode (no extension) | QueryMuse signs 5-minute per-user tokens (RS256, `sub` = verified work email); public JWKS at `https://app.querymuse.ai/.well-known/jwks.json`; key in Secret Manager | Fake Collibra verifying our JWKS (real tenant pending Collibra admin) |
-| Agent | Five server tools (`collibra_*`) and five browser tools (`collibra_browser_*`); picks by access mode; cites Collibra assets, never invents; gives setup steps + download link when the extension is missing | Real tenant ("Corporate Revenue" → product field → BigQuery column) |
+| Agent | Six server tools (`collibra_*`) and six browser tools (`collibra_browser_*`), led by a one-call **lookup** (search + rank + definitions + related) and a 10-minute per-user cache; picks by access mode; cites Collibra assets, never invents; gives setup steps + download link when the extension is missing | Real tenant ("Corporate Revenue" → product field → BigQuery column) |
 | Collibra tab | Environment picker, search (contains / starts with / exact, paging), definition, attributes, clickable relations, **Open in Collibra**, **Use in chat** (scopes the chat) | Locally; real-tenant use by Cotality admin |
 | Onboarding | **Download extension (zip)**, four steps and **Test connection** in Settings and the tab; same steps in chat | Production download (v0.2.0) |
 | Quality | Backend tests (tokens, client, routes, admin, tenant isolation), extension policy tests in CI, Playwright end-to-end run | CI green |
@@ -91,13 +91,17 @@ flowchart LR
 
 ### 0.4 Recommendations (optimization)
 
-- **Fewer agent round trips:** add one tool `collibra_lookup(text)` that searches and describes the top matches in a
-  single call (today: search → describe → relations = 3+ model turns). Expected: faster answers, fewer tokens.
-- **Rank results:** Collibra name search returns many technical assets (long physical names). Prefer Business Terms
-  / Product Fields / Data Attributes and *Accepted* status, then show columns via relations; let the agent filter by
-  asset type (`typeIds`) once the Cotality type ids are known.
-- **Short-lived cache:** cache describe/relations results per user and environment for ~10 minutes (never shared
-  across users, since permissions differ) to make follow-ups and the tab instant.
+- ✅ **Done 2026-11-19 — one lookup call:** `collibra_lookup` / `collibra_browser_lookup` search, rank, describe the
+  top matches (definition + key attributes) and list related assets for the top 3 in one tool call (was search →
+  describe → relations, 3+ model turns). The agent is told to start every Collibra question with it.
+- ✅ **Done 2026-11-19 — ranking:** results (lookup, search tools and the Collibra tab) are ordered by asset type
+  (Business Term > Product Field > Data Attribute > … > Column/Table), status (Accepted/Approved up, Obsolete/Deprecated
+  strongly down), name match with the question, and readable names over long physical paths; the score is returned
+  and labelled as a heuristic. Same rules in `client.py` (`rank_score`) and `lib/collibra.ts` (`rankScore`).
+  *Next:* filter by asset type (`typeIds`) once Cotality's type ids are known.
+- ✅ **Done 2026-11-19 — short-lived cache:** successful Collibra reads are cached for 10 minutes per user (server:
+  keyed by Collibra environment + user, max 2,000 entries, identity checks still run on cache hits; browser: in-page
+  memory, cleared on reload/sign-out). Never shared across users, since Collibra permissions differ.
 - **Use the Collibra search API** (full-text across names, descriptions and attributes) instead of name-only asset
   search when allowed; it finds "employee numbers" via definitions, not just names.
 - **Batch describe:** read attributes for several assets in one request (`assetId` list) instead of one per asset.
@@ -336,3 +340,4 @@ and nothing is invented.
 | 2026-11-19 | Collibra as an admin-managed data source (Settings), Collibra tab with asset scope, extension download + setup guidance in Settings, the tab and chat. Next: field-mapping workflow to a workspace table, extension distribution (Web Store unlisted / managed policy). |
 | 2026-11-19 | Extension distribution guide: [collibra_extension_publish.md](collibra_extension_publish.md) (Chrome Web Store unlisted + client IT force-install). |
 | 2026-11-19 | **Live for Cotality:** admin added `prd` in Settings (browser mode); extension v0.2.0 from the Settings download; Test connection, Collibra tab and chat working on the real tenant. Summary, diagrams and recommendations added (§0). |
+| 2026-11-19 | Optimizations: one-call lookup tools, ranking (business terms / accepted / readable names first), 10-minute per-user cache. |

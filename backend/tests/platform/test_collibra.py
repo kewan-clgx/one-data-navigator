@@ -9,8 +9,9 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 
 from odn.config import settings
+from odn.platform.collibra import client as collibra_client
 from odn.platform.collibra import token as tokens
-from odn.platform.collibra.client import CollibraClient, CollibraError, Environment
+from odn.platform.collibra.client import CollibraClient, CollibraError, Environment, rank
 
 ASSET = "0192aaaa-0000-7000-8000-000000000001"
 FIELD = "0192aaaa-0000-7000-8000-000000000002"
@@ -19,6 +20,7 @@ ENV = Environment(env="prd", base_url="https://catalog.example.com", audience="q
 
 @pytest.fixture(autouse=True)
 def fresh_key(monkeypatch: pytest.MonkeyPatch):
+    collibra_client.clear_cache()
     monkeypatch.setattr(settings, "public_url", "https://app.example.com")
     monkeypatch.setattr(settings, "collibra_signing_key", "")
     monkeypatch.setattr(settings, "collibra_signing_key_secret", "")
@@ -91,7 +93,7 @@ def fake_collibra(users: set[str], seen: list[str] | None = None, audience: str 
         if path == "/rest/2.0/users/current":
             return httpx.Response(200, json={"id": "u1", "userName": sub})
         if path == "/rest/2.0/assets":
-            assert q["nameMatchMode"] == "ANYWHERE" and q["limit"] == "2"
+            assert q["nameMatchMode"] == "ANYWHERE" and q["limit"] in ("2", "25")
             return httpx.Response(200, json={"total": 3, "offset": 0, "limit": 2, "results": [
                 {"id": ASSET, "name": "Corporate Revenue", "type": {"name": "Business Term"},
                  "domain": {"name": "Firmographics"}, "status": {"name": "Accepted"}},
@@ -107,7 +109,8 @@ def fake_collibra(users: set[str], seen: list[str] | None = None, audience: str 
                 {"type": {"name": "Definition"}, "value": value}, {"type": {"name": "95th Percentile"}, "value": "6.6E6"},
                 {"type": {"name": "Technical Data Type"}, "value": "INT64"}]})
         if path == "/rest/2.0/relations":
-            assert q["sourceId"] == ASSET
+            if q.get("sourceId") != ASSET:
+                return httpx.Response(200, json={"total": 0, "offset": 0, "limit": 20, "results": []})
             return httpx.Response(200, json={"total": 1, "offset": 0, "limit": 20, "results": [
                 {"type": {"id": "rt1"}, "source": {"id": ASSET, "name": "Corporate Revenue"},
                  "target": {"id": FIELD, "name": "corp_revenue_amt"}}]})
@@ -168,3 +171,41 @@ async def test_invalid_page_and_timeouts_are_reported() -> None:
     with pytest.raises(CollibraError) as err:
         await c.get_asset(ASSET)
     assert err.value.status == 504
+
+
+def test_rank_prefers_business_terms_accepted_and_readable_names() -> None:
+    assets = [
+        {"id": "1", "name": "clgx.prd.edr.firmographics.vw_enterprise>corporate_revenue_sales_amount(column)",
+         "display_name": None, "type": "Column", "status": "Candidate"},
+        {"id": "2", "name": "Corporate Revenue", "display_name": None, "type": "Business Term", "status": "Accepted"},
+        {"id": "3", "name": "CORPORATE SALES REVENUE", "display_name": None, "type": "Product Field", "status": "Candidate"},
+        {"id": "4", "name": "Corporate Revenue", "display_name": None, "type": "Business Term", "status": "Obsolete"},
+    ]
+    assert [a["id"] for a in rank(assets, "corporate revenue")] == ["2", "3", "4", "1"]
+
+
+async def test_lookup_is_one_call_with_definitions_and_related() -> None:
+    page = await client().lookup("revenue", top=2)
+    assert [m["name"] for m in page["matches"]] == ["Corporate Revenue", "corp_revenue_amt"]
+    first = page["matches"][0]
+    assert first["definition"].startswith("Total annual revenue")
+    assert first["related"] == [{"direction": "outgoing", "id": FIELD, "name": "corp_revenue_amt",
+                                 "url": f"https://catalog.example.com/asset/{FIELD}"}]
+    assert all(a["type"] != "95th Percentile" for a in first["attributes"])
+
+
+async def test_reads_are_cached_per_user_and_identity_is_still_checked() -> None:
+    seen: list[str] = []
+    ann = CollibraClient(ENV, email="ann@acme.com", email_domain_verified=True,
+                         transport=fake_collibra({"ann@acme.com", "bob@acme.com"}, seen))
+    await ann.get_asset(ASSET)
+    await ann.get_asset(ASSET)
+    assert len(seen) == 1  # second read from cache
+    bob = CollibraClient(ENV, email="bob@acme.com", email_domain_verified=True,
+                         transport=fake_collibra({"ann@acme.com", "bob@acme.com"}, seen))
+    await bob.get_asset(ASSET)
+    assert len(seen) == 2  # not shared across users
+    unverified = CollibraClient(ENV, email="ann@acme.com", email_domain_verified=False,
+                                transport=fake_collibra({"ann@acme.com"}, seen))
+    with pytest.raises(CollibraError):
+        await unverified.get_asset(ASSET)  # cached for ann, but an unverified identity never gets it

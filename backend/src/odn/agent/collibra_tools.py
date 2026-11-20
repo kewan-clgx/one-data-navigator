@@ -24,6 +24,26 @@ async def collibra_environments() -> dict[str, Any]:
     return resp.json() if resp.status_code == 200 else {"error": _detail(resp)}
 
 
+async def collibra_lookup(environment: str, text: str, top: int = 5) -> dict[str, Any]:
+    """Best first call for Collibra questions: search + rank + definitions + related assets in one step.
+
+    Ranks business terms / product fields / accepted assets with readable names first. Use the other collibra_*
+    tools only to page further or follow a specific relation.
+
+    Args:
+        environment: Environment from `collibra_environments`, e.g. "prd".
+        text: What to look up, e.g. "corporate revenue".
+        top: How many matches to describe (1-10, default 5).
+
+    Returns:
+        `matches` (id, name, type, domain, status, url, definition, attributes, related, score), `other_results`,
+        `total`, or an `error`.
+    """
+    params = {"q": text, "top": max(1, min(top, 10))}
+    resp = await _api("GET", f"collibra/{_env(environment)}/lookup", params=params)
+    return resp.json() if resp.status_code == 200 else {"error": _detail(resp)}
+
+
 async def collibra_search_assets(
     environment: str,
     text: str,
@@ -116,11 +136,11 @@ async def collibra_get_api_fields(environment: str, asset_id: str, limit: int = 
 # Run in the user's browser through the QueryMuse Collibra Bridge extension (frontend/app/components/
 # CollibraBrowserTools.tsx), with the user's own Collibra session. Only these frontend tools reach the agent.
 BROWSER_TOOL_NAMES = [
-    "collibra_browser_status", "collibra_browser_search_assets", "collibra_browser_describe_assets",
+    "collibra_browser_status", "collibra_browser_lookup", "collibra_browser_search_assets", "collibra_browser_describe_assets",
     "collibra_browser_get_relations", "collibra_browser_get_api_fields",
 ]
 
 COLLIBRA_TOOLS = [
-    collibra_environments, collibra_search_assets, collibra_describe_assets, collibra_get_relations,
+    collibra_environments, collibra_lookup, collibra_search_assets, collibra_describe_assets, collibra_get_relations,
     collibra_get_api_fields,
 ]

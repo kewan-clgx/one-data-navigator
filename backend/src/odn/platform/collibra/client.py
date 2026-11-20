@@ -27,6 +27,75 @@ _PROFILING = re.compile(
 )
 
 
+# Successful reads are cached briefly per user (key includes the Collibra user), never shared across users because
+# Collibra permissions differ per user.
+CACHE_TTL_S = 600
+_CACHE_MAX = 2000
+_cache: dict[tuple[str, ...], tuple[float, dict[str, Any]]] = {}
+
+
+def clear_cache() -> None:
+    _cache.clear()
+
+
+def _cache_get(key: tuple[str, ...]) -> dict[str, Any] | None:
+    hit = _cache.get(key)
+    if hit is None:
+        return None
+    if hit[0] < time.monotonic():
+        _cache.pop(key, None)
+        return None
+    return hit[1]
+
+
+def _cache_put(key: tuple[str, ...], value: dict[str, Any]) -> None:
+    if len(_cache) >= _CACHE_MAX:
+        now = time.monotonic()
+        for k in [k for k, (exp, _) in _cache.items() if exp < now] or list(_cache)[: _CACHE_MAX // 4]:
+            _cache.pop(k, None)
+    _cache[key] = (time.monotonic() + CACHE_TTL_S, value)
+
+
+# Ranking: business-facing assets first, accepted before candidates, readable names before physical paths.
+_TYPE_WEIGHT = {
+    "business term": 40, "product field": 35, "data attribute": 30, "data element": 28, "report attribute": 25,
+    "api field": 22, "field": 20, "column": 12, "table": 10, "database view": 10, "schema": 4,
+}
+_STATUS_WEIGHT = {"accepted": 15, "approved": 15, "reviewed": 8, "candidate": 2, "obsolete": -60, "deprecated": -60}
+_TECHNICAL = re.compile(r"[>.\/]|\(column\)|\(table\)")
+
+
+def _words(text: str) -> list[str]:
+    return [w for w in re.split(r"[^a-z0-9]+", text.lower()) if w]
+
+
+def rank_score(asset: dict[str, Any], query: str) -> float:
+    """Higher is better. `asset` is a summary (name, display_name, type, status)."""
+    label = (asset.get("display_name") or asset.get("name") or "").strip()
+    name = (asset.get("name") or "").strip()
+    q = " ".join(_words(query))
+    lw = " ".join(_words(label))
+    score = float(_TYPE_WEIGHT.get((asset.get("type") or "").lower(), 15))
+    score += _STATUS_WEIGHT.get((asset.get("status") or "").lower(), 0)
+    if q and lw == q:
+        score += 40
+    elif q and lw.startswith(q):
+        score += 25
+    elif q and q in lw:
+        score += 15
+    qw = set(_words(query))
+    if qw:
+        score += 15 * len(qw & set(_words(label))) / len(qw)
+    if _TECHNICAL.search(name) and not asset.get("display_name"):
+        score -= 15
+    score -= min(len(label), 160) / 16
+    return round(score, 2)
+
+
+def rank(assets: list[dict[str, Any]], query: str) -> list[dict[str, Any]]:
+    return sorted(assets, key=lambda a: rank_score(a, query), reverse=True)
+
+
 @dataclass(frozen=True)
 class Environment:
     env: str
@@ -95,6 +164,18 @@ class CollibraClient:
         return f"{self.environment.base_url}/asset/{asset_id}"
 
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        if not self._email or not self._verified:
+            self._bearer()  # raises the same 403 as an uncached call; the cache never bypasses identity checks
+        key = (self.environment.base_url, self.environment.audience or "", self.principal or "", path,
+               repr(sorted((params or {}).items())))
+        cached = _cache_get(key)
+        if cached is not None:
+            return cached
+        data = await self._fetch(path, params)
+        _cache_put(key, data)
+        return data
+
+    async def _fetch(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         url = f"{self.environment.base_url}/rest/2.0/{path}"
         try:
             async with httpx.AsyncClient(
@@ -177,7 +258,7 @@ class CollibraClient:
         if domain_id:
             params["domainId"] = domain_id
         page = await self._page("assets", params)
-        page["results"] = [self._summary(a) for a in page["results"] if isinstance(a, dict)]
+        page["results"] = rank([self._summary(a) for a in page["results"] if isinstance(a, dict)], text)
         return self._stamp(page)
 
     async def get_asset(self, asset_id: str) -> dict[str, Any]:
@@ -255,4 +336,39 @@ class CollibraClient:
         return self._stamp({
             "api_asset_id": api_asset_id, "fields": fields, "total": page["total"], "offset": page["offset"],
             "has_more": page["has_more"], "next_offset": page["next_offset"],
+        })
+
+    async def lookup(self, text: str, *, top: int = 5, related: int = 3) -> dict[str, Any]:
+        """One call for the agent: search, rank, describe the best matches and list their related assets."""
+        top = max(1, min(top, 10))
+        found = await self.search_assets(text, limit=25)
+        ranked = found["results"]
+        best = ranked[:top]
+        described = {d["id"]: d for d in (await self.describe_assets([a["id"] for a in best]))["assets"]} if best else {}
+
+        async def links(asset_id: str) -> list[dict[str, Any]]:
+            try:
+                out = await self.get_relations(asset_id, direction="outgoing", limit=10)
+                inc = await self.get_relations(asset_id, direction="incoming", limit=10)
+            except CollibraError:
+                return []
+            refs = [{"direction": "outgoing", **r["target"]} for r in out["results"] if r.get("target")]
+            refs += [{"direction": "incoming", **r["source"]} for r in inc["results"] if r.get("source")]
+            return refs[:15]
+
+        rel = await asyncio.gather(*(links(a["id"]) for a in best[:related]))
+        matches = []
+        for i, a in enumerate(best):
+            d = described.get(a["id"], {})
+            attrs = [x for x in d.get("attributes", []) if (x.get("type") or "").lower() not in ("definition", "description")]
+            match = {**a, "definition": d.get("definition"), "attributes": attrs[:8], "score": rank_score(a, text)}
+            if d.get("error"):
+                match["error"] = d["error"]
+            if i < related:
+                match["related"] = rel[i]
+            matches.append(match)
+        others = [{k: a.get(k) for k in ("id", "name", "display_name", "type", "status")} for a in ranked[top:]]
+        return self._stamp({
+            "query": text, "total": found["total"], "matches": matches, "other_results": others,
+            "note": "Ranked: business terms / product fields / accepted assets and readable names first; score is a heuristic.",
         })

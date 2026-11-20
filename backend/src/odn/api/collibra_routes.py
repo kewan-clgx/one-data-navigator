@@ -121,6 +121,16 @@ async def search_assets(
         q, match=match, domain_id=str(domain_id) if domain_id else None, limit=limit, offset=offset))
 
 
+@router.get("/{env}/lookup")
+async def lookup(
+    env: str,
+    ctx: Context,
+    q: Annotated[str, Query(min_length=1, max_length=200, pattern=r"^[^\x00-\x1f]*\S[^\x00-\x1f]*$")],
+    top: Annotated[int, Query(ge=1, le=10)] = 5,
+) -> dict[str, Any]:
+    return await _run(ctx, env, "lookup", lambda c: c.lookup(q, top=top))
+
+
 @router.get("/{env}/assets/{asset_id}")
 async def get_asset(env: str, asset_id: UUID, ctx: Context) -> dict[str, Any]:
     return await _run(ctx, env, "asset", lambda c: c.get_asset(str(asset_id)))

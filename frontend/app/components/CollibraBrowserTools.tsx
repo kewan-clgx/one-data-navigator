@@ -102,6 +102,24 @@ export function CollibraBrowserTools({
 
   useFrontendTool(
     {
+      name: "collibra_browser_lookup",
+      description:
+        "Best first call for Collibra questions: searches, ranks (business terms / accepted assets first) and returns the " +
+        "top matches with definitions and related assets in one step, using the user's own Collibra session.",
+      available,
+      parameters: [
+        envParam,
+        { name: "text", type: "string", description: "What to look up, e.g. corporate revenue", required: true },
+        { name: "top", type: "number", description: "How many matches to describe, 1-10 (default 5)", required: false },
+      ],
+      handler: async (a: { environment?: string; text: string; top?: number }) =>
+        run(() => source(a.environment).lookup(String(a.text), a.top)),
+    },
+    deps,
+  );
+
+  useFrontendTool(
+    {
       name: "collibra_browser_search_assets",
       description:
         "Searches Collibra assets by name with the user's own Collibra session. Use short name fragments and synonyms. " +

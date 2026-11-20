@@ -97,9 +97,10 @@ How to work:
 - Environments in token mode: use the server tools (`collibra_search_assets`, ...) with that environment.
 - If a Collibra asset is selected in the Collibra tab (see context), answer about it using its id.
 - If several environments exist and the user did not say which, ask, or search each one they asked for.
-- Search with short name fragments and synonyms (`collibra_search_assets` / `collibra_browser_search_assets`),
-  then read definitions with the describe tool (batch up to 20 ids). Use the api_fields / relations tools to see
-  fields of a table/API asset or lineage.
+- Start every Collibra question with ONE lookup call (`collibra_browser_lookup` in browser mode, `collibra_lookup`
+  in token mode): it searches, ranks (business terms / accepted assets first), and returns definitions and related
+  assets together. Usually that is enough to answer. Only if needed: try a synonym with another lookup, or use the
+  search / describe / relations / api_fields tools to page further or follow one specific relation.
 - Collibra calls run as the user, with their Collibra permissions. If a tool says Collibra did not accept the
   sign-in or the user lacks permission, tell the user exactly that; do not retry or work around it.
 - Field mapping: for each requested field give the best Collibra match and runner-ups with evidence (asset name,

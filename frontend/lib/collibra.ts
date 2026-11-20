@@ -99,6 +99,56 @@ export function bridgeOutdated(info: BridgeInfo): boolean {
   return false;
 }
 
+// -- short-lived cache (this browser = this user; cleared on reload/sign-out) ---------------------------------
+
+const CACHE_TTL_MS = 10 * 60 * 1000;
+const cache = new Map<string, { expires: number; data: any }>();
+
+async function cachedBridgeGet(baseUrl: string, path: string, params: Record<string, string | number> = {}): Promise<BridgeResult> {
+  const key = `${baseUrl} ${path} ${JSON.stringify(Object.entries(params).sort())}`;
+  const hit = cache.get(key);
+  if (hit && hit.expires > Date.now()) return { ok: true, base_url: baseUrl, data: hit.data };
+  const result = await bridgeGet(baseUrl, path, params);
+  if (result.ok) {
+    if (cache.size > 1000) cache.clear();
+    cache.set(key, { expires: Date.now() + CACHE_TTL_MS, data: result.data });
+  }
+  return result;
+}
+
+// -- ranking (same rules as odn.platform.collibra.client.rank_score) --------------------------------------
+
+const TYPE_WEIGHT: Record<string, number> = {
+  "business term": 40, "product field": 35, "data attribute": 30, "data element": 28, "report attribute": 25,
+  "api field": 22, field: 20, column: 12, table: 10, "database view": 10, schema: 4,
+};
+const STATUS_WEIGHT: Record<string, number> = {
+  accepted: 15, approved: 15, reviewed: 8, candidate: 2, obsolete: -60, deprecated: -60,
+};
+const TECHNICAL = /[>.\/]|\(column\)|\(table\)/;
+const words = (t: string) => t.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+
+export function rankScore(asset: Json, query: string): number {
+  const label = String(asset.display_name || asset.name || "").trim();
+  const name = String(asset.name || "").trim();
+  const q = words(query).join(" ");
+  const lw = words(label).join(" ");
+  let score = TYPE_WEIGHT[String(asset.type || "").toLowerCase()] ?? 15;
+  score += STATUS_WEIGHT[String(asset.status || "").toLowerCase()] ?? 0;
+  if (q && lw === q) score += 40;
+  else if (q && lw.startsWith(q)) score += 25;
+  else if (q && lw.includes(q)) score += 15;
+  const qw = new Set(words(query));
+  if (qw.size) score += (15 * words(label).filter((w, i, a) => qw.has(w) && a.indexOf(w) === i).length) / qw.size;
+  if (TECHNICAL.test(name) && !asset.display_name) score -= 15;
+  score -= Math.min(label.length, 160) / 16;
+  return Math.round(score * 100) / 100;
+}
+
+export function rankAssets<T extends Json>(assets: T[], query: string): T[] {
+  return [...assets].sort((a, b) => rankScore(b, query) - rankScore(a, query));
+}
+
 // -- shaping (same output as odn.platform.collibra.client) -------------------------------------------------
 
 function plain(value: unknown): unknown {
@@ -134,7 +184,7 @@ export class CollibraSource {
   }
 
   private async get(path: string, params: Record<string, string | number> = {}): Promise<any> {
-    const r = await bridgeGet(this.base, path, params);
+    const r = await cachedBridgeGet(this.base, path, params);
     if (!r.ok) throw new CollibraError(r.message, r.login_url);
     return r.data;
   }
@@ -178,7 +228,7 @@ export class CollibraSource {
       return this.api<Json>(`assets?${new URLSearchParams({ q: text, match: mode, limit: String(lim), offset: String(off) })}`);
     }
     const p = await this.page("assets", { name: text, nameMatchMode: mode, limit: lim, offset: off }, lim);
-    return this.stamp({ ...p, results: p.results.map((a: any) => this.summary(a)) });
+    return this.stamp({ ...p, results: rankAssets(p.results.map((a: any) => this.summary(a)), text) });
   }
 
   private async attributes(assetId: string) {
@@ -238,5 +288,43 @@ export class CollibraSource {
     const described = ids.length ? (await this.describe(ids)).assets : [];
     const fields = described.map(({ attributes: _a, attributes_truncated: _t, profiling_attributes_omitted: _p, ...f }: Json) => f);
     return this.stamp({ api_asset_id: assetId, fields, total: rel.total, offset: rel.offset, has_more: rel.has_more, next_offset: rel.next_offset });
+  }
+
+  /** One call for the agent: search, rank, describe the best matches and list their related assets. */
+  async lookup(text: string, top = 5, related = 3): Promise<Json> {
+    const n = clamp(top, 1, 10, 5);
+    if (this.env.access_mode === "token") {
+      return this.api<Json>(`lookup?${new URLSearchParams({ q: text, top: String(n) })}`);
+    }
+    const found = await this.search(text, "ANYWHERE", 25, 0);
+    const ranked: Json[] = found.results;
+    const best = ranked.slice(0, n);
+    const described: Record<string, Json> = {};
+    if (best.length) for (const d of (await this.describe(best.map((a) => a.id))).assets) described[d.id] = d;
+    const links = async (id: string): Promise<Json[]> => {
+      try {
+        const [out, inc] = await Promise.all([this.relations(id, "outgoing", 10), this.relations(id, "incoming", 10)]);
+        return [
+          ...out.results.filter((r: Json) => r.target).map((r: Json) => ({ direction: "outgoing", ...r.target })),
+          ...inc.results.filter((r: Json) => r.source).map((r: Json) => ({ direction: "incoming", ...r.source })),
+        ].slice(0, 15);
+      } catch {
+        return [];
+      }
+    };
+    const rel = await Promise.all(best.slice(0, related).map((a) => links(a.id)));
+    const matches = best.map((a, i) => {
+      const d = described[a.id] ?? {};
+      const attributes = (d.attributes ?? []).filter((x: Json) => !["definition", "description"].includes(String(x.type ?? "").toLowerCase()));
+      return {
+        ...a, definition: d.definition ?? null, attributes: attributes.slice(0, 8), score: rankScore(a, text),
+        ...(d.error ? { error: d.error } : {}), ...(i < related ? { related: rel[i] } : {}),
+      };
+    });
+    const other_results = ranked.slice(n).map(({ id, name, display_name, type, status }) => ({ id, name, display_name, type, status }));
+    return this.stamp({
+      query: text, total: found.total, matches, other_results,
+      note: "Ranked: business terms / product fields / accepted assets and readable names first; score is a heuristic.",
+    });
   }
 }
