@@ -99,12 +99,17 @@ function MiniTable({ artifact }: { artifact: Extract<PublicArtifact, { kind: "ta
   );
 }
 
+/** ImageResponse always adds a one-year immutable cache header; serve its PNG with ours instead. */
+function png(image: ImageResponse, cacheControl: string) {
+  return new Response(image.body, { headers: { "Content-Type": "image/png", "Cache-Control": cacheControl } });
+}
+
 export async function GET(_req: Request, { params }: { params: { id: string } }) {
   const share = await loadPublicShare(params.id);
   // API not reachable (e.g. during a deploy): don't let crawlers cache a placeholder.
   if (share === "unavailable") return new Response("Try again shortly", { status: 503, headers: { "Retry-After": "30" } });
   if (!share) {
-    return new ImageResponse(
+    return png(new ImageResponse(
       (
         <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", width: "100%", height: "100%", padding: 80, background: PAPER }}>
           <div style={{ display: "flex", fontSize: 40, fontWeight: 700, color: ACCENT }}>QueryMuse</div>
@@ -112,12 +117,12 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
           <div style={{ display: "flex", fontSize: 32, color: MUTED, marginTop: 16 }}>Sign in to view</div>
         </div>
       ),
-      { ...size, headers: { "Cache-Control": "no-store" } },
-    );
+      size,
+    ), "no-store");
   }
   const { answer } = questionAndAnswer(share.messages);
   const visual = share.artifacts.find((a) => a.kind === "chart") ?? share.artifacts.find((a) => a.kind === "table");
-  return new ImageResponse(
+  return png(new ImageResponse(
     (
       <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", padding: "40px 64px", background: PAPER }}>
         <div style={{ display: "flex", flexShrink: 0, fontSize: 22, color: MUTED }}>
@@ -137,6 +142,6 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
         )}
       </div>
     ),
-    { ...size, headers: { "Cache-Control": "public, max-age=600" } },
-  );
+    size,
+  ), "public, max-age=600");
 }
