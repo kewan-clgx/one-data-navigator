@@ -110,7 +110,7 @@ export default async function Image({ params }: { params: { id: string } }) {
           <div style={{ display: "flex", fontSize: 32, color: MUTED, marginTop: 16 }}>Sign in to view</div>
         </div>
       ),
-      size,
+      { ...size, headers: { "Cache-Control": "no-store" } },
     );
   }
   const { answer } = questionAndAnswer(share.messages);
@@ -135,6 +135,7 @@ export default async function Image({ params }: { params: { id: string } }) {
         )}
       </div>
     ),
-    size,
+    // Short: previews must follow edits, revokes and expiry (Next defaults to a year).
+    { ...size, headers: { "Cache-Control": "public, max-age=600" } },
   );
 }
