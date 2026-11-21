@@ -21,6 +21,8 @@ def pool() -> ConnectionPool:
         min_size=1,
         max_size=10,
         kwargs={"row_factory": dict_row},
+        # Drop connections the database closed (e.g. Postgres restarted by a deploy) instead of failing requests.
+        check=ConnectionPool.check_connection,
         open=True,
     )
 

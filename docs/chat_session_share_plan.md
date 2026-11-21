@@ -408,3 +408,7 @@ open*. Until then links are sign-in only.
   answer. `og:description` uses the same highlight.
 - **Preview image draws the shared chart like the app does** (vertical bars grouped by category, one colour per
   series, legend; up to 12 categories; line/scatter as dots) instead of a top-6 list of bars.
+- The preview image is served by `GET /s/<id>/image` (a plain route, not Next's `opengraph-image` convention, whose
+  one-year immutable cache header can't be overridden): `Cache-Control: public, max-age=600`, and 503 (not a
+  placeholder image) while the API is unreachable, so Slack/Teams retry instead of caching a blank card. The API's
+  database pool now checks connections, so a Postgres restart during a deploy doesn't fail the first requests.

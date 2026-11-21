@@ -33,15 +33,15 @@ const cotality: Theme = {
     {
       kicker: "One place",
       title: "All your data work, one chat",
-      lead: "Stop switching tools. Ask in plain English, get answers in seconds.",
+      lead: "Ask in plain English, get answers in seconds.",
       points: [
         "Connect to BigQuery, Snowflake, any database and documents",
         "Turn complex data into instant insights",
       ],
     },
     {
-      kicker: "Property intelligence",
-      title: "Ask the data. Get the answer.",
+      kicker: "One language",
+      title: "Use English for data analytics",
       lead: "Answers from your live data, with every source shown.",
       points: [
         "Every answer shows its source and logic",
@@ -50,11 +50,11 @@ const cotality: Theme = {
     },
     {
       kicker: "Governed by design",
-      title: "Navigate data beyond bounds",
+      title: "Perfectly built for managers and stakeholders",
       lead: "Plain English in, governed data report out.",
       points: [
         "Read-only, allowlisted data only",
-        "Built for managers, executives and stakeholders",
+        "Answers from your live data, with every source shown",
       ],
     },
   ],
