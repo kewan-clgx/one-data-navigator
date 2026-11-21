@@ -10,7 +10,7 @@ import { CHAT_ATTACH_ACCEPT, FILES_CHANGED, UPLOAD_MAX_BYTES, uploadChatAttachme
 
 import type { Theme } from "../themes";
 import AboutSlides from "./AboutSlides";
-import { AgentStepsToggle, ShowResultsContext, useAgentStepRenderers } from "./AgentSteps";
+import { AgentStepsToggle, ChatSessionContext, ShowResultsContext, useAgentStepRenderers } from "./AgentSteps";
 import { CollibraBrowserTools, type CollibraScope } from "./CollibraBrowserTools";
 import CollibraPanel from "./CollibraPanel";
 import { useCollibraBridge, useCollibraEnvironments } from "@/lib/collibra";
@@ -450,6 +450,7 @@ export default function AppShell({ theme, role, userId }: { theme: Theme; role?:
   return (
     <CopilotKit runtimeUrl="/api/copilotkit" agent={AGENT_ID} threadId={threadId}>
       <ShowResultsContext.Provider value={showResults}>
+      <ChatSessionContext.Provider value={sessionId}>
         <HistoryHydrator threadId={threadId} />
         <RunWatcher onNew={onNewResult} onRunEnd={bump} />
         <ScopeContext scope={scope} connection={connection} />
@@ -466,6 +467,7 @@ export default function AppShell({ theme, role, userId }: { theme: Theme; role?:
           left={panel}
           right={chat}
         />
+      </ChatSessionContext.Provider>
       </ShowResultsContext.Provider>
     </CopilotKit>
   );

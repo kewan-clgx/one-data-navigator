@@ -172,6 +172,12 @@ def turns(messages: list[dict[str, Any]], charts: list[dict[str, Any]]) -> list[
             if isinstance(result.get("workspace_table"), str):
                 turn["tables"].append(result["workspace_table"])
             if name == "generate_chart":
+                saved = next((c for c in unused if c["name"] == result.get("chart")), None)
+                if saved is not None:
+                    turn["charts"].append(saved["name"])
+                    unused.remove(saved)
+                    continue
+                # Older results don't name the chart: match the saved chart by source, title and type.
                 args = _parse(fn.get("arguments")) or {}
                 for c in unused:
                     spec = (c.get("result") or {}).get("spec") or {}
@@ -225,8 +231,12 @@ def preview(ctx: RequestContext, token: str, thread_id: str) -> dict[str, Any]:
     return {
         "turns": [{
             "id": t["id"], "question": t["question"][:300], "answer": t["answer"][:4000],
-            "tables": [{"name": n, "row_count": tables[n]["row_count"]} for n in t["tables"] if n in tables],
-            "charts": [{"name": c["name"], "title": c["title"]} for c in arts["charts"] if c["name"] in t["charts"]],
+            "tables": [{"name": n, "row_count": tables[n]["row_count"],
+                        "columns": [c if isinstance(c, str) else c.get("name") for c in tables[n]["columns"]][:8]}
+                       for n in t["tables"] if n in tables],
+            # With the chart itself, so the dialog shows exactly what will be shared.
+            "charts": [{"name": c["name"], "title": c["title"], "result": c["result"]}
+                       for c in arts["charts"] if c["name"] in t["charts"]],
             "default_artifacts": default_artifacts(t),
             "used_collibra": any((n or "").startswith("collibra") for n in t["tools"]),
             "used_personal_connections": any(tables[n]["personal"] for n in t["tables"] if n in tables),

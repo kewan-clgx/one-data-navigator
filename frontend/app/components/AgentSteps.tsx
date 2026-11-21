@@ -1,12 +1,41 @@
 "use client";
 
 import { useCopilotAction, useHumanInTheLoop } from "@copilotkit/react-core";
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
+
+import Chart, { type ChartData } from "./Chart";
 
 import { setShowAgentSteps, useShowAgentSteps } from "@/lib/displayPrefs";
 
 /** Lets chat cards ask the shell to reveal the Results tab. */
 export const ShowResultsContext = createContext<() => void>(() => {});
+/** The open conversation's session id (where its saved charts live). */
+export const ChatSessionContext = createContext<string>("");
+
+type SavedChart = { id: string; name: string; title: string };
+
+/** The chart a generate_chart step saved (c1, c2...), drawn right in the chat. */
+function InlineChart({ name, title }: { name: string; title: string }) {
+  const sessionId = useContext(ChatSessionContext);
+  const [data, setData] = useState<ChartData | null>(null);
+  useEffect(() => {
+    if (!sessionId) return;
+    let live = true;
+    fetch(`/api/odn/artifacts?kind=chart&session_id=${encodeURIComponent(sessionId)}`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((items: SavedChart[]) => {
+        // Older results don't carry the chart name: fall back to the title.
+        const item = items.find((c) => name && c.name === name) ?? items.find((c) => !name && title && c.title === title);
+        return item ? fetch(`/api/odn/artifacts/charts/${encodeURIComponent(item.id)}`).then((r) => (r.ok ? r.json() : null)) : null;
+      })
+      .then((d: ChartData | null) => live && setData(d))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [sessionId, name, title]);
+  return data ? <div className="odn-inline-chart"><Chart data={data} compact /></div> : null;
+}
 
 const STATUS_LABEL: Record<string, string> = {
   inProgress: "Preparing",
@@ -89,8 +118,17 @@ export function StepCard({
   const outcome = complete ? outcomeOf(parse(result)) : null;
   const problem = outcome && (outcome.kind === "failed" || outcome.kind === "blocked") ? outcome : null;
 
-  // Clean mode: only failures stay visible; results appear in the Results tab.
+  const parsed = complete ? parse(result) : null;
+  const chart = !readOnly && name === "generate_chart" && outcome?.kind === "ok" && isObject(parsed) ? (
+    <InlineChart
+      name={typeof parsed.chart === "string" ? parsed.chart : ""}
+      title={isObject(args) && typeof args.title === "string" ? args.title : ""}
+    />
+  ) : null;
+
+  // Clean mode: only failures and charts stay visible; other results appear in the Results tab.
   if (!showSteps) {
+    if (chart) return chart;
     return problem ? (
       <div className="odn-step odn-step--failed">
         <div className="odn-step-error">
@@ -127,6 +165,7 @@ export function StepCard({
           {argsText}
         </pre>
       )}
+      {chart}
       {complete && result !== undefined && (
         <details>
           <summary>Raw result</summary>

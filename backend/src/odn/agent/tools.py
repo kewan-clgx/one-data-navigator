@@ -367,6 +367,8 @@ async def generate_chart(
     tool_context.state["last_chart"] = body
     return {
         "status": "ok",
+        # Saved chart name (c1, c2...): the chat draws it inline and shares attach it to the question.
+        "chart": body.get("name") or "",
         "points_plotted": len(body["points"]),
         "truncated": body["truncated"],
         "explanation": body.get("explanation", ""),

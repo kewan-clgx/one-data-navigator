@@ -384,3 +384,15 @@ open*. Until then links are sign-in only.
   (*Prev/Next*); tables show their first 50 rows, charts only title, plot and legend (`<Chart compact>`). The public
   API response no longer carries chart SQL, source tables or result names, and the page passes only the cleaned
   question/answer to the browser.
+
+**2026-11-20 — charts:**
+
+- **Charts in the chat:** `generate_chart` now returns the saved chart's name (`chart: "c1"`); the chat's step card
+  draws that chart inline (title, plot, legend), also when *Show agent steps* is off. Older results without a name
+  are found by title.
+- **Charts in shared answers:** the chart is attached to its question by that name (older results: by source,
+  title and type). The Share dialog now **draws the chart** that will be shared, with *Remove chart* / *+ Add chart*
+  buttons (a checkbox label was easy to untick by accident, which left a share without its chart); tables show
+  rows and columns with *Remove* / *Add a table from this answer*.
+- The report also drops headings that mention SQL or queries (e.g. "SQL Query Run") and sentences such as "The
+  following query was executed…".

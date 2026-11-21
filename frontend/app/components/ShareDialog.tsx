@@ -6,9 +6,12 @@ import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 
 import { api } from "@/lib/client-api";
 import { cleanAnswer, summaryText } from "@/lib/share";
 
+import Chart, { type ChartData } from "./Chart";
+
 type Turn = {
   id: string; question: string; answer: string;
-  tables: { name: string; row_count: number }[]; charts: { name: string; title: string }[];
+  tables: { name: string; row_count: number; columns: string[] }[];
+  charts: { name: string; title: string; result: ChartData }[];
   default_artifacts: string[]; used_collibra: boolean; used_personal_connections: boolean;
 };
 type Preview = { title: string; turns: Turn[]; sharing_enabled: boolean; public_links: boolean };
@@ -175,12 +178,8 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
     setChosen(preview?.turns.find((x) => x.id === id)?.default_artifacts ?? []);
   };
   const toggle = (name: string, on: boolean) => setChosen((x) => (on ? [...x, name] : x.filter((n) => n !== name)));
-  const tableChoice = (t: Turn["tables"][number]) => (
-    <label key={t.name} className="choice">
-      <input type="checkbox" checked={chosen.includes(t.name)} onChange={(e) => toggle(t.name, e.target.checked)} />
-      <span>Table {t.name} · {t.row_count.toLocaleString()} {t.row_count === 1 ? "row" : "rows"}</span>
-    </label>
-  );
+  const tableLabel = (t: Turn["tables"][number]) =>
+    `${t.row_count.toLocaleString()} ${t.row_count === 1 ? "row" : "rows"}${t.columns.length ? ` — ${t.columns.slice(0, 4).join(", ")}${t.columns.length > 4 ? "…" : ""}` : ""}`;
   const warnPersonal = !!turn?.used_personal_connections && chosen.some((n) => n.startsWith("q"));
   const warnCollibra = !!turn?.used_collibra;
 
@@ -213,22 +212,33 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
           <article className="share-card" aria-label="What people will see">
             <p className="share-card-q">{turn.question}</p>
             <div className="share-card-a"><Markdown content={cleanAnswer(turn.answer)} /></div>
-            {turn.tables.length + turn.charts.length > 0 && (
-              <div className="share-artifacts" role="group" aria-label="Include with the answer">
-                {turn.charts.map((c) => (
-                  <label key={c.name} className="choice">
-                    <input type="checkbox" checked={chosen.includes(c.name)} onChange={(e) => toggle(c.name, e.target.checked)} />
-                    <span>Chart{c.title ? `: ${c.title}` : ` ${c.name}`}</span>
-                  </label>
-                ))}
-                {turn.tables.filter((t) => turn.default_artifacts.includes(t.name)).map((t) => tableChoice(t))}
-                {turn.tables.some((t) => !turn.default_artifacts.includes(t.name)) && (
-                  <details>
-                    <summary>More results from this question ({turn.tables.filter((t) => !turn.default_artifacts.includes(t.name)).length})</summary>
-                    {turn.tables.filter((t) => !turn.default_artifacts.includes(t.name)).map((t) => tableChoice(t))}
-                  </details>
-                )}
+            {turn.charts.map((c) =>
+              chosen.includes(c.name) ? (
+                <div key={c.name} className="share-visual">
+                  <Chart data={c.result} compact />
+                  <button type="button" className="link" onClick={() => toggle(c.name, false)}>Remove chart</button>
+                </div>
+              ) : (
+                <button key={c.name} type="button" className="link share-add" onClick={() => toggle(c.name, true)}>
+                  + Add chart: {c.title || "chart"}
+                </button>
+              ),
+            )}
+            {turn.tables.filter((t) => chosen.includes(t.name)).map((t) => (
+              <div key={t.name} className="share-visual share-visual--table">
+                <span>Table · {tableLabel(t)}</span>
+                <button type="button" className="link" onClick={() => toggle(t.name, false)}>Remove</button>
               </div>
+            ))}
+            {turn.tables.some((t) => !chosen.includes(t.name)) && (
+              <details className="share-more">
+                <summary>Add a table from this answer ({turn.tables.filter((t) => !chosen.includes(t.name)).length})</summary>
+                {turn.tables.filter((t) => !chosen.includes(t.name)).map((t) => (
+                  <button key={t.name} type="button" className="link share-add" onClick={() => toggle(t.name, true)}>
+                    + {tableLabel(t)}
+                  </button>
+                ))}
+              </details>
             )}
           </article>
           {(warnPersonal || warnCollibra) && (

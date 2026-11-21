@@ -162,9 +162,9 @@ TWO_TURNS = [
     {"id": "a2", "role": "assistant", "content": "", "toolCalls": [
         {"id": "t1", "type": "function", "function": {"name": "run_sql", "arguments": "{}"}},
         {"id": "t2", "type": "function", "function": {"name": "generate_chart", "arguments":
-            '{"source": "q1", "title": "Top cities", "chart_type": "bar", "x": "city"}'}}]},
+            '{"source": "q1", "title": "Top cities (renamed when saved)", "chart_type": "bar", "x": "city"}'}}]},
     {"id": "r1", "role": "tool", "toolCallId": "t1", "content": '{"status": "ok", "workspace_table": "q1"}'},
-    {"id": "r2", "role": "tool", "toolCallId": "t2", "content": '{"status": "ok", "points_plotted": 3}'},
+    {"id": "r2", "role": "tool", "toolCallId": "t2", "content": '{"status": "ok", "chart": "c1", "points_plotted": 3}'},
     {"id": "a3", "role": "assistant", "content": "Irvine leads with 5."},
     {"id": "a4", "role": "assistant", "content": "You've used today's free trial ... in Settings → AI model ..."},
 ]
@@ -270,3 +270,16 @@ def test_ask_a_follow_up_copies_the_share_into_the_readers_workspace(env, monkey
                             (share["id"],)).fetchone()
     assert rows == [("q1", ben.user_id)] and view == (thread,)
     assert as_(outsider).post(f"/v1/shares/{share['id']}/continue").status_code == 404
+
+
+def test_charts_from_older_results_are_matched_by_source_title_and_type() -> None:
+    messages = [
+        {"id": "u", "role": "user", "content": "Chart it"},
+        {"id": "a", "role": "assistant", "toolCalls": [{"id": "t", "function": {"name": "generate_chart", "arguments":
+            '{"source": "q2", "title": "By city", "chart_type": "bar"}'}}]},
+        {"id": "r", "role": "tool", "toolCallId": "t", "content": '{"status": "ok", "points_plotted": 2}'},
+        {"id": "b", "role": "assistant", "content": "Done."},
+    ]
+    charts = [{"name": "c1", "result": {"spec": {"source": "q1", "title": "Other", "type": "bar"}}},
+              {"name": "c2", "result": {"spec": {"source": "q2", "title": "By city", "type": "bar"}}}]
+    assert service.turns(messages, charts)[0]["charts"] == ["c2"]

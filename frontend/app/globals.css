@@ -1002,3 +1002,9 @@ figure.shared-artifact { margin: 0; }
 .share-card-a :is(p, li, h1, h2, h3, h4, td, th) { font-size: 0.85rem; line-height: 1.5; margin: 0.3rem 0; }
 .share-artifacts details { display: flex; flex-direction: column; gap: 0.3rem; }
 .share-artifacts summary { cursor: pointer; color: var(--fg-muted); margin-bottom: 0.3rem; }
+.odn-inline-chart { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.5rem 0.6rem; margin: 0.4rem 0; }
+.share-visual { display: flex; flex-direction: column; gap: 0.25rem; border-top: 1px solid var(--border); padding-top: 0.5rem; font-size: 0.8rem; }
+.share-visual > button { align-self: flex-start; }
+.share-visual--table { flex-direction: row; justify-content: space-between; align-items: center; }
+.share-add { display: block; text-align: left; font-size: 0.8rem; padding: 0.15rem 0; }
+.share-more summary { cursor: pointer; color: var(--fg-muted); font-size: 0.8rem; }

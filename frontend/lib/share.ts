@@ -21,7 +21,8 @@ export const SHARE_ID = /^[A-Za-z0-9_-]{22}$/;
 export function cleanAnswer(markdown: string): string {
   const text = markdown
     .replace(/```[\s\S]*?```/g, "")
-    .replace(/^.*\b(query executed|queries executed|sql used|workspace table|saved as|source table)\b.*$/gim, "")
+    .replace(/^\s{0,3}#{1,6}\s.*\b(sql|quer(?:y|ies))\b.*$/gim, "")
+    .replace(/^.*\b(query executed|queries executed|query was (?:executed|run)|queries were (?:executed|run)|following (?:sql|query|queries)|sql used|workspace table|saved as|source table)\b.*$/gim, "")
     .replace(/\s*\((?:`?[qc]\d+`?(?:\s*(?:,|and)\s*)?)+\)/g, "")
     .replace(/\b(?:in|from|as|see|table|chart|result)\s+`[qc]\d+`/gi, "")
     .replace(/`[qc]\d+`/g, "");
