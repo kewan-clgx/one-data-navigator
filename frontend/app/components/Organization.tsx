@@ -35,6 +35,77 @@ const FAILURE_LABELS: Record<string, string> = {
   other_sign_in_method: "account uses another sign-in method",
 };
 
+type Sharing = { enabled: boolean; public_links: boolean };
+type OrgShare = { id: string; title: string; audience: string; status: string; expires_at: string; views: number; owner_name: string | null; owner_email: string };
+
+/** Sharing settings: on/off, whether links can be opened by anyone, and every link in the organization. */
+function SharingSection() {
+  const ids = useId();
+  const [settings, setSettings] = useState<Sharing | null>(null);
+  const [links, setLinks] = useState<OrgShare[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    const [s, l] = await Promise.all([api<Sharing>("admin/sharing"), api<OrgShare[]>("shares?scope=all")]);
+    setSettings(s);
+    setLinks(l);
+  }, []);
+  useEffect(() => {
+    load().catch((e: Error) => setError(e.message));
+  }, [load]);
+  const save = (next: Sharing) =>
+    api<Sharing>("admin/sharing", { method: "PUT", body: JSON.stringify(next) }).then(setSettings).catch((e: Error) => setError(e.message));
+  const revoke = (id: string) =>
+    window.confirm("Revoke this link? Nobody can open it any more.") &&
+    api(`shares/${id}`, { method: "DELETE" }).then(load).catch((e: Error) => setError(e.message));
+
+  return (
+    <section className="settings-card" aria-labelledby={`${ids}-h`}>
+      <h2 id={`${ids}-h`}>Sharing</h2>
+      {!settings ? (
+        <p className="muted">{error ?? "Loading…"}</p>
+      ) : (
+        <div className="settings-form">
+          <label className="choice">
+            <input type="checkbox" checked={settings.enabled} onChange={(e) => save({ ...settings, enabled: e.target.checked })} />
+            <span>People can share answers as links</span>
+          </label>
+          <label className="choice">
+            <input type="checkbox" checked={settings.public_links} disabled={!settings.enabled}
+                   onChange={(e) => save({ ...settings, public_links: e.target.checked })} />
+            <span>
+              Allow links that <strong>anyone with the link</strong> can open, without signing in{" "}
+              <span className="muted">— Teams, Slack and email show the question, answer and chart. Turning this off hides those links at once.</span>
+            </span>
+          </label>
+          {error && <p className="error" role="alert">{error}</p>}
+        </div>
+      )}
+      {links.length > 0 && (
+        <div className="org-table">
+          <table className="grid">
+            <thead>
+              <tr><th scope="col">Answer</th><th scope="col">Shared by</th><th scope="col">Who can open</th><th scope="col">Status</th><th scope="col"><span className="sr-only">Actions</span></th></tr>
+            </thead>
+            <tbody>
+              {links.map((l) => (
+                <tr key={l.id}>
+                  <td><a href={`/s/${l.id}`} target="_blank" rel="noreferrer">{l.title}</a></td>
+                  <td>{l.owner_name || l.owner_email}</td>
+                  <td>{l.audience === "public" ? "Anyone with the link" : l.audience === "organization" ? "Organization" : "Chosen people"}</td>
+                  <td>{l.status === "active" ? `until ${new Date(l.expires_at).toLocaleDateString()}` : l.status}</td>
+                  <td className="org-actions">
+                    {l.status !== "revoked" && <button type="button" className="link" onClick={() => revoke(l.id)}>Revoke</button>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function when(iso: string | null): string {
   return iso ? new Date(iso).toLocaleString() : "–";
 }
@@ -218,6 +289,8 @@ export default function Organization({ currentUserId }: { currentUserId?: string
           </table>
         </div>
       </section>
+
+      <SharingSection />
 
       <section className="settings-card" aria-labelledby={`${ids}-activity`}>
         <h2 id={`${ids}-activity`}>Recent admin activity</h2>

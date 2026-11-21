@@ -708,6 +708,9 @@ table.grid.dictionary td.def-cell { min-width: 260px; }
 }
 .settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.6rem; }
 .settings-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+/* Radio/checkbox with its text on one line (form labels are otherwise stacked). */
+.settings-form label.choice, .settings-form label.connection-share { flex-direction: row; align-items: flex-start; gap: 0.5rem; line-height: 1.4; cursor: pointer; }
+.settings-form label.choice input, .settings-form label.connection-share input { width: auto; margin: 0.15rem 0 0; padding: 0; flex: none; accent-color: var(--accent); }
 .connection-form { border-top: 1px solid var(--border); padding-top: 0.6rem; }
 .connection-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.8rem; }
 .test-steps { margin: 0; padding-left: 1.1rem; font-size: 0.8rem; }
@@ -955,14 +958,6 @@ textarea.mono {
 .share-dialog h2 { font-size: 1.05rem; margin: 0; }
 .share-dialog h3 { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-muted); margin: 1rem 0 0.4rem; }
 .share-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
-.share-people { display: flex; flex-direction: column; gap: 0.35rem; position: relative; }
-.share-people > label { font-size: 0.8rem; }
-.share-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.35rem; }
-.share-chips li { border: 1px solid var(--border); border-radius: var(--radius); padding: 0.15rem 0.2rem 0.15rem 0.5rem; font-size: 0.78rem; }
-.share-chips button { background: none; border: 0; cursor: pointer; color: var(--fg-muted); }
-.share-options { list-style: none; margin: 0; padding: 0; border: 1px solid var(--border); border-radius: var(--radius); max-height: 12rem; overflow: auto; }
-.share-options button { width: 100%; text-align: left; background: none; border: 0; padding: 0.45rem 0.6rem; cursor: pointer; font: inherit; color: inherit; }
-.share-options button:hover, .share-options button:focus-visible { background: var(--surface-alt); }
 .share-warning { margin: 0.25rem 0 0; font-size: 0.78rem; padding: 0.45rem 0.6rem; background: var(--warning-bg); border-radius: var(--radius); }
 .share-result { display: flex; flex-direction: column; gap: 0.7rem; }
 .share-link { display: flex; gap: 0.5rem; }
@@ -986,6 +981,24 @@ a.odn-chat-open { text-decoration: none; display: block; }
 .shared-artifacts h2 { font-size: 1.05rem; margin: 0.5rem 0 0; }
 .shared-artifact { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.6rem 0.8rem; }
 .shared-artifact pre { white-space: pre-wrap; font-size: 0.75rem; }
-.share-turn { display: flex; flex-direction: column; gap: 0.5rem; }
-.share-answer { margin: 0; padding: 0.5rem 0.7rem; border-left: 3px solid var(--accent); background: var(--surface-alt); font-size: 0.8rem; line-height: 1.5; white-space: pre-wrap; max-height: 10rem; overflow: auto; }
-.share-artifacts { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; }
+
+/* Share dialog: preview card and "share via" apps */
+.share-card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 0.75rem 0.9rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.share-card-q { margin: 0; font-weight: 600; font-size: 0.9rem; }
+.share-card-a { font-size: 0.8rem; line-height: 1.5; max-height: 14rem; overflow: auto; border-left: 3px solid var(--accent); padding-left: 0.7rem; }
+.share-card-a table { border-collapse: collapse; font-size: 0.75rem; }
+.share-card-a th, .share-card-a td { border: 1px solid var(--border); padding: 0.2rem 0.4rem; }
+.share-artifacts { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.8rem; border-top: 1px solid var(--border); padding-top: 0.5rem; }
+.share-apps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; }
+.share-app { display: flex; flex-direction: column; align-items: center; gap: 0.35rem; padding: 0.6rem 0.3rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: inherit; font: inherit; font-size: 0.78rem; text-decoration: none; cursor: pointer; text-align: center; }
+.share-app:hover, .share-app:focus-visible { border-color: var(--accent); }
+.share-app-icon { display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; border-radius: 50%; background: var(--surface-alt); font-weight: 700; }
+.share-app-icon--teams { background: #5b5fc7; color: #fff; }
+.share-app-icon--slack { background: #4a154b; color: #fff; }
+.share-followup { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; padding: 1rem; border: 1px dashed var(--accent); border-radius: var(--radius); }
+.share-followup .error { flex-basis: 100%; margin: 0; }
+.shared-artifact figcaption { margin-bottom: 0.4rem; font-size: 0.85rem; }
+figure.shared-artifact { margin: 0; }
+.share-card-a :is(p, li, h1, h2, h3, h4, td, th) { font-size: 0.85rem; line-height: 1.5; margin: 0.3rem 0; }
+.share-artifacts details { display: flex; flex-direction: column; gap: 0.3rem; }
+.share-artifacts summary { cursor: pointer; color: var(--fg-muted); margin-bottom: 0.3rem; }

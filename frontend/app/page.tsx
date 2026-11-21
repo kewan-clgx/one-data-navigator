@@ -21,7 +21,7 @@ export default async function Home() {
   } catch {
     // malformed cookie: ignore
   }
-  if (identity.kind === "ok" && /^\/s\/[A-Za-z0-9_-]{22}$/.test(returnTo)) redirect(returnTo);
+  if (identity.kind === "ok" && /^\/s\/[A-Za-z0-9_-]{22}(\?followup=1)?$/.test(returnTo)) redirect(returnTo);
   if (identity.kind === "signed-out") {
     const theme = currentTheme();
     return (

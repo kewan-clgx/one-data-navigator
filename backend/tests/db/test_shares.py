@@ -148,7 +148,7 @@ def test_answers_only_organization_audience_expiry_and_switch(env) -> None:
     assert as_(ann).post("/v1/shares", json={"thread_id": "someone-elses", "audience": "organization"}).status_code == 404
 
     admin = as_(user(slug, "boss", role="admin"))
-    assert admin.put("/v1/admin/sharing", json={"enabled": False}).json() == {"enabled": False}
+    assert admin.put("/v1/admin/sharing", json={"enabled": False}).json() == {"enabled": False, "public_links": False}
     blocked = as_(ann).post("/v1/shares", json={"thread_id": THREAD, "audience": "organization"})
     assert blocked.status_code == 403
 
@@ -211,3 +211,64 @@ def test_just_the_answer_shares_one_question_and_its_chosen_result(env, monkeypa
 
     assert as_(ann).post("/v1/shares", json={
         "thread_id": THREAD, "audience": "organization", "mode": "answer", "turn_id": "nope"}).status_code == 422
+
+
+def test_anyone_with_the_link_needs_the_admin_switch(env) -> None:
+    tenant, user, as_, _copies = env
+    slug = tenant()
+    ann, boss = user(slug, "ann"), user(slug, "boss", role="admin")
+
+    def admin() -> TestClient:
+        return as_(boss)  # the client override is global: re-select the admin before each call
+
+    add_table(ann)
+    public = {"thread_id": THREAD, "audience": "public"}
+    assert as_(ann).post("/v1/shares", json=public).status_code == 403  # off by default
+    assert as_(ann).get("/v1/shares/preview", params={"thread_id": THREAD}).json()["public_links"] is False
+
+    admin().put("/v1/admin/sharing", json={"enabled": True, "public_links": True})
+    share = as_(ann).post("/v1/shares", json=public).json()
+    org_only = as_(ann).post("/v1/shares", json={"thread_id": THREAD, "audience": "organization"}).json()
+
+    anonymous = TestClient(app)
+    seen = anonymous.get(f"/v1/public/shares/{share['id']}")
+    assert seen.status_code == 200 and seen.headers["cache-control"] == "private, no-store"
+    body = seen.json()
+    assert body["title"] == "Biz by state" and body["owner_name"] == "ann" and "owner_email" not in body
+    assert body["artifacts"][0]["name"] == "q1" and "object_key" not in body["artifacts"][0]
+    assert "tenant_id" not in body
+    assert anonymous.get(f"/v1/public/shares/{org_only['id']}").status_code == 404  # sign-in shares stay private
+
+    admin().put("/v1/admin/sharing", json={"enabled": True, "public_links": False})
+    assert anonymous.get(f"/v1/public/shares/{share['id']}").status_code == 404  # switch off hides them at once
+    assert {s["id"] for s in admin().get("/v1/shares", params={"scope": "all"}).json()} == {share["id"], org_only["id"]}
+
+
+def test_ask_a_follow_up_copies_the_share_into_the_readers_workspace(env, monkeypatch: pytest.MonkeyPatch) -> None:
+    tenant, user, as_, copies = env
+    slug, other = tenant(), tenant()
+    ann, ben, outsider = user(slug, "ann"), user(slug, "ben"), user(other, "ben")
+    add_table(ann)
+    share = as_(ann).post("/v1/shares", json={"thread_id": THREAD, "audience": "organization"}).json()
+
+    imported: list[dict] = []
+    original = service._agent
+
+    def agent(method, path, token, body=None):
+        if path == "/conversations/import":
+            imported.append(body)
+            return httpx.Response(201, json={"threadId": body["threadId"]})
+        return original(method, path, token, body)
+
+    monkeypatch.setattr(service, "_agent", agent)
+    thread = as_(ben).post(f"/v1/shares/{share['id']}/continue").json()["thread_id"]
+    assert imported[0]["threadId"] == thread and imported[0]["owner"] == "ann"
+    assert [m["role"] for m in imported[0]["messages"]] == ["user", "assistant", "tool", "assistant"]
+    src, dst = copies[-1]
+    assert f"/shares/{share['id']}/q1.parquet" in src and dst.startswith(tenant_key(ben.tenant_id, ben.user_id, thread) + "/")
+    with psycopg.connect(OWNER_URL) as conn:
+        rows = conn.execute("SELECT name, user_id FROM workspace_artifacts WHERE session_id = %s", (thread,)).fetchall()
+        view = conn.execute("SELECT continued_thread_id FROM shared_conversation_views WHERE share_id = %s",
+                            (share["id"],)).fetchone()
+    assert rows == [("q1", ben.user_id)] and view == (thread,)
+    assert as_(outsider).post(f"/v1/shares/{share['id']}/continue").status_code == 404

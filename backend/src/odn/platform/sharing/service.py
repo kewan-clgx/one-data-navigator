@@ -19,13 +19,14 @@ import httpx
 from psycopg.types.json import Jsonb
 
 from odn.config import settings
-from odn.db import tenant_transaction
+from odn.db import system_transaction, tenant_transaction
 from odn.platform.workspace.storage import (
     assert_share_key,
     assert_tenant_key,
     copy_object,
     gcs_client,
     share_key,
+    tenant_key,
 )
 from odn.tenancy.context import RequestContext
 
@@ -35,7 +36,7 @@ MAX_SNAPSHOT_BYTES = 3 * 1024 * 1024
 MAX_ARTIFACTS = 60
 RESULTS_OMITTED = '{"omitted": "Results were not included in this share."}'
 
-Audience = Literal["people", "organization"]
+Audience = Literal["people", "organization", "public"]
 Mode = Literal["conversation", "answer"]
 MAX_TURNS = 30
 
@@ -235,14 +236,20 @@ def preview(ctx: RequestContext, token: str, thread_id: str) -> dict[str, Any]:
         "tables": len(arts["tables"]), "charts": len(arts["charts"]), "files": len(arts["files"]),
         "used_personal_connections": any(t["personal"] for t in arts["tables"]),
         "used_collibra": any(n.startswith("collibra") for n in _tool_names(convo["messages"])),
-        "sharing_enabled": sharing_enabled(ctx),
+        "sharing_enabled": settings_for(ctx)["enabled"],
+        "public_links": settings_for(ctx)["public_links"],
     }
 
 
-def sharing_enabled(ctx: RequestContext) -> bool:
+def settings_for(ctx: RequestContext) -> dict[str, bool]:
+    """Organization sharing settings; no row = sharing on, public links off."""
     with tenant_transaction(ctx.tenant_id) as conn:
-        row = conn.execute("SELECT enabled FROM tenant_sharing_settings").fetchone()
-    return row is None or bool(row["enabled"])
+        row = conn.execute("SELECT enabled, public_links FROM tenant_sharing_settings").fetchone()
+    return {"enabled": row is None or bool(row["enabled"]), "public_links": bool(row and row["public_links"])}
+
+
+def sharing_enabled(ctx: RequestContext) -> bool:
+    return settings_for(ctx)["enabled"]
 
 
 def _active_recipients(conn: Any, ctx: RequestContext, ids: list[uuid.UUID]) -> list[dict[str, Any]]:
@@ -264,6 +271,8 @@ def create(
 ) -> dict[str, Any]:
     if not sharing_enabled(ctx):
         raise ShareError("Sharing is turned off for your organization.", 403)
+    if audience == "public" and not settings_for(ctx)["public_links"]:
+        raise ShareError("Your organization doesn't allow links that anyone can open. Share with your organization instead.", 403)
     if expires_days not in EXPIRY_DAYS:
         raise ShareError(f"Expiry must be one of {EXPIRY_DAYS} days.", 422)
     if audience == "people" and not recipient_ids:
@@ -361,7 +370,7 @@ def _allowed(conn: Any, ctx: RequestContext, share: dict[str, Any]) -> bool:
         return True
     if share["revoked_at"] is not None or share["expires_at"] <= datetime.now(UTC):
         return False
-    if share["audience"] == "organization":
+    if share["audience"] in ("organization", "public"):
         return True
     return conn.execute(
         "SELECT 1 FROM shared_conversation_recipients WHERE share_id = %s AND user_id = %s", (share["id"], ctx.user_id)
@@ -413,15 +422,122 @@ def table_rows(
     ctx: RequestContext, share_id: str, name: str, *, offset: int, limit: int, order_by: str | None, descending: bool
 ) -> dict[str, Any]:
     item = _artifact(ctx, share_id, "table", name, "name")
+    return _rows(ctx.tenant_id, share_id, item["object_key"], offset=offset, limit=limit, order_by=order_by,
+                 descending=descending)
+
+
+def _rows(tenant_id: Any, share_id: str, object_key: str, *, offset: int = 0, limit: int = 100,
+          order_by: str | None = None, descending: bool = False) -> dict[str, Any]:
     resp = httpx.post(
         f"{settings.worker_url}/v1/rows",
         headers={"X-ODN-Worker-Token": settings.worker_token},
-        json={"object_key": assert_share_key(ctx.tenant_id, share_id, item["object_key"]), "offset": offset,
+        json={"object_key": assert_share_key(tenant_id, share_id, object_key), "offset": offset,
               "limit": limit, "order_by": order_by, "descending": descending},
         timeout=60,
     )
     resp.raise_for_status()
     return resp.json()
+
+
+# -- anyone with the link (no sign-in) ----------------------------------------------------------------------------
+
+PUBLIC_ROWS = 50
+
+
+def public_get(share_id: str) -> dict[str, Any]:
+    """The summary behind an "anyone with the link" share, for unauthenticated readers and link previews.
+
+    Only the question/answer, charts and the first rows of tables: no people, files or paging into full results.
+    """
+    with system_transaction() as conn:
+        share = conn.execute("SELECT * FROM odn_public_share(%s)", (share_id,)).fetchone()
+    if share is None:
+        raise ShareError("Not found.", 404)
+    artifacts: list[dict[str, Any]] = []
+    for a in share["artifacts"]:
+        if a["kind"] == "chart":
+            artifacts.append({k: a[k] for k in ("kind", "name", "title", "result")})
+        elif a["kind"] == "table":
+            try:
+                rows = _rows(share["tenant_id"], share_id, a["object_key"], limit=PUBLIC_ROWS)
+            except (httpx.HTTPError, PermissionError):
+                rows = {"rows": []}
+            artifacts.append({"kind": "table", "name": a["name"], "row_count": a["row_count"],
+                              "columns": [c if isinstance(c, str) else c.get("name") for c in a["columns"]],
+                              "rows": rows.get("rows", [])[:PUBLIC_ROWS]})
+    return {
+        "id": share["id"], "kind": share["kind"], "title": share["title"], "messages": share["messages"],
+        "artifacts": artifacts, "created_at": share["created_at"], "expires_at": share["expires_at"],
+        "owner_name": share["owner_name"], "organization": share["organization"],
+    }
+
+
+# -- ask a follow-up: the reader's own copy of the conversation ---------------------------------------------------
+
+
+def continue_share(ctx: RequestContext, token: str, share_id: str) -> dict[str, str]:
+    """Copies a share into the reader's own workspace as a new conversation and returns its thread id.
+
+    Results are copied under the reader's prefix with the same names (q1, c1...), so the history and the model's
+    context stay consistent; new queries run with the reader's own connections. Same organization only.
+    """
+    with tenant_transaction(ctx.tenant_id, ctx.user_id) as conn:
+        share = _load(conn, share_id)
+        if share is None or not _allowed(conn, ctx, share) or _status(share) != "active":
+            raise ShareError("This answer wasn't shared with you, or the link has expired.", 404)
+        thread_id = str(uuid.uuid4())
+        table_ids: dict[str, uuid.UUID] = {}
+        for a in share["artifacts"]:
+            if a["kind"] == "table":
+                new_id = uuid.uuid4()
+                dst = tenant_key(ctx.tenant_id, ctx.user_id, thread_id, f"{new_id}.parquet")
+                copy_object(assert_share_key(ctx.tenant_id, share_id, a["object_key"]), dst)
+                conn.execute(
+                    "INSERT INTO workspace_artifacts (id, tenant_id, user_id, session_id, name, kind, sql_text, "
+                    "source_tables, object_key, row_count, arrow_bytes, truncated, columns) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 0, %s, %s)",
+                    (new_id, ctx.tenant_id, ctx.user_id, thread_id, a["name"], a.get("table_kind") or "workspace",
+                     a.get("sql") or "", a.get("source_tables") or [], dst, a["row_count"], a["truncated"],
+                     Jsonb(a["columns"])),
+                )
+                table_ids[a["name"]] = new_id
+        for a in share["artifacts"]:
+            if a["kind"] == "chart":
+                spec = (a.get("result") or {}).get("spec") or {}
+                conn.execute(
+                    "INSERT INTO workspace_charts (tenant_id, user_id, session_id, name, source_artifact_id, title, "
+                    "chart_type, result) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                    (ctx.tenant_id, ctx.user_id, thread_id, a["name"], table_ids.get(spec.get("source")),
+                     (a.get("title") or "")[:200], spec.get("type") or "bar", Jsonb(a["result"])),
+                )
+            elif a["kind"] == "file":
+                new_id = uuid.uuid4()
+                dst = tenant_key(ctx.tenant_id, ctx.user_id, thread_id, "files", str(new_id))
+                copy_object(assert_share_key(ctx.tenant_id, share_id, a["object_key"]), dst)
+                conn.execute(
+                    "INSERT INTO workspace_files (id, tenant_id, user_id, session_id, filename, mime_type, size_bytes, "
+                    "object_key) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                    (new_id, ctx.tenant_id, ctx.user_id, thread_id, a["name"], a["mime_type"], a["size_bytes"], dst),
+                )
+        owner = share["owner_name"] or share["owner_email"]
+        resp = _agent("POST", "/conversations/import", token, {
+            "threadId": thread_id, "title": share["title"], "owner": owner,
+            "sharedAt": share["created_at"].date().isoformat(), "messages": share["messages"],
+        })
+        if resp.status_code != 201:
+            raise ShareError("Couldn't start your copy of this conversation right now. Please try again.", 502)
+        if share["owner_user_id"] != ctx.user_id:
+            conn.execute(
+                "INSERT INTO shared_conversation_views (share_id, tenant_id, user_id, continued_thread_id) "
+                "VALUES (%s, %s, %s, %s) ON CONFLICT (share_id, user_id) DO UPDATE SET continued_thread_id = "
+                "EXCLUDED.continued_thread_id",
+                (share_id, ctx.tenant_id, ctx.user_id, thread_id),
+            )
+        conn.execute(
+            "INSERT INTO admin_events (tenant_id, actor_user_id, action, target) VALUES (%s, %s, %s, %s)",
+            (ctx.tenant_id, ctx.user_id, "share.continued", share_id),
+        )
+    return {"thread_id": thread_id}
 
 
 def open_file(ctx: RequestContext, share_id: str, file_id: str) -> tuple[dict[str, Any], Iterator[bytes]]:
@@ -436,22 +552,26 @@ def open_file(ctx: RequestContext, share_id: str, file_id: str) -> tuple[dict[st
     return item, stream()
 
 
-def list_shares(ctx: RequestContext, scope: Literal["mine", "with_me"], thread_id: str | None = None) -> list[dict[str, Any]]:
+def list_shares(
+    ctx: RequestContext, scope: Literal["mine", "with_me", "all"], thread_id: str | None = None
+) -> list[dict[str, Any]]:
+    everyone = scope == "all" and ctx.role == "admin"
     with tenant_transaction(ctx.tenant_id) as conn:
-        if scope == "mine":
+        if scope in ("mine", "all"):
             rows = conn.execute(
                 f"SELECT {_SUMMARY}, (SELECT count(*) FROM shared_conversation_views v WHERE v.share_id = s.id) AS views, "
                 "(SELECT coalesce(json_agg(json_build_object('id', r.user_id, 'email', ru.email, 'name', ru.display_name)), "
                 "'[]') FROM shared_conversation_recipients r JOIN users ru ON ru.id = r.user_id WHERE r.share_id = s.id) "
                 "AS recipients FROM shared_conversations s JOIN users u ON u.id = s.owner_user_id "
-                "WHERE s.owner_user_id = %s AND (%s::text IS NULL OR s.source_thread_id = %s) ORDER BY s.created_at DESC LIMIT 100",
-                (ctx.user_id, thread_id, thread_id),
+                "WHERE (s.owner_user_id = %s OR %s) AND (%s::text IS NULL OR s.source_thread_id = %s) "
+                "ORDER BY s.created_at DESC LIMIT 100",
+                (ctx.user_id, everyone, thread_id, thread_id),
             ).fetchall()
         else:
             rows = conn.execute(
                 f"SELECT {_SUMMARY}, v.first_viewed_at FROM shared_conversations s JOIN users u ON u.id = s.owner_user_id "
                 "LEFT JOIN shared_conversation_views v ON v.share_id = s.id AND v.user_id = %s "
-                "WHERE s.owner_user_id <> %s AND s.revoked_at IS NULL AND s.expires_at > now() AND (s.audience = 'organization' "
+                "WHERE s.owner_user_id <> %s AND s.revoked_at IS NULL AND s.expires_at > now() AND (s.audience <> 'people' "
                 "OR EXISTS (SELECT 1 FROM shared_conversation_recipients r WHERE r.share_id = s.id AND r.user_id = %s)) "
                 "ORDER BY s.created_at DESC LIMIT 100",
                 (ctx.user_id, ctx.user_id, ctx.user_id),

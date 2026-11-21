@@ -150,11 +150,27 @@ def ui_context_text(items: Any) -> str:
     return "\n".join(lines)
 
 
+# Set on conversations a teammate continued from a shared answer: {"owner": ..., "shared_at": ..., "title": ...}.
+CONTINUED_STATE_KEY = "odn_continued_from"
+
+
+def continued_note(value: Any) -> str:
+    if not isinstance(value, dict):
+        return ""
+    owner = str(value.get("owner") or "a teammate")[:120]
+    return (
+        f"This conversation was shared by {owner} and continued by the current user. The earlier messages are "
+        "theirs; earlier results (q1.., c1..) are copies in the current user's workspace. New warehouse queries "
+        "run with the current user's own connections and permissions, which may differ.\n"
+    )
+
+
 def instruction(ctx: ReadonlyContext) -> str:
+    text = INSTRUCTION + continued_note(ctx.state.get(CONTINUED_STATE_KEY))
     extra = ui_context_text(ctx.state.get(CONTEXT_STATE_KEY))
     if not extra:
-        return INSTRUCTION
-    return f"{INSTRUCTION}\nWhat the user currently has open in the app:\n{extra}\n"
+        return text
+    return f"{text}\nWhat the user currently has open in the app:\n{extra}\n"
 
 
 def _model() -> RoutedLiteLlm:

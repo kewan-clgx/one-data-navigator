@@ -48,7 +48,7 @@ function SharedWithMeList() {
   );
 }
 
-export type Conversation = { threadId: string; sessionId: string; title: string; updatedAt: number };
+export type Conversation = { threadId: string; sessionId: string; title: string; updatedAt: number; continuedFrom?: string | null };
 
 /** The signed-in user's conversations; refetches whenever `revision` changes. */
 export function useConversations(revision: number) {
@@ -143,6 +143,7 @@ export default function ChatsPanel({
                 <span className="odn-chat-title">{conversationTitle(c)}</span>
                 <span className="odn-chat-meta">
                   {when(c.updatedAt)}
+                  {c.continuedFrom && ` · shared by ${c.continuedFrom}`}
                   {active && " · open"}
                 </span>
               </button>

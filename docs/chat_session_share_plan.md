@@ -306,3 +306,68 @@ Recommendation: ship the MVP, see how teams use *Continue*, then decide on C.
 
 **Next:** phase 2 *Continue this conversation* (fork into the viewer's workspace + ADK session), phase 3 admin
 switch in the Organization tab (API exists).
+
+## 11. Revised share flow (2026-11-20): one answer, a link for Teams/Slack/email, Ask a follow-up
+
+Feedback on the first version: a share should be a **link** to a concise summary (question, final answer, chart or
+table) that Teams, Slack and email can show, with **Ask a follow-up** to continue in QueryMuse. Decisions:
+
+| Question | Decision |
+|---|---|
+| Who can see the summary behind a link? | **Anyone with the link, if the organization's admin allows it**; otherwise sign-in (organization members) |
+| Teams/Slack preview card | Question + first lines of the answer + chart (or table) **as an image** |
+| Email | Opens the user's mail app (`mailto:`) with the summary text and link |
+| People picker | Removed; a link is just a link (existing people-shares still work) |
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor A as Ann (owner)
+    actor B as Teammate / client
+    participant UI as QueryMuse (Next.js)
+    participant API as API
+    participant AG as Agent
+    A->>UI: Share → pick question, chart/table, "anyone with the link" or "my organization"
+    UI->>API: POST /v1/shares {mode: answer, audience: public|organization}
+    API-->>A: link + Teams / Slack / Email / Copy summary
+    A->>B: posts the link in Teams, Slack or email
+    B->>UI: Teams/Slack fetch /s/<id> (no sign-in) → og:title, og:description, og:image
+    UI->>API: GET /v1/public/shares/<id> (odn_public_share: public, active, org allows it)
+    B->>UI: opens the link → summary page → Ask a follow-up
+    UI->>UI: sign in (returns to /s/<id>?followup=1)
+    UI->>API: POST /v1/shares/<id>/continue (same organization only)
+    API->>API: copy tables/charts/files into B's workspace (new thread, same q/c names)
+    API->>AG: POST /conversations/import (B's token): ADK session with the shared history
+    AG-->>B: B's own conversation opens; follow-ups run with B's connections
+```
+
+What changed:
+
+- **Share dialog** (answer only): question picker, a rendered preview card of what people will see, the chart/table
+  checkboxes (the chart or last table preselected; other tables under *More results*), **Who can open the link**
+  (*Anyone with the link* — shown only when the admin allows it — or *People in my organization*), expiry. After
+  *Create link*: **Copy link**, **Teams** (Microsoft's Share-to-Teams window), **Slack** (copies the summary and
+  opens Slack — Slack has no pre-filled share link), **Email** (`mailto:` with the summary), **Copy summary**.
+- **Public links** (migration `0019`): audience `public`; `tenant_sharing_settings.public_links` (off by default);
+  the only unauthenticated read is the `odn_public_share()` SECURITY DEFINER function, which returns a share only
+  while it is public, not revoked or expired, its organization is active and still allows public links (turning the
+  switch off hides all of them at once). `GET /v1/public/shares/{id}` returns the question/answer, charts and the
+  **first 50 rows** of tables — no emails, files or full results; `Cache-Control: private, no-store`, `noindex`.
+- **Link previews**: `/s/[id]` sets `og:title` (question), `og:description` (answer excerpt) and an
+  `opengraph-image` (1200×630 PNG drawn with `next/og`: question, answer excerpt, bar chart or mini table) for public
+  shares only; other shares keep the generic "Sign in to view" card. `metadataBase` = `ODN_PUBLIC_URL`.
+- **Ask a follow-up** (phase 2 done): `POST /v1/shares/{id}/continue` copies the share's tables, charts and files
+  into the reader's workspace under a new thread (same names `q1…`, `c1…`), then the agent's
+  `POST /conversations/import` creates the reader's ADK session from the snapshot (user/assistant/tool events) with
+  every imported message marked as already processed (ag_ui_adk never re-runs it) and a note for the model ("shared
+  by Ann… new queries use your own connections"). Chats lists it with *· shared by Ann*. Same organization only;
+  readers from other organizations see the public summary and a message. Activity log: `share.continued`.
+  Result names now take `max + 1` (not `count + 1`) so a continued conversation starting at e.g. `q10` can't clash.
+- **Admin** (phase 3 done): Organization → **Sharing**: *People can share answers as links*, *Allow links that
+  anyone with the link can open*, and every link in the organization with **Revoke**.
+- Tests: public links need the admin switch, are hidden when it's turned off, expose no emails/object keys/tenant
+  ids, sign-in shares stay private; continue copies into the reader's workspace and refuses other organizations;
+  the agent import reads back as history and marks everything processed.
+
+**To turn it on in production:** an admin opens Organization → Sharing → *Allow links that anyone with the link can
+open*. Until then links are sign-in only.

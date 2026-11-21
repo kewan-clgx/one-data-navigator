@@ -6,7 +6,7 @@ from typing import Annotated, Any, Literal
 from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
@@ -20,6 +20,8 @@ from odn.tenancy.context import RequestContext
 
 router = APIRouter(prefix="/v1/shares")
 admin_router = APIRouter(prefix="/v1/admin/sharing")
+# No sign-in: "anyone with the link" shares only (odn_public_share decides), for the page and link previews.
+public_router = APIRouter(prefix="/v1/public/shares")
 Admin = Annotated[RequestContext, Depends(require_admin)]
 ShareId = Annotated[str, Path(pattern=r"^[A-Za-z0-9_-]{22}$")]
 
@@ -87,7 +89,7 @@ def _owner_name(ctx: RequestContext) -> str:
 
 
 @router.get("")
-def list_shares(ctx: Context, scope: Literal["mine", "with_me"] = "mine", thread_id: str | None = None) -> list[dict[str, Any]]:
+def list_shares(ctx: Context, scope: Literal["mine", "with_me", "all"] = "mine", thread_id: str | None = None) -> list[dict[str, Any]]:
     return service.list_shares(ctx, scope, thread_id)
 
 
@@ -126,6 +128,24 @@ def file(share_id: ShareId, file_id: UUID, ctx: Context) -> StreamingResponse:
     })
 
 
+@router.post("/{share_id}/continue")
+async def continue_share(share_id: ShareId, request: Request, ctx: Context) -> dict[str, str]:
+    try:
+        return await run_in_threadpool(service.continue_share, ctx, _token(request), share_id)
+    except service.ShareError as exc:
+        raise _http(exc) from None
+
+
+@public_router.get("/{share_id}")
+def public_share(share_id: ShareId, response: Response) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["X-Robots-Tag"] = "noindex"
+    try:
+        return service.public_get(share_id)
+    except service.ShareError as exc:
+        raise _http(exc) from None
+
+
 @router.post("/{share_id}/extend")
 def extend(share_id: ShareId, body: ExtendIn, ctx: Context) -> dict[str, str]:
     try:
@@ -144,20 +164,22 @@ def revoke(share_id: ShareId, ctx: Context) -> None:
 
 class SharingSettingsIn(BaseModel):
     enabled: bool
+    public_links: bool = False
 
 
 @admin_router.get("")
 def sharing_settings(ctx: Admin) -> dict[str, bool]:
-    return {"enabled": service.sharing_enabled(ctx)}
+    return service.settings_for(ctx)
 
 
 @admin_router.put("")
 def save_sharing_settings(body: SharingSettingsIn, ctx: Admin) -> dict[str, bool]:
     with tenant_transaction(ctx.tenant_id) as conn:
         conn.execute(
-            "INSERT INTO tenant_sharing_settings (tenant_id, enabled) VALUES (%s, %s) ON CONFLICT (tenant_id) "
-            "DO UPDATE SET enabled = EXCLUDED.enabled, updated_at = now()",
-            (ctx.tenant_id, body.enabled),
+            "INSERT INTO tenant_sharing_settings (tenant_id, enabled, public_links) VALUES (%s, %s, %s) "
+            "ON CONFLICT (tenant_id) DO UPDATE SET enabled = EXCLUDED.enabled, public_links = EXCLUDED.public_links, "
+            "updated_at = now()",
+            (ctx.tenant_id, body.enabled, body.public_links),
         )
-        record_event(conn, ctx, "share.settings_saved", None, enabled=body.enabled)
-    return {"enabled": body.enabled}
+        record_event(conn, ctx, "share.settings_saved", None, enabled=body.enabled, public_links=body.public_links)
+    return {"enabled": body.enabled, "public_links": body.public_links}

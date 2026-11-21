@@ -4,9 +4,11 @@ import { Markdown } from "@copilotkit/react-ui";
 import { useEffect, useState } from "react";
 
 import { api } from "@/lib/client-api";
+import type { PublicShare } from "@/lib/share";
 
 import { StepCard } from "./AgentSteps";
 import Chart, { type ChartData } from "./Chart";
+import PublicShareView, { FollowUpButton } from "./PublicShareView";
 import ResultsGrid from "./ResultsGrid";
 
 type ToolCall = { id: string; function: { name: string; arguments: string } };
@@ -83,7 +85,7 @@ function Artifacts({ share }: { share: Share }) {
 }
 
 /** Read-only view of a conversation someone shared with the signed-in user. */
-export default function SharedConversation({ shareId }: { shareId: string }) {
+export default function SharedConversation({ shareId, fallback }: { shareId: string; fallback?: PublicShare | null }) {
   const [share, setShare] = useState<Share | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -92,6 +94,8 @@ export default function SharedConversation({ shareId }: { shareId: string }) {
     api<Share>(`shares/${shareId}`).then(setShare).catch((e: Error) => setError(e.message));
   }, [shareId]);
 
+  // Signed in to another organization: the "anyone with the link" summary is still readable.
+  if (error && fallback) return <PublicShareView share={fallback} signedIn />;
   if (error) {
     return (
       <div className="shared-page">
@@ -124,6 +128,7 @@ export default function SharedConversation({ shareId }: { shareId: string }) {
       </header>
       <Transcript messages={share.messages} />
       <Artifacts share={share} />
+      {share.status === "active" && <FollowUpButton shareId={share.id} signedIn />}
     </div>
   );
 }

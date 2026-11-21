@@ -74,3 +74,35 @@ async def test_lists_only_the_callers_conversations_and_deletes_them() -> None:
         assert [c["threadId"] for c in (await main.conversations())["conversations"]] == ["thread-b1"]
     finally:
         user_key.reset(token)
+
+
+async def test_imported_share_reads_back_as_history_and_is_never_rerun() -> None:
+    from ag_ui_adk import adk_events_to_messages
+
+    from odn.agent.agent import continued_note
+
+    messages = [
+        {"id": "u1", "role": "user", "content": "Top cities?"},
+        {"id": "a1", "role": "assistant", "content": "", "toolCalls": [
+            {"id": "t1", "type": "function", "function": {"name": "run_sql", "arguments": '{"sql": "SELECT 1"}'}}]},
+        {"id": "r1", "role": "tool", "toolCallId": "t1", "content": '{"status": "ok", "workspace_table": "q1"}'},
+        {"id": "r2", "role": "tool", "toolCallId": "nope", "content": "{}"},  # no matching call: dropped
+        {"id": "a2", "role": "assistant", "content": "Irvine leads."},
+    ]
+    thread = "6f1c2d3e-4a5b-4c6d-8e7f-001122334455"
+    token = user_key.set("t:dana")
+    try:
+        await main.import_conversation(main.ImportIn(
+            threadId=thread, title="Top cities?", owner="Ann", sharedAt="2026-11-20", messages=messages))
+        listed = (await main.conversations())["conversations"]
+    finally:
+        user_key.reset(token)
+    assert listed[0]["threadId"] == thread and listed[0]["continuedFrom"] == "Ann"
+
+    session = await main.session_service.get_session(app_name=main.APP_NAME, user_id="t:dana", session_id=thread)
+    history = adk_events_to_messages(session.events)
+    assert [m.role for m in history] == ["user", "assistant", "tool", "assistant"]
+    assert history[1].tool_calls[0].function.name == "run_sql" and history[2].tool_call_id == "t1"
+    handled = {k[len(main.PROCESSED_PREFIX):] for k, v in session.state.items() if k.startswith(main.PROCESSED_PREFIX) and v}
+    assert {e.id for e in session.events} | {"t1"} <= handled  # the client re-sends these; none run again
+    assert "shared by Ann" in continued_note(session.state["odn_continued_from"])

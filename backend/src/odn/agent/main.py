@@ -1,11 +1,17 @@
+import json
+import re
+import uuid
 from typing import Any
 
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 from fastapi import FastAPI, HTTPException, status
 from google.adk.apps import App, ResumabilityConfig
+from google.adk.events import Event
 from google.adk.sessions import BaseSessionService, InMemorySessionService, Session
+from google.genai import types
+from pydantic import BaseModel, Field
 
-from odn.agent.agent import TITLE_STATE_KEY, build_root_agent, conversation_title
+from odn.agent.agent import CONTINUED_STATE_KEY, TITLE_STATE_KEY, build_root_agent, conversation_title
 from odn.agent.identity import BearerAuthMiddleware, user_key
 from odn.config import settings
 
@@ -29,6 +35,8 @@ def _user_id(_input: object) -> str:
 APP_NAME = "odn"
 # Set by ag_ui_adk on every session it creates for an AG-UI thread.
 THREAD_ID_STATE_KEY = "_ag_ui_thread_id"
+# ag_ui_adk's durable "already handled" ledger: imported history must never be re-run as new input.
+PROCESSED_PREFIX = "_ag_ui_processed_message:"
 
 
 def _session_service() -> BaseSessionService:
@@ -65,6 +73,7 @@ def conversation_summary(session: Session) -> dict[str, Any] | None:
         "sessionId": session.id,
         "title": session.state.get(TITLE_STATE_KEY) or "",
         "updatedAt": session.last_update_time,
+        "continuedFrom": (session.state.get(CONTINUED_STATE_KEY) or {}).get("owner"),
     }
 
 
@@ -114,3 +123,80 @@ async def delete_conversation(thread_id: str) -> None:
     if isinstance(cache, dict):
         for cache_key in [k for k in cache if isinstance(k, tuple) and k and k[0] == thread_id]:
             cache.pop(cache_key, None)
+
+
+AGENT_AUTHOR = "odn_analyst"
+THREAD_ID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+
+
+class ImportIn(BaseModel):
+    threadId: str = Field(pattern=THREAD_ID_RE.pattern)
+    title: str = Field(max_length=200)
+    owner: str = Field(max_length=200)
+    sharedAt: str = Field(max_length=40)
+    messages: list[dict[str, Any]] = Field(max_length=400)
+
+
+def _tool_response(content: Any) -> dict[str, Any]:
+    try:
+        value = json.loads(content) if isinstance(content, str) else content
+    except ValueError:
+        value = content
+    return value if isinstance(value, dict) else {"result": value}
+
+
+def events_from_messages(messages: list[dict[str, Any]]) -> list[Event]:
+    """AG-UI messages (a shared snapshot) as ADK session events, so history and the model's context match."""
+    events: list[Event] = []
+    invocation = ""
+    for m in messages:
+        role, content = m.get("role"), m.get("content")
+        if role == "user" and isinstance(content, str) and content.strip():
+            invocation = f"e-{uuid.uuid4()}"
+            events.append(Event(id=str(uuid.uuid4()), invocation_id=invocation, author="user",
+                                content=types.Content(role="user", parts=[types.Part(text=content)])))
+        elif role == "assistant" and invocation:
+            parts = [types.Part(text=content)] if isinstance(content, str) and content.strip() else []
+            for call in m.get("toolCalls") or []:
+                fn = call.get("function") or {}
+                try:
+                    args = json.loads(fn.get("arguments") or "{}")
+                except ValueError:
+                    args = {}
+                parts.append(types.Part(function_call=types.FunctionCall(
+                    id=call.get("id"), name=fn.get("name") or "unknown", args=args if isinstance(args, dict) else {})))
+            if parts:
+                events.append(Event(id=str(uuid.uuid4()), invocation_id=invocation, author=AGENT_AUTHOR,
+                                    content=types.Content(role="model", parts=parts)))
+        elif role == "tool" and invocation and m.get("toolCallId"):
+            calls = {p.function_call.id: p.function_call.name for e in events for p in e.content.parts if p.function_call}
+            if m["toolCallId"] not in calls:
+                continue
+            events.append(Event(id=str(uuid.uuid4()), invocation_id=invocation, author=AGENT_AUTHOR,
+                                content=types.Content(role="user", parts=[types.Part(function_response=types.FunctionResponse(
+                                    id=m["toolCallId"], name=calls[m["toolCallId"]], response=_tool_response(m.get("content"))))])))
+    return events
+
+
+@app.post("/conversations/import", status_code=status.HTTP_201_CREATED)
+async def import_conversation(body: ImportIn) -> dict[str, str]:
+    """Starts the caller's own conversation from a shared snapshot ("Ask a follow-up")."""
+    key = user_key.get()
+    if not key:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "unauthenticated")
+    events = events_from_messages(body.messages)
+    if not events:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "nothing to import")
+    handled = {e.id for e in events} | {
+        p.function_call.id for e in events for p in e.content.parts if p.function_call and p.function_call.id
+    }
+    state = {
+        THREAD_ID_STATE_KEY: body.threadId, "_ag_ui_app_name": APP_NAME, "_ag_ui_user_id": key,
+        TITLE_STATE_KEY: conversation_title(body.title) or body.title,
+        CONTINUED_STATE_KEY: {"owner": body.owner, "shared_at": body.sharedAt, "title": body.title},
+        **{PROCESSED_PREFIX + i: True for i in handled},
+    }
+    session = await session_service.create_session(app_name=APP_NAME, user_id=key, session_id=body.threadId, state=state)
+    for event in events:
+        await session_service.append_event(session, event)
+    return {"threadId": body.threadId}

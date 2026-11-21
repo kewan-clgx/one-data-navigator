@@ -157,8 +157,10 @@ def _insert_artifact(ctx: RequestContext, session_id: str, artifact_id: uuid.UUI
     for _ in range(3):
         try:
             with tenant_transaction(ctx.tenant_id) as conn:
+                # max, not count: a conversation continued from a share may start with e.g. only q10.
                 count = conn.execute(
-                    "SELECT count(*) AS n FROM workspace_artifacts WHERE user_id = %s AND session_id = %s",
+                    "SELECT coalesce(max(substring(name from 2)::int), 0) AS n FROM workspace_artifacts "
+                    "WHERE user_id = %s AND session_id = %s",
                     (ctx.user_id, session_id),
                 ).fetchone()["n"]
                 row = conn.execute(
@@ -326,7 +328,8 @@ def save_chart(ctx: RequestContext, session_id: str, result: ChartResult, source
         try:
             with tenant_transaction(ctx.tenant_id, ctx.user_id) as conn:
                 count = conn.execute(
-                    "SELECT count(*) AS n FROM workspace_charts WHERE user_id = %s AND session_id = %s",
+                    "SELECT coalesce(max(substring(name from 2)::int), 0) AS n FROM workspace_charts "
+                    "WHERE user_id = %s AND session_id = %s",
                     (ctx.user_id, session_id),
                 ).fetchone()["n"]
                 name = f"c{count + 1}"

@@ -10,7 +10,9 @@ import { brandCompany, tenantTheme } from "./themes/server";
 export async function generateMetadata(): Promise<Metadata> {
   const [theme, tenantName] = await Promise.all([tenantTheme(), brandCompany()]);
   const company = brandCompanyLabel(theme, tenantName);
-  return { title: company ? `${company} | ${theme.product}` : theme.product };
+  // metadataBase: absolute link-preview image URLs (e.g. /s/<id>/opengraph-image) on the public address.
+  const base = process.env.ODN_PUBLIC_URL;
+  return { title: company ? `${company} | ${theme.product}` : theme.product, ...(base ? { metadataBase: new URL(base) } : {}) };
 }
 
 export async function generateViewport(): Promise<Viewport> {

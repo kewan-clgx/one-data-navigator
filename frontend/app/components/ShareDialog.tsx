@@ -1,149 +1,70 @@
 "use client";
 
+import { Markdown } from "@copilotkit/react-ui";
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
 
 import { api } from "@/lib/client-api";
+import { summaryText } from "@/lib/share";
 
-type Person = { id: string; email: string; display_name: string | null };
 type Turn = {
   id: string; question: string; answer: string;
   tables: { name: string; row_count: number }[]; charts: { name: string; title: string }[];
   default_artifacts: string[]; used_collibra: boolean; used_personal_connections: boolean;
 };
-type Preview = {
-  title: string; messages: number; tables: number; charts: number; files: number; turns: Turn[];
-  used_personal_connections: boolean; used_collibra: boolean; sharing_enabled: boolean;
-};
-type Created = {
-  id: string; title: string; url: string; expires_at: string; emailed: number; recipients: Person[];
-  kind: "conversation" | "answer";
-};
-
-/** Plain text for pasting into Slack/Teams: the question, the final answer and the link (the owner chooses to copy). */
-function summaryText(question: string, answer: string, url: string) {
-  const a = answer.length > 1500 ? `${answer.slice(0, 1500)}…` : answer;
-  return `${question}\n\n${a}\n\nOpen in QueryMuse: ${url}`;
-}
-type MyShare = {
-  id: string; title: string; audience: string; status: string; expires_at: string; views: number;
-  recipients: { id: string; email: string; name: string | null }[];
-};
+type Preview = { title: string; turns: Turn[]; sharing_enabled: boolean; public_links: boolean };
+type Audience = "public" | "organization";
+type Created = { id: string; title: string; url: string; expires_at: string };
+type MyShare = { id: string; title: string; audience: string; status: string; expires_at: string; views: number };
 
 export const SHARES_CHANGED = "odn:shares-changed";
 
-const label = (p: { display_name?: string | null; name?: string | null; email: string }) => p.display_name || p.name || p.email;
-
-/** Microsoft Teams: opens a chat with exactly these people, message pre-filled (no Teams app needed). */
-function teamsChatUrl(emails: string[], message: string) {
-  return `https://teams.microsoft.com/l/chat/0/0?users=${emails.map(encodeURIComponent).join(",")}&message=${encodeURIComponent(message)}`;
+/** Microsoft Teams' "Share to Teams" window: pick any person, chat or channel; Teams shows the link preview. */
+function teamsShareUrl(link: string, text: string) {
+  return `https://teams.microsoft.com/share?href=${encodeURIComponent(link)}&msgText=${encodeURIComponent(text)}&preview=true`;
 }
 
-/** Microsoft Teams' "Share to Teams" page: pick any person, chat or channel. */
-function teamsShareUrl(link: string, title: string) {
-  return `https://teams.microsoft.com/share?href=${encodeURIComponent(link)}&msgText=${encodeURIComponent(title)}&preview=true`;
+function mailtoUrl(subject: string, body: string) {
+  return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
-function PeoplePicker({ value, onChange }: { value: Person[]; onChange: (p: Person[]) => void }) {
-  const ids = useId();
-  const [q, setQ] = useState("");
-  const [options, setOptions] = useState<Person[]>([]);
-  useEffect(() => {
-    if (q.trim().length < 2) return setOptions([]);
-    const t = window.setTimeout(() => {
-      api<Person[]>(`shares/people?q=${encodeURIComponent(q.trim())}`)
-        .then((r) => setOptions(r.filter((p) => !value.some((v) => v.id === p.id))))
-        .catch(() => setOptions([]));
-    }, 200);
-    return () => window.clearTimeout(t);
-  }, [q, value]);
-
-  return (
-    <div className="share-people">
-      <label htmlFor={`${ids}-q`}>People in your organization</label>
-      {value.length > 0 && (
-        <ul className="share-chips" aria-label="Chosen people">
-          {value.map((p) => (
-            <li key={p.id}>
-              {label(p)}{" "}
-              <button type="button" aria-label={`Remove ${label(p)}`} onClick={() => onChange(value.filter((v) => v.id !== p.id))}>✕</button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <input
-        id={`${ids}-q`}
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        placeholder="Type a name or email"
-        autoComplete="off"
-        role="combobox"
-        aria-expanded={options.length > 0}
-        aria-controls={`${ids}-list`}
-      />
-      {options.length > 0 && (
-        <ul id={`${ids}-list`} role="listbox" className="share-options">
-          {options.map((p) => (
-            <li key={p.id} role="option" aria-selected={false}>
-              <button type="button" onClick={() => { onChange([...value, p]); setQ(""); setOptions([]); }}>
-                <strong>{p.display_name || p.email}</strong> {p.display_name && <span className="muted">{p.email}</span>}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {q.trim().length >= 2 && options.length === 0 && (
-        <p className="muted">No match. Only people who already use QueryMuse in your organization can be picked.</p>
-      )}
-    </div>
-  );
-}
-
-function ShareResult({ created, summary, onDone }: { created: Created; summary: string; onDone: () => void }) {
+function ShareResult({ created, turn, audience, onDone }: { created: Created; turn: Turn; audience: Audience; onDone: () => void }) {
   const [copied, setCopied] = useState<string | null>(null);
-  const message = `${created.title} — ${created.url}`;
+  const summary = summaryText(turn.question, turn.answer, created.url);
   const copy = async (text: string, what: string) => {
     await navigator.clipboard.writeText(text);
     setCopied(what);
   };
-  const canShare = typeof navigator !== "undefined" && typeof navigator.share === "function";
-  const emails = created.recipients.map((r) => r.email);
+  const slack = async () => {
+    await copy(summary, "slack");
+    window.location.href = "slack://open"; // Slack has no pre-filled share link: paste into any chat or channel
+  };
   return (
     <div className="share-result">
       <p>
-        <strong>Shared.</strong>{" "}
-        {created.recipients.length
-          ? `${created.recipients.map(label).join(", ")} can open it${created.emailed ? " and got an email" : ""}.`
-          : "Everyone in your organization can open it."}{" "}
-        The link works until {new Date(created.expires_at).toLocaleDateString()}.
+        <strong>Link ready.</strong>{" "}
+        {audience === "public"
+          ? "Anyone with the link can see this answer; Teams and Slack show it as a preview card."
+          : "People in your organization can open it after signing in."}{" "}
+        It works until {new Date(created.expires_at).toLocaleDateString()}.
       </p>
       <div className="share-link">
         <input readOnly value={created.url} aria-label="Share link" onFocus={(e) => e.currentTarget.select()} />
         <button type="button" onClick={() => copy(created.url, "link")}>{copied === "link" ? "Copied ✓" : "Copy link"}</button>
       </div>
-      <div className="settings-actions">
-        {emails.length > 0 && (
-          <a className="odn-btn odn-btn--small" href={teamsChatUrl(emails, message)} target="_blank" rel="noreferrer">Send in Teams</a>
-        )}
-        <a className="odn-btn odn-btn--outline odn-btn--small" href={teamsShareUrl(created.url, created.title)} target="_blank" rel="noreferrer">
-          Share to Teams…
+      <div className="share-apps" role="group" aria-label="Share via">
+        <a className="share-app" href={teamsShareUrl(created.url, turn.question)} target="_blank" rel="noreferrer">
+          <span aria-hidden="true" className="share-app-icon share-app-icon--teams">T</span>Teams
         </a>
-        <button type="button" className="odn-btn odn-btn--outline odn-btn--small" onClick={() => copy(message, "slack")}>
-          {copied === "slack" ? "Copied ✓" : "Copy for Slack"}
+        <button type="button" className="share-app" onClick={slack}>
+          <span aria-hidden="true" className="share-app-icon share-app-icon--slack">#</span>{copied === "slack" ? "Copied — paste in Slack" : "Slack"}
         </button>
-        {summary && (
-          <button type="button" className="odn-btn odn-btn--outline odn-btn--small" onClick={() => copy(summary, "summary")}
-                  title="Question, answer and link as text, to paste into a channel">
-            {copied === "summary" ? "Copied ✓" : "Copy summary"}
-          </button>
-        )}
-        {canShare && (
-          <button type="button" className="odn-btn odn-btn--outline odn-btn--small"
-                  onClick={() => navigator.share({ title: created.title, url: created.url }).catch(() => {})}>
-            Share…
-          </button>
-        )}
+        <a className="share-app" href={mailtoUrl(turn.question, summary)}>
+          <span aria-hidden="true" className="share-app-icon">✉</span>Email
+        </a>
+        <button type="button" className="share-app" onClick={() => copy(summary, "summary")} title="Question, short answer and link as text">
+          <span aria-hidden="true" className="share-app-icon">❐</span>{copied === "summary" ? "Copied ✓" : "Copy summary"}
+        </button>
       </div>
-      <p className="muted">Link previews in Slack/Teams show only “sign in to view”, never the content.</p>
       <div className="settings-actions"><button type="button" onClick={onDone}>Done</button></div>
     </div>
   );
@@ -172,7 +93,7 @@ function MyShares({ threadId }: { threadId: string }) {
           <li key={s.id}>
             <a href={`/s/${s.id}`} target="_blank" rel="noreferrer">{s.title}</a>{" "}
             <span className="muted">
-              {s.audience === "organization" ? "everyone" : s.recipients.map((r) => r.name || r.email).join(", ")} · {s.views} viewed ·{" "}
+              {s.audience === "public" ? "anyone with the link" : s.audience === "organization" ? "organization" : "chosen people"} · {s.views} signed-in views ·{" "}
               {s.status === "active" ? `until ${new Date(s.expires_at).toLocaleDateString()}` : s.status}
             </span>{" "}
             {s.status !== "revoked" && (
@@ -192,21 +113,17 @@ function MyShares({ threadId }: { threadId: string }) {
   );
 }
 
-/** Share a conversation with teammates: pick people (or everyone), choose what to include, then send/copy the link. */
+/** Share one answer: the question, its final answer and the chart/table it produced, as a link for Teams, Slack or email. */
 export default function ShareDialog({ threadId, open, onClose }: { threadId: string; open: boolean; onClose: () => void }) {
   const ids = useId();
   const ref = useRef<HTMLDialogElement>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [title, setTitle] = useState("");
-  const [audience, setAudience] = useState<"people" | "organization">("people");
-  const [people, setPeople] = useState<Person[]>([]);
-  const [includeResults, setIncludeResults] = useState(true);
+  const [audience, setAudience] = useState<Audience>("organization");
   const [days, setDays] = useState(30);
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<Created | null>(null);
-  const [mode, setMode] = useState<"answer" | "conversation">("answer");
-  const [turnId, setTurnId] = useState<string>("");
+  const [turnId, setTurnId] = useState("");
   const [chosen, setChosen] = useState<string[]>([]);
   const turn = preview?.turns.find((t) => t.id === turnId) ?? null;
 
@@ -219,30 +136,29 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
 
   useEffect(() => {
     if (!open) return;
-    setPreview(null); setError(null); setCreated(null); setPeople([]); setAudience("people"); setIncludeResults(true); setDays(30);
+    setPreview(null); setError(null); setCreated(null); setDays(30);
     api<Preview>(`shares/preview?thread_id=${encodeURIComponent(threadId)}`)
       .then((p) => {
         setPreview(p);
         const last = p.turns[p.turns.length - 1];
-        setMode(last ? "answer" : "conversation");
         setTurnId(last?.id ?? "");
         setChosen(last?.default_artifacts ?? []);
-        setTitle(last ? last.question.slice(0, 200) : p.title);
+        setAudience(p.public_links ? "public" : "organization");
       })
       .catch((e: Error) => setError(e.message));
   }, [open, threadId]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
+    if (!turn) return;
     setBusy(true);
     setError(null);
     try {
       const share = await api<Created>("shares", {
         method: "POST",
         body: JSON.stringify({
-          thread_id: threadId, title, audience, recipient_ids: audience === "people" ? people.map((p) => p.id) : [],
-          include_results: mode === "answer" ? chosen.length > 0 : includeResults, expires_days: days,
-          mode, turn_id: mode === "answer" ? turnId : null, artifact_names: mode === "answer" ? chosen : [],
+          thread_id: threadId, title: turn.question.slice(0, 200), audience, include_results: chosen.length > 0,
+          expires_days: days, mode: "answer", turn_id: turn.id, artifact_names: chosen,
         }),
       });
       setCreated(share);
@@ -254,120 +170,87 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
     }
   }
 
-  const hasResults = preview && preview.tables + preview.charts + preview.files > 0;
-  const lastTurn = preview?.turns[preview.turns.length - 1];
-  const summary = created
-    ? mode === "answer" && turn
-      ? summaryText(turn.question, turn.answer, created.url)
-      : lastTurn ? summaryText(created.title, lastTurn.answer, created.url) : ""
-    : "";
   const pickTurn = (id: string) => {
-    const t = preview?.turns.find((x) => x.id === id);
     setTurnId(id);
-    setChosen(t?.default_artifacts ?? []);
-    if (t) setTitle(t.question.slice(0, 200));
+    setChosen(preview?.turns.find((x) => x.id === id)?.default_artifacts ?? []);
   };
-  const warnPersonal = mode === "answer" ? !!turn?.used_personal_connections && chosen.some((n) => n.startsWith("q")) : preview?.used_personal_connections;
-  const warnCollibra = mode === "answer" ? !!turn?.used_collibra : preview?.used_collibra;
-  const showWarning = (mode === "answer" || includeResults) && (warnPersonal || warnCollibra);
+  const toggle = (name: string, on: boolean) => setChosen((x) => (on ? [...x, name] : x.filter((n) => n !== name)));
+  const tableChoice = (t: Turn["tables"][number]) => (
+    <label key={t.name} className="choice">
+      <input type="checkbox" checked={chosen.includes(t.name)} onChange={(e) => toggle(t.name, e.target.checked)} />
+      <span>Table {t.name} · {t.row_count.toLocaleString()} {t.row_count === 1 ? "row" : "rows"}</span>
+    </label>
+  );
+  const warnPersonal = !!turn?.used_personal_connections && chosen.some((n) => n.startsWith("q"));
+  const warnCollibra = !!turn?.used_collibra;
 
   return (
     <dialog ref={ref} className="share-dialog" aria-labelledby={`${ids}-h`} onClose={onClose}>
       <div className="share-head">
-        <h2 id={`${ids}-h`}>Share</h2>
+        <h2 id={`${ids}-h`}>Share this answer</h2>
         <button type="button" className="link" aria-label="Close" onClick={onClose}>✕</button>
       </div>
-      {created ? (
-        <ShareResult created={created} summary={summary} onDone={onClose} />
+      {created && turn ? (
+        <ShareResult created={created} turn={turn} audience={audience} onDone={onClose} />
       ) : !preview ? (
         error ? <p className="error" role="alert">{error}</p> : <p className="muted">Loading…</p>
       ) : !preview.sharing_enabled ? (
         <p className="muted">Sharing is turned off for your organization. Ask an admin to turn it on.</p>
+      ) : !turn ? (
+        <p className="muted">There&apos;s no answer to share yet. Ask a question first.</p>
       ) : (
         <form className="settings-form" onSubmit={submit}>
-          <fieldset>
-            <legend>What to share</legend>
-            <label className="connection-share">
-              <input type="radio" name={`${ids}-mode`} checked={mode === "answer"} disabled={!preview.turns.length}
-                     onChange={() => { setMode("answer"); if (turn) setTitle(turn.question.slice(0, 200)); }} />{" "}
-              Just the answer — one question, its final answer and the related table or chart
+          {preview.turns.length > 1 && (
+            <label>
+              Question
+              <select value={turnId} onChange={(e) => pickTurn(e.target.value)}>
+                {preview.turns.map((t) => (
+                  <option key={t.id} value={t.id}>{t.question.length > 90 ? `${t.question.slice(0, 90)}…` : t.question}</option>
+                ))}
+              </select>
             </label>
-            <label className="connection-share">
-              <input type="radio" name={`${ids}-mode`} checked={mode === "conversation"}
-                     onChange={() => { setMode("conversation"); setTitle(preview.title); }} />{" "}
-              Whole conversation — every question, answer, step and result
-            </label>
-          </fieldset>
-          {mode === "answer" && turn && (
-            <div className="share-turn">
-              {preview.turns.length > 1 && (
-                <label>
-                  Question
-                  <select value={turnId} onChange={(e) => pickTurn(e.target.value)}>
-                    {preview.turns.map((t) => (
-                      <option key={t.id} value={t.id}>{t.question.length > 90 ? `${t.question.slice(0, 90)}…` : t.question}</option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              <blockquote className="share-answer">{turn.answer.length > 400 ? `${turn.answer.slice(0, 400)}…` : turn.answer}</blockquote>
-              {turn.tables.length + turn.charts.length > 0 ? (
-                <div className="share-artifacts">
-                  <span>Include:</span>
-                  {turn.charts.map((c) => (
-                    <label key={c.name} className="connection-share">
-                      <input type="checkbox" checked={chosen.includes(c.name)}
-                             onChange={(e) => setChosen((x) => (e.target.checked ? [...x, c.name] : x.filter((n) => n !== c.name)))} />{" "}
-                      Chart {c.name}{c.title ? ` · ${c.title}` : ""}
-                    </label>
-                  ))}
-                  {turn.tables.map((t) => (
-                    <label key={t.name} className="connection-share">
-                      <input type="checkbox" checked={chosen.includes(t.name)}
-                             onChange={(e) => setChosen((x) => (e.target.checked ? [...x, t.name] : x.filter((n) => n !== t.name)))} />{" "}
-                      Table {t.name} · {t.row_count.toLocaleString()} {t.row_count === 1 ? "row" : "rows"}
-                    </label>
-                  ))}
-                </div>
-              ) : (
-                <p className="muted">This answer has no table or chart.</p>
-              )}
-            </div>
           )}
-          <p className="muted">
-            Teammates in your organization get a read-only copy as it is now. Your conversation isn&apos;t changed.
-          </p>
-          <label>
-            Title
-            <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} required />
-          </label>
-          <fieldset>
-            <legend>Share with</legend>
-            <label className="connection-share">
-              <input type="radio" name={`${ids}-aud`} checked={audience === "people"} onChange={() => setAudience("people")} /> Specific people
-            </label>
-            <label className="connection-share">
-              <input type="radio" name={`${ids}-aud`} checked={audience === "organization"} onChange={() => setAudience("organization")} /> Everyone in my organization
-            </label>
-          </fieldset>
-          {audience === "people" && <PeoplePicker value={people} onChange={setPeople} />}
-          {mode === "conversation" && (
-          <fieldset>
-            <legend>Include</legend>
-            <label className="connection-share">
-              <input type="checkbox" checked={includeResults} onChange={(e) => setIncludeResults(e.target.checked)} /> Results
-              {hasResults ? ` (${[preview.tables && `${preview.tables} tables`, preview.charts && `${preview.charts} charts`, preview.files && `${preview.files} files`].filter(Boolean).join(", ")})` : ""}
-              {" "}— otherwise only questions, answers and SQL
-            </label>
-          </fieldset>
-          )}
-          {showWarning && (
+          <article className="share-card" aria-label="What people will see">
+            <p className="share-card-q">{turn.question}</p>
+            <div className="share-card-a"><Markdown content={turn.answer} /></div>
+            {turn.tables.length + turn.charts.length > 0 && (
+              <div className="share-artifacts" role="group" aria-label="Include with the answer">
+                {turn.charts.map((c) => (
+                  <label key={c.name} className="choice">
+                    <input type="checkbox" checked={chosen.includes(c.name)} onChange={(e) => toggle(c.name, e.target.checked)} />
+                    <span>Chart{c.title ? `: ${c.title}` : ` ${c.name}`}</span>
+                  </label>
+                ))}
+                {turn.tables.filter((t) => turn.default_artifacts.includes(t.name)).map((t) => tableChoice(t))}
+                {turn.tables.some((t) => !turn.default_artifacts.includes(t.name)) && (
+                  <details>
+                    <summary>More results from this question ({turn.tables.filter((t) => !turn.default_artifacts.includes(t.name)).length})</summary>
+                    {turn.tables.filter((t) => !turn.default_artifacts.includes(t.name)).map((t) => tableChoice(t))}
+                  </details>
+                )}
+              </div>
+            )}
+          </article>
+          {(warnPersonal || warnCollibra) && (
             <p className="share-warning" role="note">
-              ⚠ This {mode === "answer" ? "answer" : "conversation"} used{" "}
+              ⚠ This answer used{" "}
               {[warnPersonal && "your personal data connection", warnCollibra && "Collibra with your permissions"].filter(Boolean).join(" and ")}.
-              {" "}People you share with will see these results even if they can&apos;t access that data themselves.
+              {" "}People who open the link will see these results even if they can&apos;t access that data themselves.
             </p>
           )}
+          <fieldset>
+            <legend>Who can open the link</legend>
+            {preview.public_links && (
+              <label className="choice">
+                <input type="radio" name={`${ids}-aud`} checked={audience === "public"} onChange={() => setAudience("public")} />
+                <span>Anyone with the link <span className="muted">— Teams, Slack and email show the answer; follow-ups need a QueryMuse sign-in</span></span>
+              </label>
+            )}
+            <label className="choice">
+              <input type="radio" name={`${ids}-aud`} checked={audience === "organization"} onChange={() => setAudience("organization")} />
+              <span>People in my organization <span className="muted">— they sign in to view; previews show no content</span></span>
+            </label>
+          </fieldset>
           <label>
             Link expires after
             <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
@@ -377,9 +260,7 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
             </select>
           </label>
           <div className="settings-actions">
-            <button type="submit" disabled={busy || !title.trim() || (audience === "people" && people.length === 0) || (mode === "answer" && !turn)}>
-              {busy ? "Sharing…" : "Share"}
-            </button>
+            <button type="submit" className="odn-btn" disabled={busy}>{busy ? "Creating…" : "Create link"}</button>
             <button type="button" onClick={onClose}>Cancel</button>
           </div>
           {error && <p className="error" role="alert">{error}</p>}
