@@ -53,15 +53,52 @@ export function plainText(markdown: string, max = 300): string {
     .replace(/\|/g, " ")
     .replace(/^\s{0,3}(#{1,6}|>|[-*+])\s+/gm, "")
     .replace(/(\*\*|__|`)/g, "")
+    .replace(/(^|[\s(])[*_]([^*_\n]+)[*_](?=[\s).,;:!?]|$)/g, "$1$2")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\s+/g, " ")
     .trim();
   return text.length > max ? `${text.slice(0, max).replace(/\s+\S*$/, "")}…` : text;
 }
 
-/** Question + short answer + link: what Copy summary, Slack and Email put in the message. */
-export function summaryText(question: string, answer: string, url: string, max = 700): string {
-  return `${question}\n\n${plainText(cleanAnswer(answer), max)}\n\nSee the full answer: ${url}`;
+const STRUCTURE = /^\s*(#|\||[-*+]\s|\d+\.\s|-{3,}|\*{3,}|```)/;
+
+/**
+ * The answer in one or two sentences, for previews and chat messages: prose only (no tables, lists or headings),
+ * cut at a sentence end.
+ */
+export function highlight(markdown: string, max = 320): string {
+  const prose = cleanAnswer(markdown).split(/\n\s*\n/).filter((b) => b.trim() && !STRUCTURE.test(b));
+  let text = "";
+  for (const block of prose) {
+    const next = `${text} ${plainText(block, 2000)}`.trim();
+    if (text && next.length > max) break;
+    text = next;
+  }
+  text = text.replace(/:\s*$/, ".");
+  if (text.length <= max) return text;
+  const cut = text.slice(0, max);
+  const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("! "), cut.lastIndexOf("? "));
+  return end > max / 3 ? cut.slice(0, end + 1) : `${cut.replace(/\s+\S*$/, "")}…`;
+}
+
+/** A starting title for a shared answer: the chart's title, the answer's first heading, or the tidied question. */
+export function suggestTitle(question: string, answer: string, chartTitle?: string): string {
+  if (chartTitle?.trim()) return chartTitle.trim().slice(0, 120);
+  const heading = cleanAnswer(answer).match(/^\s{0,3}#{1,4}\s+(.+)$/m)?.[1];
+  if (heading) return plainText(heading, 120);
+  const q = question
+    .replace(/^\s*(pls|please|could you|can you|would you|show me|give me|tell me)\b[\s,]*/i, "")
+    .replace(/[\s,]*(pls|please)?\s*(give me|show me|with)?\s*(a|an)?\s*(table( list)?|bar|line)?\s*(report|chart)[^.?!]*[.?!]?\s*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const t = q.charAt(0).toUpperCase() + q.slice(1);
+  return t.length > 120 ? `${t.slice(0, 119).replace(/\s+\S*$/, "")}…` : t;
+}
+
+/** The message for Slack, Teams, email or Copy summary: title, one or two sentences, link. */
+export function summaryText(title: string, answer: string, url: string, bold = ""): string {
+  const h = highlight(answer);
+  return `${bold}${title}${bold}${h ? `\n${h}` : ""}\n${url}`;
 }
 
 /** What a shared-answer page sends to the browser: the clean question/answer only, never the raw transcript. */

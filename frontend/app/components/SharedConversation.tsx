@@ -101,7 +101,7 @@ function AnswerReport({ share }: { share: Share }) {
   const { question, answer } = questionAndAnswer(share.messages);
   return (
     <SummaryReport
-      shareId={share.id} question={question || share.title} answer={answer}
+      shareId={share.id} title={share.title} question={question} answer={answer}
       owner={share.is_owner ? "you" : share.owner_name || share.owner_email} createdAt={share.created_at}
       expiresAt={share.expires_at} status={share.status} artifacts={artifacts ?? []} signedIn
     />

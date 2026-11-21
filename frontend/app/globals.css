@@ -1008,3 +1008,6 @@ figure.shared-artifact { margin: 0; }
 .share-visual--table { flex-direction: row; justify-content: space-between; align-items: center; }
 .share-add { display: block; text-align: left; font-size: 0.8rem; padding: 0.15rem 0; }
 .share-more summary { cursor: pointer; color: var(--fg-muted); font-size: 0.8rem; }
+.share-title input { font-size: 0.95rem !important; font-weight: 600; }
+.share-card-asked { margin: 0; font-size: 0.75rem; }
+.shared-question { margin: 0 0 0.3rem; font-style: italic; color: var(--fg-muted); }

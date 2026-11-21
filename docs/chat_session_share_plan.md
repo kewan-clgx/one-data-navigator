@@ -396,3 +396,15 @@ open*. Until then links are sign-in only.
   rows and columns with *Remove* / *Add a table from this answer*.
 - The report also drops headings that mention SQL or queries (e.g. "SQL Query Run") and sentences such as "The
   following query was executed…".
+
+**2026-11-21 — title, tidy messages, real chart in previews:**
+
+- **Editable title** in the Share dialog ("the headline people see in Teams, Slack and email"), prefilled with a
+  suggestion: the chart's title, else the answer's first heading, else the question without filler ("pls give me a
+  … report"). The title is the report's headline (the question shows under it), the link's `og:title` and the
+  preview image's heading.
+- **Short, organized messages:** Slack/Teams/email/Copy summary send *title*, a one- or two-sentence highlight
+  (`highlight()`: answer prose only — no tables, lists or headings) and the link, instead of the whole flattened
+  answer. `og:description` uses the same highlight.
+- **Preview image draws the shared chart like the app does** (vertical bars grouped by category, one colour per
+  series, legend; up to 12 categories; line/scatter as dots) instead of a top-6 list of bars.

@@ -63,7 +63,7 @@ export function FollowUpButton({ shareId, signedIn, organization }: { shareId: s
 }
 
 type ReportProps = {
-  shareId: string; question: string; answer: string; owner: string; organization?: string;
+  shareId: string; title: string; question: string; answer: string; owner: string; organization?: string;
   createdAt: string; status: string; expiresAt: string; artifacts: PublicArtifact[]; signedIn: boolean;
 };
 
@@ -73,7 +73,8 @@ export function SummaryReport(p: ReportProps) {
     <div className="shared-page shared-report">
       <header className="shared-head">
         <p className="shared-kicker">Shared answer{p.organization ? ` · ${p.organization}` : ""}</p>
-        <h1>{p.question}</h1>
+        <h1>{p.title}</h1>
+        {p.question && p.question !== p.title && <p className="shared-question">“{p.question}”</p>}
         <p className="muted">
           Shared by {p.owner} on {new Date(p.createdAt).toLocaleDateString()} ·{" "}
           {p.status === "active" ? `link works until ${new Date(p.expiresAt).toLocaleDateString()}` : `link ${p.status}`}
@@ -111,7 +112,7 @@ export default function PublicShareView({ share, signedIn }: { share: PublicShar
   const { question, answer } = questionAndAnswer(share.messages);
   return (
     <SummaryReport
-      shareId={share.id} question={question || share.title} answer={answer} owner={share.owner_name}
+      shareId={share.id} title={share.title} question={question} answer={answer} owner={share.owner_name}
       organization={share.organization} createdAt={share.created_at} expiresAt={share.expires_at} status="active"
       artifacts={share.artifacts} signedIn={signedIn}
     />

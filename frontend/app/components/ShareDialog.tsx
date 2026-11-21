@@ -4,7 +4,7 @@ import { Markdown } from "@copilotkit/react-ui";
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
 
 import { api } from "@/lib/client-api";
-import { cleanAnswer, summaryText } from "@/lib/share";
+import { cleanAnswer, suggestTitle, summaryText } from "@/lib/share";
 
 import Chart, { type ChartData } from "./Chart";
 
@@ -30,15 +30,21 @@ function mailtoUrl(subject: string, body: string) {
   return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
+/** A starting title: the chart's title, the answer's first heading, or the tidied question. */
+function suggested(t: Turn) {
+  return suggestTitle(t.question, t.answer, t.charts.find((c) => t.default_artifacts.includes(c.name))?.title);
+}
+
 function ShareResult({ created, turn, audience, onDone }: { created: Created; turn: Turn; audience: Audience; onDone: () => void }) {
   const [copied, setCopied] = useState<string | null>(null);
-  const summary = summaryText(turn.question, turn.answer, created.url);
+  const summary = summaryText(created.title, turn.answer, created.url);
+  const slackText = summaryText(created.title, turn.answer, created.url, "*");
   const copy = async (text: string, what: string) => {
     await navigator.clipboard.writeText(text);
     setCopied(what);
   };
   const slack = async () => {
-    await copy(summary, "slack");
+    await copy(slackText, "slack");
     window.location.href = "slack://open"; // Slack has no pre-filled share link: paste into any chat or channel
   };
   return (
@@ -55,16 +61,16 @@ function ShareResult({ created, turn, audience, onDone }: { created: Created; tu
         <button type="button" onClick={() => copy(created.url, "link")}>{copied === "link" ? "Copied ✓" : "Copy link"}</button>
       </div>
       <div className="share-apps" role="group" aria-label="Share via">
-        <a className="share-app" href={teamsShareUrl(created.url, turn.question)} target="_blank" rel="noreferrer">
+        <a className="share-app" href={teamsShareUrl(created.url, created.title)} target="_blank" rel="noreferrer">
           <span aria-hidden="true" className="share-app-icon share-app-icon--teams">T</span>Teams
         </a>
         <button type="button" className="share-app" onClick={slack}>
           <span aria-hidden="true" className="share-app-icon share-app-icon--slack">#</span>{copied === "slack" ? "Copied — paste in Slack" : "Slack"}
         </button>
-        <a className="share-app" href={mailtoUrl(turn.question, summary)}>
+        <a className="share-app" href={mailtoUrl(created.title, summary)}>
           <span aria-hidden="true" className="share-app-icon">✉</span>Email
         </a>
-        <button type="button" className="share-app" onClick={() => copy(summary, "summary")} title="Question, short answer and link as text">
+        <button type="button" className="share-app" onClick={() => copy(summary, "summary")} title="Title, one-line summary and link as text">
           <span aria-hidden="true" className="share-app-icon">❐</span>{copied === "summary" ? "Copied ✓" : "Copy summary"}
         </button>
       </div>
@@ -128,6 +134,7 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
   const [created, setCreated] = useState<Created | null>(null);
   const [turnId, setTurnId] = useState("");
   const [chosen, setChosen] = useState<string[]>([]);
+  const [title, setTitle] = useState("");
   const turn = preview?.turns.find((t) => t.id === turnId) ?? null;
 
   useEffect(() => {
@@ -146,6 +153,7 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
         const last = p.turns[p.turns.length - 1];
         setTurnId(last?.id ?? "");
         setChosen(last?.default_artifacts ?? []);
+        if (last) setTitle(suggested(last));
         setAudience(p.public_links ? "public" : "organization");
       })
       .catch((e: Error) => setError(e.message));
@@ -160,7 +168,7 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
       const share = await api<Created>("shares", {
         method: "POST",
         body: JSON.stringify({
-          thread_id: threadId, title: turn.question.slice(0, 200), audience, include_results: chosen.length > 0,
+          thread_id: threadId, title: title.trim() || turn.question.slice(0, 200), audience, include_results: chosen.length > 0,
           expires_days: days, mode: "answer", turn_id: turn.id, artifact_names: chosen,
         }),
       });
@@ -174,8 +182,10 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
   }
 
   const pickTurn = (id: string) => {
+    const t = preview?.turns.find((x) => x.id === id);
     setTurnId(id);
-    setChosen(preview?.turns.find((x) => x.id === id)?.default_artifacts ?? []);
+    setChosen(t?.default_artifacts ?? []);
+    if (t) setTitle(suggested(t));
   };
   const toggle = (name: string, on: boolean) => setChosen((x) => (on ? [...x, name] : x.filter((n) => n !== name)));
   const tableLabel = (t: Turn["tables"][number]) =>
@@ -209,8 +219,14 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
               </select>
             </label>
           )}
+          <label className="share-title">
+            Title <span className="muted">— the headline people see in Teams, Slack and email. Make it short and clear.</span>
+            <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} required
+                   placeholder="e.g. Gold-tier businesses: photos and publishing by city" />
+          </label>
           <article className="share-card" aria-label="What people will see">
-            <p className="share-card-q">{turn.question}</p>
+            <p className="share-card-q">{title || turn.question}</p>
+            <p className="muted share-card-asked">Question: {turn.question}</p>
             <div className="share-card-a"><Markdown content={cleanAnswer(turn.answer)} /></div>
             {turn.charts.map((c) =>
               chosen.includes(c.name) ? (
@@ -262,7 +278,7 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
             </select>
           </label>
           <div className="settings-actions">
-            <button type="submit" className="odn-btn" disabled={busy}>{busy ? "Creating…" : "Create link"}</button>
+            <button type="submit" className="odn-btn" disabled={busy || !title.trim()}>{busy ? "Creating…" : "Create link"}</button>
             <button type="button" onClick={onClose}>Cancel</button>
           </div>
           {error && <p className="error" role="alert">{error}</p>}

@@ -8,7 +8,7 @@ import SignInToView from "../../components/SignInToView";
 import { currentTheme, tenantTheme } from "../../themes/server";
 import { currentIdentity } from "@/lib/identity";
 import { fetchPublicShare } from "@/lib/public-share";
-import { SHARE_ID, forReport, plainText, questionAndAnswer } from "@/lib/share";
+import { SHARE_ID, forReport, highlight } from "@/lib/share";
 
 export const dynamic = "force-dynamic";
 
@@ -24,9 +24,9 @@ const PRIVATE: Metadata = {
 export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
   const share = await fetchPublicShare(params.id);
   if (!share) return PRIVATE;
-  const { question, answer } = questionAndAnswer(share.messages);
-  const title = question || share.title;
-  const description = plainText(answer, 280) || `Shared by ${share.owner_name} on QueryMuse`;
+  const title = share.title;
+  const answer = [...share.messages].reverse().find((m) => m.role === "assistant")?.content ?? "";
+  const description = highlight(answer, 200) || `Shared by ${share.owner_name} on QueryMuse`;
   return {
     title: `${title} — QueryMuse`,
     description,
