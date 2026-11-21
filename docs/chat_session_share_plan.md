@@ -1,6 +1,10 @@
 # Share a chat session with teammates (Teams / Slack) — plan for review
 
-**Status:** Phase 1 + 1b built (2026-11-20); next: phase 2 *Continue* and the admin switch in the UI. See [§10](#10-progress). **Decided:** MVP = model A (snapshot + continue); live shared thread (model C) is a nice-to-have, sized in §8.1. Audience: pick people by default. Expiry: 30 days by default. Results included by default (with warnings). Admins can turn sharing off. Delivery: in-app + email + Teams chat link (§6.1).
+**Status (2026-11-21):** shipped and in production — share **one answer** as a link that anyone can open without
+signing in (admins can require sign-in), with a rich preview card in Teams/Slack/email, an editable title, and
+**Ask a follow-up** that copies the answer into the reader's own conversation. Phases 1, 1b, 2 and 3 are done; see
+[§12 status at a glance](#12-status-at-a-glance-2026-11-21) and the [§13 UX roadmap](#13-ux-roadmap-what-to-improve-next).
+Sections 1–9 are the original plan, kept for history; §11 describes the flow as it works today.
 **Goal:** a user shares a conversation (questions, answers, SQL, result tables, charts) through a link they paste
 in Microsoft Teams or Slack; a teammate in the same organization opens it in QueryMuse and **asks follow-up
 questions** that build on it.
@@ -228,13 +232,13 @@ link is optional:
 
 ## 8. Phases and effort (estimate)
 
-| Phase | Scope | Estimate |
-|---|---|---|
-| 1 | Migration, share create/list/revoke, export snapshot, artifact copy, read-only `/s/[id]` page, Share dialog (**people picker**, Copy link, Share to Teams), generic previews, audit, tests | 3.5–4.5 days |
-| 1b | Direct delivery (§6.1): "Shared with me" in Chats, email notification, **Send in Teams** chat link, device share sheet | 1–1.5 days |
-| 2 | Continue (fork into teammate's workspace + ADK session import), Chats "Continued from", agent note | 2–3 days |
-| 3 | Admin settings (enable, max lifetime), admin list | 1 day |
-| Later | Slack/Teams apps with authenticated unfurling | separate plan |
+| Phase | Scope | Estimate | Status |
+|---|---|---|---|
+| 1 | Migration, share create/list/revoke, export snapshot, artifact copy, read-only `/s/[id]` page, Share dialog (**people picker**, Copy link, Share to Teams), generic previews, audit, tests | 3.5–4.5 days | ✅ done; later reshaped into answer links (§11) |
+| 1b | Direct delivery (§6.1): "Shared with me" in Chats, email notification, **Send in Teams** chat link, device share sheet | 1–1.5 days | ✅ done; people picker removed from the dialog in §11 (API kept) |
+| 2 | Continue (fork into teammate's workspace + ADK session import), Chats "Continued from", agent note | 2–3 days | ✅ done as **Ask a follow-up** |
+| 3 | Admin settings (enable, max lifetime), admin list | 1 day | ✅ on/off, public links, all links + revoke; ⬜ max lifetime |
+| Later | Slack/Teams apps with authenticated unfurling | separate plan | ⬜ not started (§13) |
 
 ### 8.1 Nice-to-have: live shared thread (model C) — what it would take
 
@@ -412,3 +416,72 @@ open*. Until then links are sign-in only.
   one-year immutable cache header can't be overridden): `Cache-Control: public, max-age=600`, and 503 (not a
   placeholder image) while the API is unreachable, so Slack/Teams retry instead of caching a blank card. The API's
   database pool now checks connections, so a Postgres restart during a deploy doesn't fail the first requests.
+
+## 12. Status at a glance (2026-11-21)
+
+### Done (in production)
+
+| Area | What users get |
+|---|---|
+| Share dialog | **Share** in the chat toolbar → pick the question (when there are several) → **editable title** (prefilled from the chart title / answer heading / tidied question) → preview card of exactly what people see, with the chart drawn and *Remove / Add* for the chart and tables → expiry 7/30/90 days → **Create link** |
+| Delivery | Copy link · **Teams** (Share-to-Teams window, title prefilled) · **Slack** (copies *title + 1–2 sentence highlight + link*, opens Slack) · **Email** (`mailto:` with the same text) · Copy summary |
+| The link | Opens without sign-in (default; admins can require sign-in). A clean report: title, the question, the answer without SQL/code/q-names, the chart as in the app, tables' first 50 rows. Teams/Slack/email show a card with the title, highlight and an image that draws the chart (10-minute cache) |
+| Ask a follow-up | Signs the reader in if needed, copies the answer and its results into **their own** conversation (Chats shows *shared by …*), new queries use their own connections. Same organization only |
+| Chat | Charts render inline in the conversation (also with *Show agent steps* off) |
+| Owner / admin | *Links for this conversation* (extend, revoke); Organization → **Sharing**: on/off, allow links without sign-in, every link with revoke; activity log (`share.created / viewed / continued / revoked / settings_saved`) |
+| Safety | Only `odn_public_share()` serves unauthenticated reads (public, active, not revoked/expired, org allows it); no emails, SQL, object keys or result names in public responses; warnings when an answer used a personal connection or Collibra |
+
+### Known gaps
+
+- The title can't be changed after the link is created (create a new link); links made before 2026-11-21 keep the
+  question as their title.
+- Views are counted only for signed-in readers; anonymous opens and preview fetches aren't counted.
+- Cleaning the answer for the report (`cleanAnswer()`, `highlight()`) is regex-based; unusual answer layouts can
+  leave a stray heading or lose a useful sentence.
+- Readers outside the owner's organization can read but not follow up (no request-access path).
+- Admin "maximum link lifetime" isn't built; "Whole conversation" sharing exists in the API but not in the dialog.
+- Slack has no pre-filled share URL, so *Slack* copies the text and opens the app; the user pastes.
+
+## 13. UX roadmap: what to improve next
+
+Principle: **sharing should take one click from the answer you're looking at, and the shared report should be
+understandable in five seconds by someone who has never used QueryMuse.**
+
+### Now — small, high impact (≈ 0.5–1 day each)
+
+| # | Improvement | Why |
+|---|---|---|
+| 1 | **Share button on each answer** (next to Copy / 👍 / 👎) that opens the dialog on that answer, instead of the toolbar button + question picker | Removes the "which question?" step; sharing happens at the moment of insight |
+| 2 | **Share-ready summary from the agent**: when it answers, the agent also returns a short *title*, a one-sentence *takeaway* and 2–4 *key numbers*; the dialog, report and preview use them instead of regex-cleaning the answer | Better titles and highlights, no stray SQL headings; key numbers become a KPI strip on the report and the card ("NY 5,153 · LA 3,472 · 99.8% gold coverage") |
+| 3 | **Edit after sharing**: change the title, add/remove the chart, extend — same URL; the preview refreshes within 10 minutes | Users notice a bad title only after posting |
+| 4 | **Copy chart as image / Download PNG** (from the dialog and the report) | Many users paste into PowerPoint, Outlook or Teams chats where link previews are off |
+| 5 | **"Data as of …" and source line** on the report and card (e.g. *As of 20 Nov 2026 · Firmographics (BigQuery)*) | Trust: readers need to know how fresh the numbers are and where they came from, without seeing SQL |
+| 6 | **Views for everyone**: count anonymous opens (deduplicated, no personal data) and show "12 views · last opened 2h ago · 2 follow-ups" in *Links for this conversation* | Owners see the share landed; encourages sharing |
+| 7 | **Suggested follow-ups** under *Ask a follow-up* ("Compare with last quarter", "Break down by state") — clicking one signs in, copies the answer and asks it | Turns readers into users in one click |
+
+### Next — medium (≈ 1–3 days each)
+
+| # | Improvement | Why |
+|---|---|---|
+| 8 | **Update the snapshot**: owner re-runs the answer's queries and refreshes the same link ("Updated 21 Nov") | Weekly numbers without new links; old link in the channel stays valid |
+| 9 | **Multi-answer report**: pick several answers (and charts) into one shareable page with its own title | A lightweight "report" for a meeting, instead of five links |
+| 10 | **Owner notifications**: "Ben asked a follow-up on *Gold-tier cities*" (in-app + optional email) | Closes the loop; owner can join the conversation |
+| 11 | **Request access** for readers from other organizations who press *Ask a follow-up* (goes to the owner's admin) | Today they hit a dead end |
+| 12 | **Mobile polish**: report and dialog on phones (Teams/Slack links are often opened there) | Most link opens happen on the go |
+| 13 | **Admin controls**: maximum link lifetime, "require sign-in for answers that used personal connections", export of the links list | Enterprise clients will ask before turning public links on |
+
+### Later — larger bets
+
+| # | Improvement | Notes |
+|---|---|---|
+| 14 | **Scheduled shares**: "post this answer to #sales every Monday" (re-run + refresh + post) | Needs a Slack/Teams app or incoming webhooks; builds on #8 |
+| 15 | **Slack and Teams apps**: authenticated unfurls (private links show content to members), share from Slack with `/querymuse`, adaptive cards with *Ask a follow-up* buttons | Per-client admin approval; separate plan |
+| 16 | **Live shared thread** (model C, §8.1) | ≈ 6–8 days; decide after seeing how *Ask a follow-up* is used |
+| 17 | **Embeds**: an iframe/Notion/Confluence embed of the report card | For wikis and dashboards |
+
+### Recommended order
+
+1 → 2 → 3 → 6 → 5 → 4 → 7, then reassess with usage data (views, follow-ups per share) before #8–#11.
+Items 1 and 2 together change the experience most: share from the answer itself, with a title and takeaway
+written by the agent.
+
