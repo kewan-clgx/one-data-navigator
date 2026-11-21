@@ -57,7 +57,8 @@ function toCsv(points: ChartPoint[], hasSeries: boolean): string {
   return [head, ...points.map((p) => (hasSeries ? [p.x, p.series, p.y] : [p.x, p.y]).map(esc).join(","))].join("\n");
 }
 
-export default function Chart({ data }: { data: ChartData }) {
+/** `compact`: just the title, plot and legend (shared summaries: no result names, sources or SQL). */
+export default function Chart({ data, compact = false }: { data: ChartData; compact?: boolean }) {
   const { spec, points } = data;
   const hasSeries = !!spec.series;
   const yLabel = spec.agg === "count" ? "count" : `${spec.agg === "none" ? "" : `${spec.agg} of `}${spec.y ?? ""}`;
@@ -87,16 +88,18 @@ export default function Chart({ data }: { data: ChartData }) {
   const color = (s: unknown) => PALETTE[model.seriesNames.indexOf(hasSeries ? label(s) : "") % PALETTE.length];
   const labelEvery = Math.ceil(model.categories.length / 20);
   const title = spec.title || `${yLabel} by ${spec.x}`;
-  const summary = `${spec.type} chart: ${title}. ${points.length} points from workspace table ${spec.source}.`;
+  const summary = compact ? `${spec.type} chart: ${title}.` : `${spec.type} chart: ${title}. ${points.length} points from workspace table ${spec.source}.`;
 
   return (
     <figure className="chart">
       <figcaption>
         <strong>{title}</strong>{" "}
-        <span className="muted">
-          ({spec.type} · from <code>{spec.source}</code>)
-        </span>
-        {data.explanation && <span className="explanation">{data.explanation}</span>}
+        {!compact && (
+          <span className="muted">
+            ({spec.type} · from <code>{spec.source}</code>)
+          </span>
+        )}
+        {!compact && data.explanation && <span className="explanation">{data.explanation}</span>}
       </figcaption>
       <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={summary} preserveAspectRatio="xMidYMid meet">
         {model.ticks.map((t) => (
@@ -182,6 +185,7 @@ export default function Chart({ data }: { data: ChartData }) {
           ))}
         </ul>
       )}
+      {!compact && (<>
       <p className="muted chart-notes">
         {data.truncated && <strong>Showing the first {points.length} points. </strong>}
         {data.source_truncated && <strong>Source result was partial. </strong>}
@@ -218,6 +222,7 @@ export default function Chart({ data }: { data: ChartData }) {
           </table>
         </div>
       </details>
+      </>)}
     </figure>
   );
 }

@@ -242,10 +242,10 @@ def preview(ctx: RequestContext, token: str, thread_id: str) -> dict[str, Any]:
 
 
 def settings_for(ctx: RequestContext) -> dict[str, bool]:
-    """Organization sharing settings; no row = sharing on, public links off."""
+    """Organization sharing settings; no row = sharing on and answer links open without sign-in."""
     with tenant_transaction(ctx.tenant_id) as conn:
         row = conn.execute("SELECT enabled, public_links FROM tenant_sharing_settings").fetchone()
-    return {"enabled": row is None or bool(row["enabled"]), "public_links": bool(row and row["public_links"])}
+    return {"enabled": row is None or bool(row["enabled"]), "public_links": row is None or bool(row["public_links"])}
 
 
 def sharing_enabled(ctx: RequestContext) -> bool:
@@ -456,13 +456,18 @@ def public_get(share_id: str) -> dict[str, Any]:
     artifacts: list[dict[str, Any]] = []
     for a in share["artifacts"]:
         if a["kind"] == "chart":
-            artifacts.append({k: a[k] for k in ("kind", "name", "title", "result")})
+            # The plot only: no SQL, source tables or result names for unauthenticated readers.
+            result = a.get("result") or {}
+            spec = {**(result.get("spec") or {}), "source": ""}
+            artifacts.append({"kind": "chart", "name": "", "title": a["title"], "result": {
+                "spec": spec, "points": result.get("points") or [], "truncated": bool(result.get("truncated")),
+                "sql": "", "source_tables": [], "source_truncated": False}})
         elif a["kind"] == "table":
             try:
                 rows = _rows(share["tenant_id"], share_id, a["object_key"], limit=PUBLIC_ROWS)
             except (httpx.HTTPError, PermissionError):
                 rows = {"rows": []}
-            artifacts.append({"kind": "table", "name": a["name"], "row_count": a["row_count"],
+            artifacts.append({"kind": "table", "name": "", "row_count": a["row_count"],
                               "columns": [c if isinstance(c, str) else c.get("name") for c in a["columns"]],
                               "rows": rows.get("rows", [])[:PUBLIC_ROWS]})
     return {

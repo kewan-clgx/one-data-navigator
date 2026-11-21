@@ -371,3 +371,16 @@ What changed:
 
 **To turn it on in production:** an admin opens Organization → Sharing → *Allow links that anyone with the link can
 open*. Until then links are sign-in only.
+
+**2026-11-20 — adjustments:**
+
+- **No sign-in by default:** answer links always open for anyone with the link (migration `0020`: public links on
+  by default for every organization; `odn_public_share()` treats "no settings row" as allowed). The dialog no longer
+  asks who can open it; an admin can still turn public links off in Organization → Sharing (then links need
+  sign-in and the dialog says so).
+- **Summary report, no technical detail:** everyone (signed in or not) sees the same report — question, answer,
+  chart, table. Removed: SQL/code blocks, "Query executed (q1)" / "Workspace table: q2" lines and result names
+  (`cleanAnswer()` in `frontend/lib/share.ts`), the step cards, the result-table name/SQL header and the paged grid
+  (*Prev/Next*); tables show their first 50 rows, charts only title, plot and legend (`<Chart compact>`). The public
+  API response no longer carries chart SQL, source tables or result names, and the page passes only the cleaned
+  question/answer to the browser.

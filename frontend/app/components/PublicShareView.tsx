@@ -4,7 +4,7 @@ import { Markdown } from "@copilotkit/react-ui";
 import { useEffect, useRef, useState } from "react";
 
 import { ApiError, api } from "@/lib/client-api";
-import { questionAndAnswer, type PublicShare } from "@/lib/share";
+import { questionAndAnswer, type PublicArtifact, type PublicShare } from "@/lib/share";
 
 import Chart from "./Chart";
 
@@ -62,46 +62,58 @@ export function FollowUpButton({ shareId, signedIn, organization }: { shareId: s
   );
 }
 
-/** The answer behind an "anyone with the link" share: question, answer, chart or first rows of the table. */
-export default function PublicShareView({ share, signedIn }: { share: PublicShare; signedIn: boolean }) {
-  const { question, answer } = questionAndAnswer(share.messages);
+type ReportProps = {
+  shareId: string; question: string; answer: string; owner: string; organization?: string;
+  createdAt: string; status: string; expiresAt: string; artifacts: PublicArtifact[]; signedIn: boolean;
+};
+
+/** A shared answer as a short report: the question, the answer (no SQL or result names), the chart or table. */
+export function SummaryReport(p: ReportProps) {
   return (
-    <div className="shared-page">
+    <div className="shared-page shared-report">
       <header className="shared-head">
-        <p className="shared-kicker">Shared answer · {share.organization}</p>
-        <h1>{question || share.title}</h1>
+        <p className="shared-kicker">Shared answer{p.organization ? ` · ${p.organization}` : ""}</p>
+        <h1>{p.question}</h1>
         <p className="muted">
-          Shared by {share.owner_name} on {new Date(share.created_at).toLocaleDateString()} · link works until{" "}
-          {new Date(share.expires_at).toLocaleDateString()}
+          Shared by {p.owner} on {new Date(p.createdAt).toLocaleDateString()} ·{" "}
+          {p.status === "active" ? `link works until ${new Date(p.expiresAt).toLocaleDateString()}` : `link ${p.status}`}
         </p>
       </header>
-      {answer && <div className="shared-msg shared-msg--assistant"><Markdown content={answer} /></div>}
-      {share.artifacts.map((a) =>
+      {p.answer && <div className="shared-msg shared-msg--assistant"><Markdown content={p.answer} /></div>}
+      {p.artifacts.map((a, i) =>
         a.kind === "chart" ? (
-          <figure key={a.name} className="shared-artifact">
-            <figcaption><strong>{a.title || "Chart"}</strong></figcaption>
-            <Chart data={a.result} />
-          </figure>
+          <div key={i} className="shared-artifact"><Chart data={a.result} compact /></div>
         ) : (
-          <figure key={a.name} className="shared-artifact">
-            <figcaption>
-              <strong>{a.name}</strong> · {a.row_count.toLocaleString()} {a.row_count === 1 ? "row" : "rows"}
-              {a.rows.length < a.row_count ? ` (first ${a.rows.length} shown)` : ""}
-            </figcaption>
+          <figure key={i} className="shared-artifact">
             <div className="org-table">
               <table className="grid">
                 <thead><tr>{a.columns.map((c) => <th key={c} scope="col">{c}</th>)}</tr></thead>
                 <tbody>
-                  {a.rows.map((r, i) => (
-                    <tr key={i}>{a.columns.map((c) => <td key={c}>{r[c] === null || r[c] === undefined ? "" : String(r[c])}</td>)}</tr>
+                  {a.rows.map((r, j) => (
+                    <tr key={j}>{a.columns.map((c) => <td key={c}>{r[c] === null || r[c] === undefined ? "" : String(r[c])}</td>)}</tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            {a.rows.length < a.row_count && (
+              <figcaption className="muted">First {a.rows.length} of {a.row_count.toLocaleString()} rows</figcaption>
+            )}
           </figure>
         ),
       )}
-      <FollowUpButton shareId={share.id} signedIn={signedIn} organization={share.organization} />
+      {p.status === "active" && <FollowUpButton shareId={p.shareId} signedIn={p.signedIn} organization={p.organization} />}
     </div>
+  );
+}
+
+/** The answer behind an "anyone with the link" share, as the API returns it without sign-in. */
+export default function PublicShareView({ share, signedIn }: { share: PublicShare; signedIn: boolean }) {
+  const { question, answer } = questionAndAnswer(share.messages);
+  return (
+    <SummaryReport
+      shareId={share.id} question={question || share.title} answer={answer} owner={share.owner_name}
+      organization={share.organization} createdAt={share.created_at} expiresAt={share.expires_at} status="active"
+      artifacts={share.artifacts} signedIn={signedIn}
+    />
   );
 }

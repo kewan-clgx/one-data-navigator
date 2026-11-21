@@ -4,11 +4,11 @@ import { Markdown } from "@copilotkit/react-ui";
 import { useEffect, useState } from "react";
 
 import { api } from "@/lib/client-api";
-import type { PublicShare } from "@/lib/share";
+import { questionAndAnswer, type PublicArtifact, type PublicShare } from "@/lib/share";
 
 import { StepCard } from "./AgentSteps";
 import Chart, { type ChartData } from "./Chart";
-import PublicShareView, { FollowUpButton } from "./PublicShareView";
+import PublicShareView, { FollowUpButton, SummaryReport } from "./PublicShareView";
 import ResultsGrid from "./ResultsGrid";
 
 type ToolCall = { id: string; function: { name: string; arguments: string } };
@@ -48,16 +48,15 @@ function Transcript({ messages }: { messages: Message[] }) {
 }
 
 function Artifacts({ share }: { share: Share }) {
-  const open = share.kind === "answer";
   if (!share.artifacts.length) {
     return share.include_results ? null : <p className="muted">Results weren&apos;t included in this share (questions, answers and SQL only).</p>;
   }
   return (
     <section className="shared-artifacts" aria-label="Results">
-      {share.kind !== "answer" && <h2>Results</h2>}
+      <h2>Results</h2>
       {share.artifacts.map((a) =>
         a.kind === "table" ? (
-          <details key={a.name} className="shared-artifact" open={open}>
+          <details key={a.name} className="shared-artifact">
             <summary><strong>{a.name}</strong> · {a.row_count.toLocaleString()} {a.row_count === 1 ? "row" : "rows"}{a.truncated ? " (partial)" : ""}</summary>
             <pre>{a.sql}</pre>
             <ResultsGrid
@@ -84,6 +83,31 @@ function Artifacts({ share }: { share: Share }) {
   );
 }
 
+/** An answer share for a signed-in reader: the same short report as the public link (first rows of tables). */
+function AnswerReport({ share }: { share: Share }) {
+  const [artifacts, setArtifacts] = useState<PublicArtifact[] | null>(null);
+  useEffect(() => {
+    Promise.all(
+      share.artifacts.map(async (a): Promise<PublicArtifact | null> => {
+        if (a.kind === "chart") return { kind: "chart", name: a.name, title: a.title, result: a.result };
+        if (a.kind !== "table") return null;
+        const columns = a.columns.map((c) => (typeof c === "string" ? c : c.name));
+        const page = await api<{ rows: Record<string, unknown>[] }>(`shares/${share.id}/tables/${a.name}/rows?limit=50`)
+          .catch(() => ({ rows: [] }));
+        return { kind: "table", name: a.name, row_count: a.row_count, columns, rows: page.rows };
+      }),
+    ).then((items) => setArtifacts(items.filter((x): x is PublicArtifact => x !== null)));
+  }, [share]);
+  const { question, answer } = questionAndAnswer(share.messages);
+  return (
+    <SummaryReport
+      shareId={share.id} question={question || share.title} answer={answer}
+      owner={share.is_owner ? "you" : share.owner_name || share.owner_email} createdAt={share.created_at}
+      expiresAt={share.expires_at} status={share.status} artifacts={artifacts ?? []} signedIn
+    />
+  );
+}
+
 /** Read-only view of a conversation someone shared with the signed-in user. */
 export default function SharedConversation({ shareId, fallback }: { shareId: string; fallback?: PublicShare | null }) {
   const [share, setShare] = useState<Share | null>(null);
@@ -106,22 +130,19 @@ export default function SharedConversation({ shareId, fallback }: { shareId: str
     );
   }
   if (!share) return <div className="shared-page"><p className="muted">Loading…</p></div>;
+  if (share.kind === "answer") return <AnswerReport share={share} />;
 
   const owner = share.owner_name || share.owner_email;
   return (
     <div className="shared-page">
       <header className="shared-head">
-        <p className="shared-kicker">{share.kind === "answer" ? "Shared answer" : "Shared conversation"}</p>
+        <p className="shared-kicker">Shared conversation</p>
         <h1>{share.title}</h1>
         <p className="muted">
           Shared by {share.is_owner ? "you" : owner} on {new Date(share.created_at).toLocaleDateString()} ·{" "}
           {share.status === "active" ? `link works until ${new Date(share.expires_at).toLocaleDateString()}` : `link ${share.status}`}
         </p>
-        <p className="muted">
-          {share.kind === "answer"
-            ? "A question and its answer from a QueryMuse conversation, as it was when shared."
-            : "A read-only copy of the conversation as it was when shared."}
-        </p>
+        <p className="muted">A read-only copy of the conversation as it was when shared.</p>
         <div className="settings-actions">
           <a className="odn-btn odn-btn--outline" href="/">Back to QueryMuse</a>
         </div>

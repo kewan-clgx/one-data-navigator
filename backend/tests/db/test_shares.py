@@ -148,7 +148,7 @@ def test_answers_only_organization_audience_expiry_and_switch(env) -> None:
     assert as_(ann).post("/v1/shares", json={"thread_id": "someone-elses", "audience": "organization"}).status_code == 404
 
     admin = as_(user(slug, "boss", role="admin"))
-    assert admin.put("/v1/admin/sharing", json={"enabled": False}).json() == {"enabled": False, "public_links": False}
+    assert admin.put("/v1/admin/sharing", json={"enabled": False}).json() == {"enabled": False, "public_links": True}
     blocked = as_(ann).post("/v1/shares", json={"thread_id": THREAD, "audience": "organization"})
     assert blocked.status_code == 403
 
@@ -213,7 +213,7 @@ def test_just_the_answer_shares_one_question_and_its_chosen_result(env, monkeypa
         "thread_id": THREAD, "audience": "organization", "mode": "answer", "turn_id": "nope"}).status_code == 422
 
 
-def test_anyone_with_the_link_needs_the_admin_switch(env) -> None:
+def test_anyone_with_the_link_is_on_by_default_and_admins_can_turn_it_off(env) -> None:
     tenant, user, as_, _copies = env
     slug = tenant()
     ann, boss = user(slug, "ann"), user(slug, "boss", role="admin")
@@ -223,10 +223,7 @@ def test_anyone_with_the_link_needs_the_admin_switch(env) -> None:
 
     add_table(ann)
     public = {"thread_id": THREAD, "audience": "public"}
-    assert as_(ann).post("/v1/shares", json=public).status_code == 403  # off by default
-    assert as_(ann).get("/v1/shares/preview", params={"thread_id": THREAD}).json()["public_links"] is False
-
-    admin().put("/v1/admin/sharing", json={"enabled": True, "public_links": True})
+    assert as_(ann).get("/v1/shares/preview", params={"thread_id": THREAD}).json()["public_links"] is True
     share = as_(ann).post("/v1/shares", json=public).json()
     org_only = as_(ann).post("/v1/shares", json={"thread_id": THREAD, "audience": "organization"}).json()
 
@@ -235,12 +232,13 @@ def test_anyone_with_the_link_needs_the_admin_switch(env) -> None:
     assert seen.status_code == 200 and seen.headers["cache-control"] == "private, no-store"
     body = seen.json()
     assert body["title"] == "Biz by state" and body["owner_name"] == "ann" and "owner_email" not in body
-    assert body["artifacts"][0]["name"] == "q1" and "object_key" not in body["artifacts"][0]
+    assert body["artifacts"][0]["name"] == "" and "object_key" not in body["artifacts"][0]  # no result names
     assert "tenant_id" not in body
     assert anonymous.get(f"/v1/public/shares/{org_only['id']}").status_code == 404  # sign-in shares stay private
 
     admin().put("/v1/admin/sharing", json={"enabled": True, "public_links": False})
     assert anonymous.get(f"/v1/public/shares/{share['id']}").status_code == 404  # switch off hides them at once
+    assert as_(ann).post("/v1/shares", json=public).status_code == 403
     assert {s["id"] for s in admin().get("/v1/shares", params={"scope": "all"}).json()} == {share["id"], org_only["id"]}
 
 

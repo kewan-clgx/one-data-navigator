@@ -164,7 +164,7 @@ def revoke(share_id: ShareId, ctx: Context) -> None:
 
 class SharingSettingsIn(BaseModel):
     enabled: bool
-    public_links: bool = False
+    public_links: bool = True
 
 
 @admin_router.get("")

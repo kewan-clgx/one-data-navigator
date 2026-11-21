@@ -4,7 +4,7 @@ import { Markdown } from "@copilotkit/react-ui";
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
 
 import { api } from "@/lib/client-api";
-import { summaryText } from "@/lib/share";
+import { cleanAnswer, summaryText } from "@/lib/share";
 
 type Turn = {
   id: string; question: string; answer: string;
@@ -43,7 +43,7 @@ function ShareResult({ created, turn, audience, onDone }: { created: Created; tu
       <p>
         <strong>Link ready.</strong>{" "}
         {audience === "public"
-          ? "Anyone with the link can see this answer; Teams and Slack show it as a preview card."
+          ? "Anyone with the link can open this summary, no sign-in needed; Teams and Slack show it as a preview card."
           : "People in your organization can open it after signing in."}{" "}
         It works until {new Date(created.expires_at).toLocaleDateString()}.
       </p>
@@ -212,7 +212,7 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
           )}
           <article className="share-card" aria-label="What people will see">
             <p className="share-card-q">{turn.question}</p>
-            <div className="share-card-a"><Markdown content={turn.answer} /></div>
+            <div className="share-card-a"><Markdown content={cleanAnswer(turn.answer)} /></div>
             {turn.tables.length + turn.charts.length > 0 && (
               <div className="share-artifacts" role="group" aria-label="Include with the answer">
                 {turn.charts.map((c) => (
@@ -238,19 +238,11 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
               {" "}People who open the link will see these results even if they can&apos;t access that data themselves.
             </p>
           )}
-          <fieldset>
-            <legend>Who can open the link</legend>
-            {preview.public_links && (
-              <label className="choice">
-                <input type="radio" name={`${ids}-aud`} checked={audience === "public"} onChange={() => setAudience("public")} />
-                <span>Anyone with the link <span className="muted">— Teams, Slack and email show the answer; follow-ups need a QueryMuse sign-in</span></span>
-              </label>
-            )}
-            <label className="choice">
-              <input type="radio" name={`${ids}-aud`} checked={audience === "organization"} onChange={() => setAudience("organization")} />
-              <span>People in my organization <span className="muted">— they sign in to view; previews show no content</span></span>
-            </label>
-          </fieldset>
+          <p className="muted">
+            {preview.public_links
+              ? "Anyone with the link can open this summary without signing in. Asking a follow-up needs a QueryMuse sign-in."
+              : "Your organization requires people to sign in to open shared links."}
+          </p>
           <label>
             Link expires after
             <select value={days} onChange={(e) => setDays(Number(e.target.value))}>

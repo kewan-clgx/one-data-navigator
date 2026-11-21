@@ -8,7 +8,7 @@ import SignInToView from "../../components/SignInToView";
 import { currentTheme, tenantTheme } from "../../themes/server";
 import { currentIdentity } from "@/lib/identity";
 import { fetchPublicShare } from "@/lib/public-share";
-import { SHARE_ID, plainText, questionAndAnswer } from "@/lib/share";
+import { SHARE_ID, forReport, plainText, questionAndAnswer } from "@/lib/share";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +38,8 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
 
 export default async function SharedPage({ params }: { params: { id: string } }) {
   if (!SHARE_ID.test(params.id)) notFound();
-  const [identity, publicShare] = await Promise.all([currentIdentity(), fetchPublicShare(params.id)]);
+  const [identity, rawShare] = await Promise.all([currentIdentity(), fetchPublicShare(params.id)]);
+  const publicShare = rawShare && forReport(rawShare);
   if (identity.kind === "expired") redirect("/auth/refresh");
   if (identity.kind !== "ok") {
     const theme = currentTheme();
