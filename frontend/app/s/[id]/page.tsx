@@ -31,8 +31,11 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
     title: `${title} — QueryMuse`,
     description,
     robots: { index: false, follow: false },
-    openGraph: { title, description, siteName: "QueryMuse", type: "article" },
-    twitter: { card: "summary_large_image", title, description },
+    openGraph: {
+      title, description, siteName: "QueryMuse", type: "article",
+      images: [{ url: `/s/${share.id}/image`, width: 1200, height: 630, alt: title }],
+    },
+    twitter: { card: "summary_large_image", title, description, images: [`/s/${share.id}/image`] },
   };
 }
 

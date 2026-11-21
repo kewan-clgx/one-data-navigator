@@ -1,11 +1,11 @@
 import { ImageResponse } from "next/og";
 
-import { fetchPublicShare } from "@/lib/public-share";
+import { loadPublicShare } from "@/lib/public-share";
 import { highlight, questionAndAnswer, type PublicArtifact } from "@/lib/share";
 
-export const size = { width: 1200, height: 630 };
-export const contentType = "image/png";
-export const alt = "QueryMuse shared answer";
+// The link-preview image of a shared answer (og:image). A plain route (not the opengraph-image convention, whose
+// one-year immutable cache header can't be overridden): previews must follow edits, revokes and expiry.
+const size = { width: 1200, height: 630 };
 export const dynamic = "force-dynamic";
 
 const INK = "#1f1a17";
@@ -99,8 +99,10 @@ function MiniTable({ artifact }: { artifact: Extract<PublicArtifact, { kind: "ta
   );
 }
 
-export default async function Image({ params }: { params: { id: string } }) {
-  const share = await fetchPublicShare(params.id);
+export async function GET(_req: Request, { params }: { params: { id: string } }) {
+  const share = await loadPublicShare(params.id);
+  // API not reachable (e.g. during a deploy): don't let crawlers cache a placeholder.
+  if (share === "unavailable") return new Response("Try again shortly", { status: 503, headers: { "Retry-After": "30" } });
   if (!share) {
     return new ImageResponse(
       (
@@ -135,7 +137,6 @@ export default async function Image({ params }: { params: { id: string } }) {
         )}
       </div>
     ),
-    // Short: previews must follow edits, revokes and expiry (Next defaults to a year).
     { ...size, headers: { "Cache-Control": "public, max-age=600" } },
   );
 }
