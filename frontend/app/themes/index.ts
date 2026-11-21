@@ -42,7 +42,7 @@ const cotality: Theme = {
     {
       kicker: "One language",
       title: "Use English for data analytics",
-      lead: "Answers from your live data, with every source shown.",
+      lead: "Answers from your live data.",
       points: [
         "Every answer shows its source and logic",
         "Reports, charts and CSV downloads in one click",
@@ -50,11 +50,11 @@ const cotality: Theme = {
     },
     {
       kicker: "Governed by design",
-      title: "Perfectly built for managers and stakeholders",
+      title: "Built for managers and stakeholders",
       lead: "Plain English in, governed data report out.",
       points: [
         "Read-only, allowlisted data only",
-        "Answers from your live data, with every source shown",
+        "Reports in minutes, not weeks: no tickets, no waiting",
       ],
     },
   ],
