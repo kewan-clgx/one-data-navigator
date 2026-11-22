@@ -38,14 +38,14 @@ const cotality: Theme = {
       title: "All your data work, one chat",
       lead: "Ask in plain English, get answers in seconds.",
       points: [
-        "Connect to BigQuery, Snowflake, any database and documents",
+        "Connect to BigQuery, Snowflake, and any Database",
         "Turn complex data into instant insights",
       ],
     },
     {
       kicker: "One language",
       title: "Use English for data analytics",
-      lead: "Answers from your live data.",
+      lead: "Get answers from live data",
       points: [
         "Every answer shows its source and logic",
         "Reports, charts and CSV downloads in one click",
@@ -57,7 +57,7 @@ const cotality: Theme = {
       lead: "Plain English in, governed data report out.",
       points: [
         "Read-only, allowlisted data only",
-        "Reports in minutes, not weeks: no tickets, no waiting",
+        "Reports in minutes, not weeks, no waiting",
       ],
     },
   ],

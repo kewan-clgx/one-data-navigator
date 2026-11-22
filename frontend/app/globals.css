@@ -252,6 +252,12 @@ body.resizing iframe { pointer-events: none; }
 }
 .odn-slide-dot:hover::before { background: var(--panel-muted); }
 .odn-slide-dot[aria-current="true"]::before { background: var(--panel-fg); }
+.odn-slide-dots { align-items: center; }
+.odn-slide-play {
+  margin-left: 0.4rem; background: transparent; border: 0; padding: 0.15rem 0.35rem; cursor: pointer;
+  color: var(--panel-muted); font-size: 0.6rem; letter-spacing: -0.1em; line-height: 1;
+}
+.odn-slide-play:hover { color: var(--panel-fg); }
 .odn-decor { position: relative; overflow: hidden; }
 
 /* Light "sheet" inside the dark panel for dense content (results, settings). */
