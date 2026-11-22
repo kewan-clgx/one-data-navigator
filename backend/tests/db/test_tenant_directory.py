@@ -155,6 +155,22 @@ def test_fallback_tenant_applies_email_allowlist(make_tenant, monkeypatch: pytes
                                       email_verified=True, name=None))
 
 
+def test_password_account_needs_a_verified_email_even_without_domains(make_tenant) -> None:
+    slug, tid, _ = make_tenant(domain=False)
+    issuer = "https://securetoken.google.com/proj"
+    with psycopg.connect(OWNER_URL) as conn:
+        conn.execute("INSERT INTO tenant_identity_providers (issuer, external_id, tenant_id) VALUES (%s, %s, %s)",
+                     (issuer, f"idp-{slug}", tid))
+
+    def token(verified: bool) -> VerifiedToken:
+        return VerifiedToken(issuer=issuer, subject=f"u-{slug}", external_id=f"idp-{slug}", email="pat@example.org",
+                             email_verified=verified, name=None)
+
+    with pytest.raises(AccessDenied):
+        resolve_context(token(False))
+    assert resolve_context(token(True)).tenant_id == tid
+
+
 def test_domain_verification_by_dns_txt(make_tenant) -> None:
     slug, tid, _ = make_tenant(domain=False)
     assert add_domain(OWNER_URL, slug, f"{slug}.org", txt_lookup=lambda _: ["other"]) is False

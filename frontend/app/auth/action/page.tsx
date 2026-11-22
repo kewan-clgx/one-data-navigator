@@ -4,7 +4,7 @@ import { currentTheme } from "../../themes/server";
 
 export const dynamic = "force-dynamic";
 
-/** Target of invite and password-reset emails (Identity Platform action links). */
+/** Target of invite, personal sign-up and password-reset emails (Identity Platform action links). */
 export default function AuthAction({ searchParams }: { searchParams: Record<string, string | undefined> }) {
   const theme = currentTheme();
   const { mode, oobCode, tenantId } = searchParams;
@@ -19,7 +19,7 @@ export default function AuthAction({ searchParams }: { searchParams: Record<stri
             {usable ? (
               <SetPasswordForm oobCode={oobCode} tenantId={tenantId} />
             ) : (
-              <p role="alert">This link isn&apos;t valid. Ask your organization&apos;s admin to send a new invite.</p>
+              <p role="alert">This link isn&apos;t valid. Use <strong>Forgot password?</strong> on the sign-in page to get a new one.</p>
             )}
           </div>
         </section>

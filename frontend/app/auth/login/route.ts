@@ -13,6 +13,8 @@ export async function GET(req: NextRequest) {
   // Hints from the sign-in card: preselect the account and, for Google Workspace, the domain.
   const loginHint = req.nextUrl.searchParams.get("login_hint")?.slice(0, 320);
   const hd = req.nextUrl.searchParams.get("hd")?.slice(0, 253);
+  // Personal "Continue with Google" asks Google to show the account chooser (personal vs. work accounts).
+  const prompt = req.nextUrl.searchParams.get("prompt") === "select_account" ? "select_account" : config.prompt;
   const codeVerifier = client.randomPKCECodeVerifier();
   const state = client.randomState();
   const nonce = client.randomNonce();
@@ -23,7 +25,7 @@ export async function GET(req: NextRequest) {
     code_challenge_method: "S256",
     state,
     nonce,
-    ...(config.prompt ? { prompt: config.prompt } : {}),
+    ...(prompt ? { prompt } : {}),
     ...(config.accessType ? { access_type: config.accessType } : {}),
     ...(loginHint ? { login_hint: loginHint } : {}),
     ...(hd && /^[a-z0-9.-]+$/i.test(hd) ? { hd } : {}),

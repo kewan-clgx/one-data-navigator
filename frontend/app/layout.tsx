@@ -12,7 +12,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const company = brandCompanyLabel(theme, tenantName);
   // metadataBase: absolute link-preview image URLs (e.g. /s/<id>/opengraph-image) on the public address.
   const base = process.env.ODN_PUBLIC_URL;
-  return { title: company ? `${company} | ${theme.product}` : theme.product, ...(base ? { metadataBase: new URL(base) } : {}) };
+  const site = theme.tagline ? `${theme.product}, ${theme.tagline}` : theme.product;
+  return { title: company ? `${company} | ${site}` : site, ...(base ? { metadataBase: new URL(base) } : {}) };
 }
 
 export async function generateViewport(): Promise<Viewport> {

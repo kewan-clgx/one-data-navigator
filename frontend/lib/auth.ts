@@ -2,6 +2,7 @@ import "server-only";
 
 import * as client from "openid-client";
 import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
 
 import { config } from "./config";
 import { oidc } from "./oidc";
@@ -20,6 +21,28 @@ export async function authApi(path: string, body: unknown): Promise<Response> {
     body: JSON.stringify(body),
     cache: "no-store",
   });
+}
+
+/** Relay an Identity Platform password sign-in: on success, start the session cookie. */
+export async function idpSignIn(path: string, body: unknown, email: string | undefined): Promise<NextResponse> {
+  const res = await authApi(path, body);
+  const data = (await res.json().catch(() => ({}))) as Partial<ApiTokens> & { detail?: unknown };
+  if (!res.ok || !data.id_token) {
+    return NextResponse.json({ detail: data.detail ?? "Sign-in failed." }, { status: res.ok ? 502 : res.status });
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const session: Session = {
+    accessToken: data.id_token,
+    refreshToken: data.refresh_token,
+    expiresAt: now + (data.expires_in ?? 3600),
+    email: email?.trim(),
+    provider: "idp",
+    loginAt: now,
+  };
+  const age = sessionCookieAge(session);
+  const reply = NextResponse.json({ ok: true });
+  reply.cookies.set(SESSION_COOKIE, await seal(session, age), cookieOptions(age));
+  return reply;
 }
 
 async function refreshTokens(session: Session): Promise<Session | null> {

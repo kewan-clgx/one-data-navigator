@@ -13,7 +13,10 @@ export default function BrandBar({ theme, company, user }: { theme: Theme; compa
             <span aria-hidden className="odn-brand-sep">|</span>
           </>
         )}
-        <span className="odn-brand-product">{theme.product}</span>
+        <span className="odn-brand-product">
+          {theme.product}
+          {theme.tagline && <span className="odn-brand-tagline">, {theme.tagline}</span>}
+        </span>
       </div>
       <div className="odn-brandbar-right">
         {theme.tag && <span className="odn-tag">{theme.tag}</span>}

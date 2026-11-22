@@ -25,6 +25,8 @@ x-prod-backend-env: &prod-backend-env
   # Password sign-in tenants (Google Identity Platform); empty = disabled. Admin calls use the VM service account.
   ODN_IDP_PROJECT: ${ODN_IDP_PROJECT:-}
   ODN_IDP_API_KEY: ${ODN_IDP_API_KEY:-}
+  # Tenant slug personal email/password accounts sign up into (needs --join domain, no domains, an IdP tenant).
+  ODN_PERSONAL_TENANT: ${ODN_PERSONAL_TENANT:-}
   # Branded invite/reset emails via Resend (key in Secret Manager); empty = Identity Platform's own emails.
   ODN_PUBLIC_URL: https://${ODN_HOSTNAME:?set in .env}
   ODN_RESEND_API_KEY_SECRET: ${ODN_RESEND_API_KEY_SECRET:-}

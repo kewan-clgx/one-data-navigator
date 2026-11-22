@@ -42,6 +42,14 @@ def test_reset_subject(calls):
     assert calls["sent"][0][1] == "Reset your QueryMuse password"
 
 
+def test_personal_signup_creates_an_unusable_account_and_emails_a_set_password_link(calls):
+    identity_platform.invite("t1", "pat@example.org", display_name="Pat", signup=True)
+    signup = calls["key"][0]
+    assert (signup["email"], signup["tenantId"], signup["displayName"]) == ("pat@example.org", "t1", "Pat")
+    assert len(signup["password"]) > 40  # random; nobody knows it until the link sets a new one
+    assert calls["sent"][0][1] == "Finish creating your QueryMuse account"
+
+
 def test_unknown_email_sends_nothing(calls):
     identity_platform.send_password_email("t1", "nobody@acme.com")
     assert calls["sent"] == [] and calls["key"] == []

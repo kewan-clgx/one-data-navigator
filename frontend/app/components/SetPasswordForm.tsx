@@ -6,11 +6,11 @@ type State =
   | { kind: "checking" }
   | { kind: "invalid"; message: string }
   | { kind: "ready"; email: string }
-  | { kind: "done"; email: string };
+  | { kind: "done"; email: string; personal: boolean };
 
 async function post(body: Record<string, string>) {
   const res = await fetch("/auth/reset", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-  return { ok: res.ok, status: res.status, data: (await res.json().catch(() => ({}))) as { email?: string; detail?: string } };
+  return { ok: res.ok, status: res.status, data: (await res.json().catch(() => ({}))) as { email?: string; personal?: boolean; detail?: string } };
 }
 
 export default function SetPasswordForm({ oobCode, tenantId }: { oobCode: string; tenantId: string }) {
@@ -33,7 +33,7 @@ export default function SetPasswordForm({ oobCode, tenantId }: { oobCode: string
     setError(null);
     try {
       const { ok, status, data } = await post({ oobCode, tenantId, newPassword: password });
-      if (ok) return setState({ kind: "done", email: data.email ?? "" });
+      if (ok) return setState({ kind: "done", email: data.email ?? "", personal: Boolean(data.personal) });
       if (status === 410) return setState({ kind: "invalid", message: data.detail ?? "This link has expired." });
       setError(data.detail ?? "The password could not be set.");
     } finally {
@@ -46,7 +46,7 @@ export default function SetPasswordForm({ oobCode, tenantId }: { oobCode: string
     return (
       <>
         <p className="odn-signin-error" role="alert">{state.message}</p>
-        <p>On the sign-in page, enter your organization and email, then choose <strong>Forgot password?</strong> to get a new link.</p>
+        <p>On the sign-in page, enter your email (and organization, for enterprise accounts), then choose <strong>Forgot password?</strong> to get a new link.</p>
         <a className="odn-btn odn-btn--lg" href="/">Go to sign in</a>
       </>
     );
@@ -54,7 +54,7 @@ export default function SetPasswordForm({ oobCode, tenantId }: { oobCode: string
     return (
       <>
         <p className="odn-signin-notice" role="status">Your password is set for {state.email}.</p>
-        <a className="odn-btn odn-btn--lg" href="/">Continue to sign in</a>
+        <a className="odn-btn odn-btn--lg" href={state.personal ? "/?account=personal" : "/"}>Continue to sign in</a>
       </>
     );
   return (

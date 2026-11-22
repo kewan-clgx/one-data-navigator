@@ -7,9 +7,15 @@ from html import escape
 PRODUCT = "QueryMuse"
 
 
-def password_email(link: str, *, invite: bool, org_name: str | None) -> tuple[str, str, str]:
+def password_email(link: str, *, invite: bool, org_name: str | None, signup: bool = False) -> tuple[str, str, str]:
     org = (org_name or "").strip()
-    if invite:
+    if signup:
+        # Same email whether or not the account already exists (sign-up must not reveal existing accounts).
+        subject = f"Finish creating your {PRODUCT} account"
+        intro = (f"Choose a password to finish creating your personal {PRODUCT} account. If you already have one, "
+                 "this sets a new password for it.")
+        action = "Set your password"
+    elif invite:
         subject = f"You're invited to {org} on {PRODUCT}" if org else f"You're invited to {PRODUCT}"
         intro = (f"You've been invited to join {org} on {PRODUCT}, the conversational way to explore your data."
                  if org else f"You've been invited to {PRODUCT}, the conversational way to explore your data.")
@@ -21,7 +27,7 @@ def password_email(link: str, *, invite: bool, org_name: str | None) -> tuple[st
         action = "Choose a new password"
     note = ("This link works once and expires in 1 hour. If it has expired, use \u201cForgot password\u201d "
             "on the sign-in page to get a new one.")
-    ignore = "" if invite else " If you didn't ask for this, you can ignore this email; your password stays the same."
+    ignore = "" if invite and not signup else " If you didn't ask for this, you can ignore this email; your password stays the same."
 
     text = f"{intro}\n\n{action}:\n{link}\n\n{note}{ignore}\n\n\u2014 The {PRODUCT} team\n"
     html = f"""<!doctype html>

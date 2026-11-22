@@ -214,6 +214,23 @@ Rules:
 4. Forgot password: "Forgot password?" on the sign-in form → same `sendOobCode` (generic response).
 5. Admin disables a user: our row `status = disabled` (immediate 403) and the IdP account is disabled.
 
+### 4.3a Personal accounts
+
+The sign-in card has an **Enterprise / Personal** switch (enterprise by default; `/?account=personal` opens the
+personal tab). Personal accounts all join one operator-chosen tenant, `ODN_PERSONAL_TENANT` (prod: `datahop`):
+
+- **Google**: "Continue with Google" is the normal OIDC redirect with `prompt=select_account`; a personal Google
+  account has no `hd` and lands in the issuer's `'*'` fallback tenant (subject to `ODN_OIDC_DEFAULT_TENANT_EMAILS`).
+- **Email + password** (`/v1/auth/personal/{signup,password,forgot}`): the tenant needs an Identity Platform tenant,
+  `join_policy = domain` and no domains, else sign-up is closed (`odn_personal_tenant`, migration 0021):
+  `provision tenant datahop --name QueryMuse --join domain --create-idp-tenant`.
+  Sign-up works like an invite: the account is created with an unusable random password and the emailed
+  set-password link is the only way to choose one (which also verifies the email). New and existing emails get
+  the same answer and email, so sign-up reveals nothing and nobody can pre-register someone else's address.
+- Identity Platform tokens with an unverified email are refused (`email_not_verified`), for every password tenant.
+- An email that already signed in with Google cannot also get a password account in the same tenant (and vice
+  versa): `users_tenant_email` refuses it ("account uses another sign-in method").
+
 ### 4.4 Roles
 
 | Role | Scope | Can |

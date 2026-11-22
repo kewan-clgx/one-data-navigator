@@ -52,6 +52,7 @@ code, pre, textarea.mono { font-family: var(--font-mono); }
 .odn-brand-company { font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em; }
 .odn-brand-sep { opacity: 0.5; font-weight: 300; }
 .odn-brand-product { font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.odn-brand-tagline { opacity: 0.75; }
 .odn-brandbar-right { display: flex; align-items: center; gap: 0.9rem; font-size: 0.8rem; }
 .odn-brandbar-right form { display: inline; }
 .odn-brandbar-user { opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 22ch; }
@@ -775,6 +776,27 @@ table.grid.dictionary td.def-cell { min-width: 260px; }
 .odn-signin-card .odn-signin-notice { color: var(--success); background: var(--success-bg); padding: 0.5rem 0.7rem; border-radius: var(--radius); }
 .odn-signin-card p { margin: 0; color: var(--fg-muted); font-size: 0.9rem; line-height: 1.5; }
 .odn-signin-card .odn-btn { align-self: flex-start; }
+.odn-segmented { display: grid; grid-template-columns: 1fr 1fr; border: 1px solid var(--border); border-radius: var(--radius); padding: 3px; gap: 3px; background: var(--surface-alt); }
+.odn-segmented-option {
+  font: inherit; font-size: 0.82rem; font-weight: 600; padding: 0.5rem 0.6rem; cursor: pointer;
+  background: transparent; color: var(--fg-muted); border: 0; border-radius: var(--radius);
+}
+.odn-segmented-option:hover { color: var(--fg); }
+.odn-segmented-option[aria-checked="true"] { background: var(--primary); color: var(--primary-fg); }
+.odn-signin-card .odn-signin-form .odn-btn { align-self: stretch; justify-content: center; }
+.odn-btn--provider { gap: 0.6rem; }
+.odn-signin-or { display: flex; align-items: center; gap: 0.75rem; color: var(--fg-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.odn-signin-or::before, .odn-signin-or::after { content: ""; flex: 1; height: 1px; background: var(--border); }
+.odn-password { position: relative; display: flex; }
+.odn-password input { flex: 1; padding-right: 3.5rem !important; }
+.odn-password-toggle {
+  position: absolute; right: 0.35rem; top: 50%; transform: translateY(-50%);
+  background: transparent; border: 0; font: inherit; font-size: 0.75rem; font-weight: 600; color: var(--fg-muted); cursor: pointer; padding: 0.25rem 0.4rem;
+}
+.odn-password-toggle:hover { color: var(--fg); }
+.odn-signin-hint { font-weight: 400; font-size: 0.75rem; color: var(--fg-muted); }
+.odn-signin-form .odn-signin-forgot { align-self: flex-end; margin-top: -0.4rem; font-size: 0.8rem; }
+.odn-signin-switch { font-size: 0.85rem; }
 
 /* ============ Postgres connection form styles ============ */
 
@@ -878,6 +900,7 @@ textarea.mono {
 @media (max-width: 860px) {
   .odn-brandbar { padding: 0.7rem 1rem; }
   .odn-brandbar-user { display: none; }
+  .odn-brand-tagline { display: none; }
   .odn-main { grid-template-columns: 1fr !important; grid-template-rows: 55vh minmax(0, 1fr); }
   .odn-main--collapsed { grid-template-rows: minmax(0, 1fr); }
   .odn-main > .split-handle { display: none; }

@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     # Google Identity Platform (password sign-in tenants); empty project = disabled.
     idp_project: str = ""
     idp_api_key: str = ""
+    # Slug of the tenant personal accounts join (email/password sign-up through its Identity Platform tenant;
+    # personal Google accounts reach it through the issuer's '*' mapping). Empty = no personal email sign-up.
+    personal_tenant: str = ""
     # Branded invite/reset emails via Resend (odn.platform.mailer); no key = Identity Platform's own emails.
     public_url: str = ""  # app origin used in email links, e.g. https://app.querymuse.ai
     resend_api_key: str = ""

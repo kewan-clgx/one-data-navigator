@@ -31,6 +31,7 @@ const FAILURE_LABELS: Record<string, string> = {
   not_invited: "not invited",
   account_disabled: "account disabled",
   organization_suspended: "organization suspended",
+  email_not_verified: "email not verified",
   email_not_allowed: "email not allowed",
   other_sign_in_method: "account uses another sign-in method",
 };

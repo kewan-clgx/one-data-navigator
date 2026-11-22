@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Literal
 
+import jwt
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
@@ -49,6 +50,7 @@ class ResetIn(BaseModel):
 class ResetOut(BaseModel):
     email: str
     organization: str | None = None
+    personal: bool = False
 
 
 class DiscoverOut(BaseModel):
@@ -63,10 +65,10 @@ class TokensOut(BaseModel):
     expires_in: int
 
 
-def _domain(email: str) -> str:
+def _domain(email: str, what: str = "work email") -> str:
     local, _, domain = email.strip().lower().rpartition("@")
     if not local or "." not in domain:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "enter a valid work email")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"enter a valid {what}")
     return domain
 
 
@@ -156,6 +158,15 @@ def _organization_of(idp_tenant_id: str) -> str | None:
     return row["slug"] if row else None
 
 
+def _link_owner(idp_tenant_id: str, email: str) -> ResetOut:
+    from odn.config import settings
+
+    org = _organization_of(idp_tenant_id)
+    if org is not None and org == settings.personal_tenant:
+        return ResetOut(email=email, personal=True)
+    return ResetOut(email=email, organization=org)
+
+
 @router.post("/reset")
 def reset(body: ResetIn) -> ResetOut:
     """Branded set-password page: without new_password only checks the emailed link, with it sets the password."""
@@ -172,4 +183,101 @@ def reset(body: ResetIn) -> ResetOut:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"{str(exc).capitalize()}.") from None
     except identity_platform.IdentityPlatformError:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Sign-in is temporarily unavailable.") from None
-    return ResetOut(email=email, organization=_organization_of(body.tenant_id))
+    return _link_owner(body.tenant_id, email)
+
+
+# Personal accounts ------------------------------------------------------------------------------------
+# Email + password accounts in the personal tenant's Identity Platform tenant (ODN_PERSONAL_TENANT). Personal
+# Google accounts need no endpoint: they use the OIDC redirect and land in the issuer's '*' fallback tenant.
+
+PERSONAL_UNAVAILABLE = "Personal accounts aren't available yet. Use Google or your enterprise account."
+CHECK_INBOX = "Check your inbox: we've sent a link to set your password and finish creating your account."
+NOT_VERIFIED = "Finish creating your account with the link we emailed you, or use “Forgot password?” for a new one."
+
+_signup_limit = RateLimiter(limit=5, window_s=60 * 60)
+
+
+class PersonalEmailIn(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+
+
+class PersonalPasswordIn(PersonalEmailIn):
+    password: str = Field(min_length=1, max_length=256)
+
+
+class SignUpIn(PersonalEmailIn):
+    name: str | None = Field(default=None, max_length=200)
+
+
+def _personal_tenant() -> dict:
+    from odn.config import settings
+
+    if not (settings.personal_tenant and identity_platform.enabled()):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, PERSONAL_UNAVAILABLE)
+    with system_transaction() as conn:
+        row = conn.execute("SELECT * FROM odn_personal_tenant(%s)", (settings.personal_tenant,)).fetchone()
+    if row is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, PERSONAL_UNAVAILABLE)
+    return row
+
+
+def _email_verified(id_token: str) -> bool:
+    # Read without signature checks: the token came straight from Identity Platform over TLS, and the API
+    # verifies it on every request anyway.
+    try:
+        return jwt.decode(id_token, options={"verify_signature": False}).get("email_verified") is True
+    except jwt.PyJWTError:
+        return False
+
+
+@router.post("/personal/signup", status_code=status.HTTP_202_ACCEPTED)
+def personal_signup(body: SignUpIn) -> dict[str, str]:
+    """Like an invite: the account starts with an unusable password and whoever opens the emailed link sets it.
+
+    New and existing emails get the same answer and the same email (no enumeration, no pre-registration takeover).
+    """
+    _domain(body.email, "email address")
+    email = body.email.strip().lower()
+    if not _signup_limit.allow(email):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, TOO_MANY)
+    tenant = _personal_tenant()
+    if _email_limit.allow(email):
+        try:
+            identity_platform.invite(
+                tenant["idp_tenant_id"], email, display_name=(body.name or "").strip() or None, signup=True
+            )
+        except identity_platform.IdentityPlatformError:
+            raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Sign-up is temporarily unavailable.") from None
+    return {"detail": CHECK_INBOX}
+
+
+@router.post("/personal/password")
+def personal_password(body: PersonalPasswordIn) -> TokensOut:
+    email = body.email.strip().lower()
+    tenant = _personal_tenant()
+    if not _password_limit.allow(email):
+        record_auth_failure(tenant["tenant_id"], email, "too_many_attempts", "password")
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, TOO_MANY)
+    try:
+        tokens = identity_platform.sign_in(tenant["idp_tenant_id"], email, body.password)
+    except identity_platform.SignInFailed:
+        record_auth_failure(tenant["tenant_id"], email, "wrong_password_or_inactive", "password", dedupe=False)
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, SIGN_IN_FAILED) from None
+    except identity_platform.IdentityPlatformError:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Sign-in is temporarily unavailable.") from None
+    if not _email_verified(tokens.id_token):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, NOT_VERIFIED)
+    return TokensOut(id_token=tokens.id_token, refresh_token=tokens.refresh_token, expires_in=tokens.expires_in)
+
+
+@router.post("/personal/forgot", status_code=status.HTTP_202_ACCEPTED)
+def personal_forgot(body: PersonalEmailIn) -> dict[str, str]:
+    message = {"detail": "If the account exists, a reset link is on its way."}
+    email = body.email.strip().lower()
+    tenant = _personal_tenant()
+    if _email_limit.allow(email):
+        try:
+            identity_platform.send_password_email(tenant["idp_tenant_id"], email)
+        except identity_platform.IdentityPlatformError:
+            pass
+    return message

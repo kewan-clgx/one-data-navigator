@@ -2,6 +2,7 @@
 
 import uuid
 
+import jwt
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
@@ -25,7 +26,7 @@ def client(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(settings, "database_url", APP_URL)
     monkeypatch.setattr(settings, "idp_project", "proj")
     monkeypatch.setattr(settings, "idp_api_key", "key")
-    for name in ("_discover_limit", "_password_limit", "_email_limit"):
+    for name in ("_discover_limit", "_password_limit", "_email_limit", "_signup_limit"):
         old = getattr(auth_routes, name)
         monkeypatch.setattr(auth_routes, name, RateLimiter(old.limit, old.window_s))
     pool.cache_clear()
@@ -136,8 +137,82 @@ def test_set_password_link(client: TestClient, orgs: str, monkeypatch: pytest.Mo
     monkeypatch.setattr(identity_platform, "check_reset_code", check)
     monkeypatch.setattr(identity_platform, "confirm_reset", confirm)
     base = {"oob_code": "abcdefghijkl", "tenant_id": f"idp-{s}"}
-    assert client.post("/v1/auth/reset", json=base).json() == {"email": f"new@pw-{s}.com", "organization": f"pw-{s}"}
+    assert client.post("/v1/auth/reset", json=base).json() == {
+        "email": f"new@pw-{s}.com", "organization": f"pw-{s}", "personal": False}
     assert client.post("/v1/auth/reset", json={**base, "new_password": "weak"}).status_code == 422
     assert client.post("/v1/auth/reset", json={**base, "new_password": "Strong-Pass-123"}).status_code == 200
     assert client.post("/v1/auth/reset", json={**base, "oob_code": "used-abcdefgh"}).status_code == 410
     assert client.post("/v1/auth/reset", json={**base, "tenant_id": "bad id!"}).status_code == 422
+
+
+@pytest.fixture
+def personal(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    suffix = uuid.uuid4().hex[:8]
+    tid = upsert_tenant(OWNER_URL, f"me-{suffix}", "Personal", auth="google", join="domain",
+                        idp_tenant_id=f"idp-me-{suffix}")
+    monkeypatch.setattr(settings, "personal_tenant", f"me-{suffix}")
+    yield f"idp-me-{suffix}"
+    with psycopg.connect(OWNER_URL) as conn:
+        conn.execute("DELETE FROM tenants WHERE id = %s", (tid,))
+
+
+def _id_token(verified: bool) -> str:
+    return jwt.encode({"email_verified": verified}, "test-secret-not-used-for-verification", algorithm="HS256")
+
+
+def test_personal_signup_only_emails_a_set_password_link(
+    client: TestClient, personal: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    invited = []
+    monkeypatch.setattr(identity_platform, "invite", lambda idp, e, **kw: invited.append((idp, e, kw)))
+    for body in ({"email": "New@Example.org", "name": " Pat "}, {"email": "taken@example.org"}):
+        resp = client.post("/v1/auth/personal/signup", json=body)
+        assert (resp.status_code, resp.json()) == (202, {"detail": auth_routes.CHECK_INBOX})
+    assert invited == [
+        (personal, "new@example.org", {"display_name": "Pat", "signup": True}),
+        (personal, "taken@example.org", {"display_name": None, "signup": True}),
+    ]
+    assert client.post("/v1/auth/personal/signup", json={"email": "not-an-email"}).status_code == 422
+
+
+def test_personal_sign_up_is_closed_unless_the_tenant_is_open(
+    client: TestClient, personal: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    body = {"email": "a@example.org"}
+    monkeypatch.setattr(identity_platform, "invite", lambda *a, **kw: pytest.fail("must not create accounts"))
+    add_domain(OWNER_URL, settings.personal_tenant, f"{settings.personal_tenant}.org", attest=True)
+    assert client.post("/v1/auth/personal/signup", json=body).status_code == 404
+    monkeypatch.setattr(settings, "personal_tenant", "")
+    assert client.post("/v1/auth/personal/signup", json=body).status_code == 404
+
+
+def test_personal_password_sign_in_requires_a_verified_email(
+    client: TestClient, personal: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    verified = {"pat@example.org": True, "new@example.org": False}
+
+    def sign_in(idp: str, email: str, password: str):
+        assert idp == personal
+        if password != "right":
+            raise identity_platform.SignInFailed("x")
+        return identity_platform.Tokens(_id_token(verified[email]), "refresh", 3600)
+
+    monkeypatch.setattr(identity_platform, "sign_in", sign_in)
+    ok = client.post("/v1/auth/personal/password", json={"email": "Pat@example.org", "password": "right"})
+    assert ok.status_code == 200 and ok.json()["refresh_token"] == "refresh"
+    wrong = client.post("/v1/auth/personal/password", json={"email": "pat@example.org", "password": "nope"})
+    assert (wrong.status_code, wrong.json()["detail"]) == (401, auth_routes.SIGN_IN_FAILED)
+    unverified = client.post("/v1/auth/personal/password", json={"email": "new@example.org", "password": "right"})
+    assert (unverified.status_code, unverified.json()["detail"]) == (403, auth_routes.NOT_VERIFIED)
+
+
+def test_personal_reset_links_are_reported_as_personal(
+    client: TestClient, personal: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sent = []
+    monkeypatch.setattr(identity_platform, "send_password_email", lambda idp, e, **kw: sent.append((idp, e)))
+    assert client.post("/v1/auth/personal/forgot", json={"email": "pat@example.org"}).status_code == 202
+    assert sent == [(personal, "pat@example.org")]
+    monkeypatch.setattr(identity_platform, "check_reset_code", lambda idp, code: "pat@example.org")
+    ok = client.post("/v1/auth/reset", json={"oob_code": "abcdefghijkl", "tenant_id": personal})
+    assert ok.json() == {"email": "pat@example.org", "organization": None, "personal": True}

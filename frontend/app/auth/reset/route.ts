@@ -10,12 +10,12 @@ export async function POST(req: NextRequest) {
   if (!sameOrigin(req)) return NextResponse.json({ detail: "bad origin" }, { status: 403 });
   const { oobCode, tenantId, newPassword } = (await req.json().catch(() => ({}))) as Record<string, string | undefined>;
   const res = await authApi("reset", { oob_code: oobCode, tenant_id: tenantId, new_password: newPassword ?? null });
-  const body = (await res.json().catch(() => ({}))) as { email?: string; organization?: string | null; detail?: unknown };
+  const body = (await res.json().catch(() => ({}))) as { email?: string; organization?: string | null; personal?: boolean; detail?: unknown };
   if (!res.ok) {
     const detail = typeof body.detail === "string" ? body.detail : "This link can't be used. Ask for a new one.";
     return NextResponse.json({ detail }, { status: res.status });
   }
-  const reply = NextResponse.json({ email: body.email, organization: body.organization ?? null });
+  const reply = NextResponse.json({ email: body.email, organization: body.organization ?? null, personal: Boolean(body.personal) });
   if (newPassword && body.organization) reply.cookies.set(ORG_COOKIE, body.organization, cookieOptions(365 * 24 * 3600));
   return reply;
 }

@@ -11,7 +11,7 @@ import { ORG_COOKIE } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
-export default async function Home() {
+export default async function Home({ searchParams }: { searchParams: Record<string, string | undefined> }) {
   const identity = await currentIdentity();
   if (identity.kind === "expired") redirect("/auth/refresh");
   // Back to the shared conversation the user opened before signing in (cookie set by /s/[id]; cleared there).
@@ -34,8 +34,10 @@ export default async function Home() {
           <section className="odn-signin-main">
             <div className="odn-signin-card">
               <h1>Welcome to {theme.product}</h1>
-              <p>Sign in with your organization and work email.</p>
-              <SignInForm defaultOrganization={cookies().get(ORG_COOKIE)?.value} />
+              <SignInForm
+                defaultOrganization={cookies().get(ORG_COOKIE)?.value}
+                defaultAccountType={searchParams.account === "personal" ? "personal" : "enterprise"}
+              />
             </div>
           </section>
         </main>

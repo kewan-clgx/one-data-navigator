@@ -16,6 +16,8 @@ export type Theme = {
   /** Company wordmark shown in the brand bar. */
   company: string;
   product: string;
+  /** Short line after the product name in the brand bar and the browser title. */
+  tagline?: string;
   /** Small label next to the product name, e.g. "Beta". */
   tag?: string;
   /** Browser UI colour (mobile address bar). */
@@ -26,7 +28,8 @@ export type Theme = {
 const cotality: Theme = {
   id: "cotality",
   company: "cotality",
-  product: "QueryMuse",
+  product: "QueryMuse.AI",
+  tagline: "Your AI Data Analyst",
   tag: "Beta",
   themeColor: "#1e1405",
   about: [
@@ -67,7 +70,9 @@ export const DEFAULT_THEME_ID = "cotality";
 /** The tenant name to show next to the product, or none when it is the product itself (QueryMuse staff). */
 export function brandCompanyLabel(theme: Theme, company: string | null | undefined): string | undefined {
   const name = company?.trim();
-  return name && name.toLowerCase() !== theme.product.toLowerCase() ? name : undefined;
+  // QueryMuse staff belong to the "QueryMuse" tenant; don't repeat it next to "QueryMuse.AI".
+  const bare = (s: string) => s.toLowerCase().replace(/\.ai$/, "");
+  return name && bare(name) !== bare(theme.product) ? name : undefined;
 }
 
 export function resolveTheme(id: string | undefined): Theme {

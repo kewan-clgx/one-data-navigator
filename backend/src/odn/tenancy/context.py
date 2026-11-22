@@ -81,6 +81,9 @@ def resolve_context(token: VerifiedToken) -> RequestContext:
 
     if tenant["status"] != "active":
         raise deny("organization_suspended", "this organization is suspended")
+    # Password accounts prove the email through an emailed link (invite, reset or personal sign-up verification).
+    if method == "password" and not token.email_verified:
+        raise deny("email_not_verified", "verify your email address first, using the link we emailed you")
     if tenant["has_domains"] and not (token.email_verified and tenant["domain_ok"]):
         raise deny("domain_not_allowed", "your email is not on one of this organization's verified domains")
     if tenant["fallback"] and not email_allowed(token.email, token.email_verified, _fallback_allowlist()):

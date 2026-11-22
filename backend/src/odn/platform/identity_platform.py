@@ -95,7 +95,7 @@ def _reset_call(body: dict[str, Any]) -> dict[str, Any]:
         return _key_call("accounts:resetPassword", body)
     except IdentityPlatformError as exc:
         code = str(exc)
-        if code.startswith(("EXPIRED_OOB_CODE", "INVALID_OOB_CODE", "USER_DISABLED", "USER_NOT_FOUND")):
+        if code.startswith(("EXPIRED_OOB_CODE", "INVALID_OOB_CODE", "INVALID_TENANT_ID", "USER_DISABLED", "USER_NOT_FOUND")):
             raise ResetLinkInvalid("this link has expired or was already used") from None
         if code.startswith(("PASSWORD_DOES_NOT_MEET_REQUIREMENTS", "WEAK_PASSWORD")):
             missing = code.partition("[")[2].rstrip("]").strip()
@@ -125,7 +125,7 @@ def password_link(idp_tenant_id: str, email: str) -> str:
     return f"{settings.public_url.rstrip('/')}/auth/action?{query}"
 
 
-def _send_branded(idp_tenant_id: str, email: str, invite: bool, org_name: str | None) -> bool:
+def _send_branded(idp_tenant_id: str, email: str, invite: bool, org_name: str | None, signup: bool) -> bool:
     """True when sent (or the account does not exist); False means fall back to Identity Platform's email."""
     try:
         link = password_link(idp_tenant_id, email)
@@ -138,18 +138,20 @@ def _send_branded(idp_tenant_id: str, email: str, invite: bool, org_name: str | 
         log.warning("branded email: link generation failed (%s); using Identity Platform email", type(exc).__name__)
         return False
     try:
-        mailer.send(email, *auth_emails.password_email(link, invite=invite, org_name=org_name))
+        mailer.send(email, *auth_emails.password_email(link, invite=invite, org_name=org_name, signup=signup))
     except Exception as exc:  # noqa: BLE001 - any failure falls back to Identity Platform's email
         log.warning("branded email: send failed (%s); using Identity Platform email", exc)
         return False
     return True
 
 
-def send_password_email(idp_tenant_id: str, email: str, *, invite: bool = False, org_name: str | None = None) -> None:
+def send_password_email(
+    idp_tenant_id: str, email: str, *, invite: bool = False, org_name: str | None = None, signup: bool = False
+) -> None:
     """Email a set/reset-password link. Silent for unknown emails (no enumeration).
 
     Branded through our mail provider when configured, else (or if that fails) Identity Platform's email."""
-    if mailer.enabled() and _send_branded(idp_tenant_id, email, invite, org_name):
+    if mailer.enabled() and _send_branded(idp_tenant_id, email, invite, org_name, signup):
         return
     try:
         _key_call("accounts:sendOobCode", {"requestType": "PASSWORD_RESET", "email": email, "tenantId": idp_tenant_id})
@@ -158,19 +160,23 @@ def send_password_email(idp_tenant_id: str, email: str, *, invite: bool = False,
             raise
 
 
-def invite(idp_tenant_id: str, email: str, *, org_name: str | None = None) -> None:
+def invite(
+    idp_tenant_id: str, email: str, *, org_name: str | None = None, display_name: str | None = None,
+    signup: bool = False,
+) -> None:
     """Create the IdP account (unusable random password) if needed, then email the set-password link.
 
-    Setting the password through the link marks the email verified, which is what lets the invited user in."""
+    Setting the password through the link marks the email verified, which is what lets the invited user in.
+    Personal sign-up (signup=True) uses the same flow, so only whoever controls the inbox can choose the password."""
+    body = {"email": email, "password": secrets.token_urlsafe(32) + "aA1", "tenantId": idp_tenant_id}
+    if display_name:
+        body["displayName"] = display_name
     try:
-        _key_call(
-            "accounts:signUp",
-            {"email": email, "password": secrets.token_urlsafe(32) + "aA1", "tenantId": idp_tenant_id},
-        )
+        _key_call("accounts:signUp", body)
     except IdentityPlatformError as exc:
         if "EMAIL_EXISTS" not in str(exc):
             raise
-    send_password_email(idp_tenant_id, email, invite=True, org_name=org_name)
+    send_password_email(idp_tenant_id, email, invite=not signup, org_name=org_name, signup=signup)
 
 
 # Admin calls ------------------------------------------------------------------------------------------
