@@ -217,13 +217,15 @@ Rules:
 ### 4.3a Personal accounts
 
 The sign-in card has an **Enterprise / Personal** switch (enterprise by default; `/?account=personal` opens the
-personal tab). Personal accounts all join one operator-chosen tenant, `ODN_PERSONAL_TENANT` (prod: `datahop`):
+personal tab). Personal accounts all join one operator-chosen tenant, `ODN_PERSONAL_TENANT` (prod: `personal`,
+which is also the Google issuer's `'*'` tenant). Anyone can join it, so it must hold no shared connections:
 
 - **Google**: "Continue with Google" is the normal OIDC redirect with `prompt=select_account`; a personal Google
   account has no `hd` and lands in the issuer's `'*'` fallback tenant (subject to `ODN_OIDC_DEFAULT_TENANT_EMAILS`).
 - **Email + password** (`/v1/auth/personal/{signup,password,forgot}`): the tenant needs an Identity Platform tenant,
   `join_policy = domain` and no domains, else sign-up is closed (`odn_personal_tenant`, migration 0021):
-  `provision tenant datahop --name QueryMuse --join domain --create-idp-tenant`.
+  `provision tenant personal --name Personal --join domain --create-idp-tenant`, then
+  `provision idp personal https://accounts.google.com '*'`.
   Sign-up works like an invite: the account is created with an unusable random password and the emailed
   set-password link is the only way to choose one (which also verifies the email). New and existing emails get
   the same answer and email, so sign-up reveals nothing and nobody can pre-register someone else's address.

@@ -49,8 +49,11 @@ Prerequisites: `gcloud` authenticated as an owner/editor of `datahop-514819`, an
    deploy/deploy.sh env deploy/.env.prod
    ```
 
-   - `ODN_OIDC_DEFAULT_TENANT_EMAILS`: anyone with a Google account can sign in to the `datahop` tenant
-     and use the managed LLM budget unless you list allowed emails/`@domains` here.
+   - `ODN_OIDC_DEFAULT_TENANT_EMAILS`: anyone with a Google account can sign in to the issuer's `'*'` tenant
+     (prod: `personal`) and use the managed LLM budget unless you list allowed emails/`@domains` here.
+   - `ODN_PERSONAL_TENANT`: tenant for email/password personal sign-up (prod: `personal`, created with
+     `deploy/deploy.sh provision tenant personal --name Personal --join domain --create-idp-tenant`). Keep it
+     free of shared connections: anyone can join it.
    - `LITELLM_MODEL`: use a model ID from the Gemini API with the `gemini/` prefix (for example
      `gemini/gemini-3.5-flash`). Names such as `gemini-3.5-flash-genaicenter-us` are corporate-proxy aliases
      and do not exist in the public Gemini API.
