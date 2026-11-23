@@ -68,7 +68,7 @@ class ConnectionInput(BaseModel):
 
 class ConnectionProfile(ConnectionInput):
     id: UUID
-    tenant_id: UUID
+    tenant_id: UUID | None
     secret_ref: str | None = None  # type: ignore[assignment]
     owner_user_id: UUID | None = None
     secret_ciphertext: bytes | None = Field(default=None, repr=False, exclude=True)
@@ -79,13 +79,13 @@ class ConnectionProfile(ConnectionInput):
         return self.owner_user_id is not None
 
 
-def _secret_aad(tenant_id: UUID, owner_user_id: UUID | None, connection_id: UUID) -> str:
+def _secret_aad(tenant_id: UUID | None, owner_user_id: UUID | None, connection_id: UUID) -> str:
     # Shared (organization) connections bind their secret to the tenant only.
-    return f"connection:{tenant_id}:{owner_user_id or 'shared'}:{connection_id}"
+    return f"connection:{tenant_id or 'platform'}:{owner_user_id or 'shared'}:{connection_id}"
 
 
-def _ssh_key_aad(tenant_id: UUID, owner_user_id: UUID | None, connection_id: UUID) -> str:
-    return f"ssh-key:{tenant_id}:{owner_user_id or 'shared'}:{connection_id}"
+def _ssh_key_aad(tenant_id: UUID | None, owner_user_id: UUID | None, connection_id: UUID) -> str:
+    return f"ssh-key:{tenant_id or 'platform'}:{owner_user_id or 'shared'}:{connection_id}"
 
 
 def resolve_ssh_key(profile: ConnectionProfile) -> str | None:
