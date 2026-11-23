@@ -1,6 +1,14 @@
 # Plan: move production from querymuse.ai to easyquery.ai
 
-**Status:** evaluation / checklist, not started (2026-11-23).
+**Status:** ✅ **switched 2026-11-23** — production serves `https://easyquery.ai` (release `6381c3b`); `www.` and
+`app.easyquery.ai`, `querymuse.ai`, `www.querymuse.ai` and `app.querymuse.ai` redirect with the path kept; certificates
+issued for easyquery.ai, www, app and insights. Google sign-in redirect and Identity Platform domain added. Prod
+`.env` backup: `/opt/odn/shared/.env.bak-20261123-230816` (rollback: restore it and `deploy/deploy.sh up`).
+**Open:** (1) the production Resend key may only send from querymuse.ai (403 for easyquery.ai), so mail still goes
+from `noreply@querymuse.ai` until a key allowed for easyquery.ai is stored in `odn-resend-api-key` and
+`ODN_MAIL_FROM` is changed; (2) Google consent-screen home/privacy/terms links → easyquery.ai (starts re-review);
+(3) Collibra browser-mode users reload extension 0.3.0; (4) `insights.querymuse.ai` never had DNS, so no legacy
+redirect for it.
 **Goal:** clients land on the app at the **apex `https://easyquery.ai`** (no `app.` prefix); `www.easyquery.ai` and
 `app.easyquery.ai` redirect to it; public wall at `insights.easyquery.ai`; same VM (`136.71.108.203`). Every existing
 `querymuse.ai` link, bookmark and email keeps working through permanent redirects.
