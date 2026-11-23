@@ -288,7 +288,7 @@ def check_wall(s: dict[str, bool], audience: str, wall: Wall) -> None:
             raise ShareError("Only links your whole organization can open can go on its Insight Wall.", 422)
     elif wall == "public":
         if not (s["enabled"] and s["public_links"] and s["public_wall"]):
-            raise ShareError("Your organization doesn't allow posting to the public QueryMuse Insight Wall.", 403)
+            raise ShareError("Your organization doesn't allow posting to the public EasyQuery Insight Wall.", 403)
         if audience != "public":
             raise ShareError("Only links anyone can open can go on the public Insight Wall.", 422)
 

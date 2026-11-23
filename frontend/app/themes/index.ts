@@ -28,7 +28,7 @@ export type Theme = {
 const cotality: Theme = {
   id: "cotality",
   company: "cotality",
-  product: "QueryMuse.AI",
+  product: "EasyQuery",
   tagline: "Your AI Data Analyst",
   tag: "Beta",
   themeColor: "#1e1405",
@@ -67,10 +67,10 @@ export const THEMES: Record<string, Theme> = { cotality };
 
 export const DEFAULT_THEME_ID = "cotality";
 
-/** The tenant name to show next to the product, or none when it is the product itself (QueryMuse staff). */
+/** The tenant name to show next to the product, or none when it is the product itself (EasyQuery staff). */
 export function brandCompanyLabel(theme: Theme, company: string | null | undefined): string | undefined {
   const name = company?.trim();
-  // QueryMuse staff belong to the "QueryMuse" tenant; don't repeat it next to "QueryMuse.AI".
+  // EasyQuery staff belong to the "EasyQuery" tenant; don't repeat it next to the product name.
   const bare = (s: string) => s.toLowerCase().replace(/\.ai$/, "");
   return name && bare(name) !== bare(theme.product) ? name : undefined;
 }

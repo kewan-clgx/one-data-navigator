@@ -295,7 +295,7 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
           )}
           <p className="muted">
             {preview.public_links
-              ? "Anyone with the link can open this summary without signing in. Asking a follow-up needs a QueryMuse sign-in."
+              ? "Anyone with the link can open this summary without signing in. Asking a follow-up needs a EasyQuery sign-in."
               : "Your organization requires people to sign in to open shared links."}
           </p>
           {walls.length > 1 && (

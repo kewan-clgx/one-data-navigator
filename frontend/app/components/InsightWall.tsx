@@ -53,7 +53,7 @@ type Props = {
   initial?: { items: WallCard[]; sort: WallSort; q: string; offset: number };
 };
 
-/** Shared answers posted to the organization's wall or the public QueryMuse wall, ranked Hot / New / Top. */
+/** Shared answers posted to the organization's wall or the public EasyQuery wall, ranked Hot / New / Top. */
 export default function InsightWall({ appUrl, signedIn, organization, initial }: Props) {
   const ids = useId();
   const [scope, setScope] = useState<WallScope>("organization");

@@ -13,7 +13,7 @@ from odn.platform.sharing.service import ShareError
 from odn.tenancy.context import RequestContext
 
 router = APIRouter(prefix="/v1/wall")
-# No sign-in: the public QueryMuse wall (odn_public_wall decides what is listed).
+# No sign-in: the public EasyQuery wall (odn_public_wall decides what is listed).
 public_router = APIRouter(prefix="/v1/public/wall")
 Admin = Annotated[RequestContext, Depends(require_admin)]
 ShareId = Annotated[str, Path(pattern=r"^[A-Za-z0-9_-]{22}$")]

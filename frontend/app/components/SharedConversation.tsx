@@ -125,7 +125,7 @@ export default function SharedConversation({ shareId, fallback }: { shareId: str
       <div className="shared-page">
         <h1>Can&apos;t open this conversation</h1>
         <p>{error}</p>
-        <p><a className="odn-btn" href="/">Go to QueryMuse</a></p>
+        <p><a className="odn-btn" href="/">Go to EasyQuery</a></p>
       </div>
     );
   }
@@ -144,7 +144,7 @@ export default function SharedConversation({ shareId, fallback }: { shareId: str
         </p>
         <p className="muted">A read-only copy of the conversation as it was when shared.</p>
         <div className="settings-actions">
-          <a className="odn-btn odn-btn--outline" href="/">Back to QueryMuse</a>
+          <a className="odn-btn odn-btn--outline" href="/">Back to EasyQuery</a>
         </div>
       </header>
       <Transcript messages={share.messages} />

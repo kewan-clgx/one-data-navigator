@@ -15,7 +15,7 @@ from odn.agent.agent import CONTINUED_STATE_KEY, TITLE_STATE_KEY, build_root_age
 from odn.agent.identity import BearerAuthMiddleware, user_key
 from odn.config import settings
 
-app = FastAPI(title="QueryMuse Agent Runtime")
+app = FastAPI(title="EasyQuery Agent Runtime")
 app.add_middleware(BearerAuthMiddleware)
 
 

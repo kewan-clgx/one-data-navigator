@@ -1,21 +1,21 @@
-# QueryMuse Collibra Bridge (browser extension, prototype)
+# EasyQuery Collibra Bridge (browser extension, prototype)
 
-Lets QueryMuse's agent read the Collibra catalog **with your own Collibra sign-in in this browser**. QueryMuse
-needs no Collibra configuration or service account, nothing is stored by QueryMuse, and Collibra applies your own
-permissions. It is the stopgap until Collibra trusts QueryMuse's token issuer (option A,
+Lets EasyQuery's agent read the Collibra catalog **with your own Collibra sign-in in this browser**. EasyQuery
+needs no Collibra configuration or service account, nothing is stored by EasyQuery, and Collibra applies your own
+permissions. It is the stopgap until Collibra trusts EasyQuery's token issuer (option A,
 [docs/collibra_int_phase5_plan.md](../../docs/collibra_int_phase5_plan.md)).
 
 ## Install (Chrome or Edge, developer mode)
 
-Your QueryMuse admin first adds the organization's Collibra in **Settings → Collibra data catalog** (browser mode).
+Your EasyQuery admin first adds the organization's Collibra in **Settings → Collibra data catalog** (browser mode).
 Then each user:
 
 1. Downloads the zip from **Settings → Collibra** (or the Collibra tab, or the link the assistant gives):
-   `https://app.querymuse.ai/downloads/querymuse-collibra-bridge.zip`, and unzips it.
+   `https://easyquery.ai/downloads/easyquery-collibra-bridge.zip`, and unzips it.
 2. Opens `chrome://extensions` (or `edge://extensions`), turns on **Developer mode**, clicks **Load unpacked** and
    chooses the unzipped `querymuse-collibra-bridge` folder.
 3. Signs in to Collibra in the **same browser profile** as usual (SSO/MFA).
-4. Reloads QueryMuse and uses the **Collibra** tab or asks, e.g. *"Using Collibra, what is the definition of
+4. Reloads EasyQuery and uses the **Collibra** tab or asks, e.g. *"Using Collibra, what is the definition of
    Corporate Revenue?"*
 
 The extension uses the Collibra address your admin configured; its own setting (icon → address) is only a
@@ -26,7 +26,7 @@ If Collibra says you are not signed in, open the Collibra address in a tab, sign
 ## How it works
 
 ```
-QueryMuse agent (server) ─ tool call ─▶ QueryMuse page (your browser) ─postMessage─▶ content script
+EasyQuery agent (server) ─ tool call ─▶ EasyQuery page (your browser) ─postMessage─▶ content script
    ▲                                                                                  │ chrome.runtime
    └──────────── tool result (catalog metadata) ◀── page ◀── service worker ─GET─▶ Collibra (your session)
 ```
@@ -46,7 +46,7 @@ QueryMuse agent (server) ─ tool call ─▶ QueryMuse page (your browser) ─p
 npm test        # request-policy tests (node --test)
 ```
 
-End to end (2026-11-19): local QueryMuse + this extension in Playwright Chromium + a fake Collibra that requires
+End to end (2026-11-19): local EasyQuery + this extension in Playwright Chromium + a fake Collibra that requires
 a browser session cookie and redirects to a login page otherwise. Verified: not-signed-in detection, refused
 paths, session cookie sent after sign-in, and a chat answer built only from Collibra data via the
 `collibra_browser_*` tools. Verified on the real `corelogic.collibra.com` tenant the same day after SSO sign-in.

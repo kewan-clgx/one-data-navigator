@@ -13,10 +13,10 @@ import { SHARE_ID, forReport, highlight } from "@/lib/share";
 export const dynamic = "force-dynamic";
 
 const PRIVATE: Metadata = {
-  title: "QueryMuse — shared answer",
-  description: "An answer shared on QueryMuse. Sign in to view.",
+  title: "EasyQuery — shared answer",
+  description: "An answer shared on EasyQuery. Sign in to view.",
   robots: { index: false, follow: false },
-  openGraph: { title: "QueryMuse — shared answer", description: "Sign in to view.", siteName: "QueryMuse" },
+  openGraph: { title: "EasyQuery — shared answer", description: "Sign in to view.", siteName: "EasyQuery" },
 };
 
 // Teams/Slack fetch the link without signing in to build a preview. Only "anyone with the link" shares (allowed by
@@ -26,13 +26,13 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
   if (!share) return PRIVATE;
   const title = share.title;
   const answer = [...share.messages].reverse().find((m) => m.role === "assistant")?.content ?? "";
-  const description = highlight(answer, 200) || `Shared by ${share.owner_name} on QueryMuse`;
+  const description = highlight(answer, 200) || `Shared by ${share.owner_name} on EasyQuery`;
   return {
-    title: `${title} — QueryMuse`,
+    title: `${title} — EasyQuery`,
     description,
     robots: { index: false, follow: false },
     openGraph: {
-      title, description, siteName: "QueryMuse", type: "article",
+      title, description, siteName: "EasyQuery", type: "article",
       images: [{ url: `/s/${share.id}/image`, width: 1200, height: 630, alt: title }],
     },
     twitter: { card: "summary_large_image", title, description, images: [`/s/${share.id}/image`] },

@@ -1,5 +1,5 @@
 // Service worker: performs allowlisted, read-only Collibra GETs with the user's own Collibra browser session.
-// Accepts messages only from this extension's content script running on a QueryMuse page. Cookies are sent by
+// Accepts messages only from this extension's content script running on a EasyQuery page. Cookies are sent by
 // the browser and never read, returned or stored by the extension.
 
 import { APP_ORIGINS, DEFAULT_BASE_URL, checkRequest, validBaseUrl } from "./policy.js";
@@ -34,7 +34,7 @@ async function redirectTarget(url) {
 }
 
 async function collibraGet(path, params, requestedBase) {
-  // The organization's Collibra address comes from QueryMuse (admin setting); it must still be a Collibra origin.
+  // The organization's Collibra address comes from EasyQuery (admin setting); it must still be a Collibra origin.
   const base = requestedBase ? validBaseUrl(requestedBase) : await baseUrl();
   if (!base) return { ok: false, error: "refused", message: "Not a Collibra address (https://<name>.collibra.com)." };
   let relative;

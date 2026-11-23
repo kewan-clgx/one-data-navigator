@@ -19,7 +19,7 @@ export const WALL_SORTS: { id: WallSort; label: string }[] = [
   { id: "new", label: "New" },
   { id: "top", label: "Top" },
 ];
-export const PUBLIC_WALL_NAME = "QueryMuse public Insight Wall";
+export const PUBLIC_WALL_NAME = "EasyQuery public Insight Wall";
 export const PAGE_SIZE = 30;
 
 export function isSort(v: string | undefined): v is WallSort {

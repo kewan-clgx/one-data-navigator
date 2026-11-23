@@ -2,7 +2,7 @@
 
 Runs with the owner/migrations role (ODN_MIGRATIONS_DATABASE_URL), e.g. on the VM:
 
-    docker compose ... run --rm api python -m odn.db.provision tenant datahop --name "QueryMuse"
+    docker compose ... run --rm api python -m odn.db.provision tenant datahop --name "EasyQuery"
     docker compose ... run --rm api python -m odn.db.provision connection cotality idap-int \\
         --project clgx-idap-bigquery-int-278e \\
         --secret-ref projects/<p>/secrets/odn-<tenant_id>-bq/versions/latest --allow 'clgx-idap-bigquery-int-278e.ds.*'
@@ -233,8 +233,8 @@ def upsert_collibra(
 ) -> None:
     """Connect a tenant to a Collibra environment (docs/collibra_int_phase5_plan.md).
 
-    With an audience: token mode (Collibra trusts QueryMuse-signed tokens). Without: browser mode (each user's own
-    Collibra sign-in through the QueryMuse Collibra Bridge extension). Admins can also manage this in Settings.
+    With an audience: token mode (Collibra trusts EasyQuery-signed tokens). Without: browser mode (each user's own
+    Collibra sign-in through the EasyQuery Collibra Bridge extension). Admins can also manage this in Settings.
     """
     mode = "token" if audience else "browser"
     with _conn(url) as conn:

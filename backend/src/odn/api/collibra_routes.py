@@ -1,4 +1,4 @@
-"""Collibra catalog API (/v1/collibra/*) and QueryMuse's public JWKS (docs/collibra_int_phase5_plan.md).
+"""Collibra catalog API (/v1/collibra/*) and EasyQuery's public JWKS (docs/collibra_int_phase5_plan.md).
 
 Every call runs as the signed-in user: the client signs a short-lived token for that user's verified work email,
 and Collibra applies that user's permissions. Environments are configured per tenant (RLS) by the operator CLI.
@@ -39,7 +39,7 @@ Offset = Annotated[int, Query(ge=0, le=100_000)]
 
 @jwks_router.get("/.well-known/jwks.json", include_in_schema=False)
 def jwks(response: Response) -> dict[str, Any]:
-    """Public keys for verifying QueryMuse-issued tokens (configured in Collibra as the JWKS URL)."""
+    """Public keys for verifying EasyQuery-issued tokens (configured in Collibra as the JWKS URL)."""
     response.headers["Cache-Control"] = "public, max-age=300"
     return tokens.jwks()
 
@@ -66,7 +66,7 @@ async def _client(ctx: RequestContext, env: str) -> CollibraClient:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
             f"Collibra '{env}' uses each user's own browser sign-in: use the collibra_browser_* tools "
-            "(QueryMuse Collibra Bridge extension).",
+            "(EasyQuery Collibra Bridge extension).",
         )
     return CollibraClient(
         Environment(env=row["env"], base_url=row["base_url"], audience=row["audience"],

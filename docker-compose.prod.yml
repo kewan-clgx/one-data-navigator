@@ -30,8 +30,8 @@ x-prod-backend-env: &prod-backend-env
   # Branded invite/reset emails via Resend (key in Secret Manager); empty = Identity Platform's own emails.
   ODN_PUBLIC_URL: https://${ODN_HOSTNAME:?set in .env}
   ODN_RESEND_API_KEY_SECRET: ${ODN_RESEND_API_KEY_SECRET:-}
-  ODN_MAIL_FROM: ${ODN_MAIL_FROM:-QueryMuse <noreply@querymuse.ai>}
-  ODN_MAIL_REPLY_TO: ${ODN_SUPPORT_EMAIL:-support@querymuse.ai}
+  ODN_MAIL_FROM: ${ODN_MAIL_FROM:-EasyQuery <noreply@easyquery.ai>}
+  ODN_MAIL_REPLY_TO: ${ODN_SUPPORT_EMAIL:-support@easyquery.ai}
   # Collibra (option A): RSA key that signs per-user Collibra tokens; public part at /.well-known/jwks.json.
   ODN_COLLIBRA_SIGNING_KEY_SECRET: ${ODN_COLLIBRA_SIGNING_KEY_SECRET:-}
   ODN_WORKER_TOKEN: ${ODN_WORKER_TOKEN:?set in .env}
@@ -111,7 +111,7 @@ services:
     environment:
       ODN_ENV: prod
       ODN_PUBLIC_URL: https://${ODN_HOSTNAME:?set in .env}
-      ODN_SUPPORT_EMAIL: ${ODN_SUPPORT_EMAIL:-support@querymuse.ai}
+      ODN_SUPPORT_EMAIL: ${ODN_SUPPORT_EMAIL:-support@easyquery.ai}
       ODN_INSIGHTS_HOSTNAME: ${ODN_INSIGHTS_HOSTNAME:-}
       ODN_OIDC_ISSUER: https://accounts.google.com
       ODN_OIDC_PUBLIC_ISSUER: ""

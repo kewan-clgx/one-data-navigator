@@ -46,9 +46,9 @@ export function CollibraSetup({ envs, dark = false }: { envs: CollibraEnv[]; dar
         <>
           <p className={note}>
             {bridge && !bridgeOutdated(bridge)
-              ? `✓ QueryMuse Collibra Bridge v${bridge.version} is installed in this browser.`
+              ? `✓ EasyQuery Collibra Bridge v${bridge.version} is installed in this browser.`
               : bridge
-                ? `The installed QueryMuse Collibra Bridge (v${bridge.version}) is outdated; install v${EXTENSION_MIN_VERSION} or newer.`
+                ? `The installed EasyQuery Collibra Bridge (v${bridge.version}) is outdated; install v${EXTENSION_MIN_VERSION} or newer.`
                 : "Collibra is read with your own Collibra sign-in through a small browser extension. Set it up once:"}
           </p>
           {(!bridge || bridgeOutdated(bridge)) && (
@@ -147,7 +147,7 @@ function EnvironmentForm({ draft, issuer, jwks, onDone }: { draft: Draft; issuer
         </label>
         <label className="connection-share">
           <input type="radio" name={`${ids}-mode`} checked={d.access_mode === "token"} onChange={() => set({ access_mode: "token" })} />{" "}
-          QueryMuse sign-in (no extension; your Collibra admin must trust QueryMuse first)
+          EasyQuery sign-in (no extension; your Collibra admin must trust EasyQuery first)
         </label>
       </fieldset>
       {d.access_mode === "token" && (
@@ -222,7 +222,7 @@ export default function CollibraSettings({ envs, isAdmin }: { envs: CollibraEnv[
           <CollibraSetup envs={envs} />
         </>
       ) : (
-        <p className="muted">Not set up. Add your organization&apos;s Collibra to search definitions and lineage in QueryMuse.</p>
+        <p className="muted">Not set up. Add your organization&apos;s Collibra to search definitions and lineage in EasyQuery.</p>
       )}
       {isAdmin && (
         <>
@@ -230,7 +230,7 @@ export default function CollibraSettings({ envs, isAdmin }: { envs: CollibraEnv[
           <ul className="connection-list">
             {listing?.environments.map((e) => (
               <li key={e.env}>
-                <strong>{e.env}</strong> <span className="badge">{e.access_mode === "token" ? "QueryMuse sign-in" : "Browser extension"}</span>{" "}
+                <strong>{e.env}</strong> <span className="badge">{e.access_mode === "token" ? "EasyQuery sign-in" : "Browser extension"}</span>{" "}
                 <span className="muted">{e.base_url}{e.enabled ? "" : " · disabled"}</span>{" "}
                 <button type="button" className="link" onClick={() => setEditing({
                   env: e.env, base_url: e.base_url, access_mode: e.access_mode, audience: e.audience ?? "",

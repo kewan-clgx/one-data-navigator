@@ -6,7 +6,7 @@ from html import escape
 
 from odn.config import settings
 
-PRODUCT = "QueryMuse"
+PRODUCT = "EasyQuery"
 
 
 def password_email(link: str, *, invite: bool, org_name: str | None, signup: bool = False) -> tuple[str, str, str]:

@@ -22,7 +22,7 @@ document.getElementById("save").addEventListener("click", async () => {
   }
   await chrome.storage.sync.set({ baseUrl: origin });
   input.value = origin;
-  status.textContent = "Saved. Reload QueryMuse to use it.";
+  status.textContent = "Saved. Reload EasyQuery to use it.";
 });
 
 const details = document.getElementById("details");

@@ -2,7 +2,7 @@
 
 /**
  * Collibra in chat (docs/collibra_int_phase5_plan.md). Tells the agent which Collibra environments the organization
- * configured (admin setting) and whether this browser has the QueryMuse Collibra Bridge, and registers the
+ * configured (admin setting) and whether this browser has the EasyQuery Collibra Bridge, and registers the
  * collibra_browser_* tools (AG-UI frontend tools, run in this browser with the user's own Collibra session) for
  * environments in browser mode. Token-mode environments use the server-side collibra_* tools.
  */
@@ -40,13 +40,13 @@ function contextText(envs: CollibraEnv[] | null, bridge: BridgeInfo): string {
     const download = `${window.location.origin}${EXTENSION_DOWNLOAD_URL}`;
     if (!bridge || bridgeOutdated(bridge)) {
       lines.push(
-        `${bridge ? `The installed QueryMuse Collibra Bridge (v${bridge.version}) is outdated` : "The QueryMuse Collibra Bridge browser extension is NOT installed"}, ` +
+        `${bridge ? `The installed EasyQuery Collibra Bridge (v${bridge.version}) is outdated` : "The EasyQuery Collibra Bridge browser extension is NOT installed"}, ` +
           "so browser-mode Collibra is unavailable. If the user asks about Collibra, give these steps briefly " +
           `(download link: ${download}; also in Settings → Collibra): ` +
           extensionSteps(browser[0]).map((s, i) => `${i + 1}. ${s}`).join(" "),
       );
     } else {
-      lines.push(`The QueryMuse Collibra Bridge v${bridge.version} is installed: collibra_browser_* tools read Collibra with the user's own session.`);
+      lines.push(`The EasyQuery Collibra Bridge v${bridge.version} is installed: collibra_browser_* tools read Collibra with the user's own session.`);
     }
   }
   return lines.join(" ");
@@ -92,7 +92,7 @@ export function CollibraBrowserTools({
   useFrontendTool(
     {
       name: "collibra_browser_status",
-      description: "Checks whether the user is signed in to Collibra in this browser (QueryMuse Collibra Bridge).",
+      description: "Checks whether the user is signed in to Collibra in this browser (EasyQuery Collibra Bridge).",
       available,
       parameters: [envParam],
       handler: async ({ environment }: { environment?: string }) => run(() => source(environment).status()),

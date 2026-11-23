@@ -4,8 +4,8 @@ import SiteFrame from "../components/SiteFrame";
 import { appHost, supportEmail } from "@/lib/site";
 
 export const metadata: Metadata = {
-  title: "Privacy policy — QueryMuse",
-  description: "How QueryMuse collects, uses, stores and protects information, including Google user data.",
+  title: "Privacy policy — EasyQuery",
+  description: "How EasyQuery collects, uses, stores and protects information, including Google user data.",
 };
 
 const EFFECTIVE = "November 19, 2026";
@@ -20,9 +20,9 @@ export default function Privacy() {
         <p className="odn-site-muted">Effective {EFFECTIVE}</p>
 
         <p>
-          This policy explains how QueryMuse (&ldquo;QueryMuse&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;) handles
-          information when you use the QueryMuse conversational data analytics platform and website at {appHost()}. QueryMuse is provided to organizations (our customers); if you use it through
-          your employer, your organization controls the data it connects to QueryMuse and the accounts it creates.
+          This policy explains how EasyQuery (&ldquo;EasyQuery&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;) handles
+          information when you use the EasyQuery conversational data analytics platform and website at {appHost()}. EasyQuery is provided to organizations (our customers); if you use it through
+          your employer, your organization controls the data it connects to EasyQuery and the accounts it creates.
         </p>
 
         <h2>Information we collect</h2>
@@ -64,7 +64,7 @@ export default function Privacy() {
         <p>
           When you sign in with Google, we use your Google account&rsquo;s name, email address and identifier only to
           authenticate you and show who is signed in. We do not request access to your Gmail, Drive, Calendar or other
-          Google data. QueryMuse&rsquo;s use and transfer of information received from Google APIs adheres to the{" "}
+          Google data. EasyQuery&rsquo;s use and transfer of information received from Google APIs adheres to the{" "}
           <a href="https://developers.google.com/terms/api-services-user-data-policy">
             Google API Services User Data Policy
           </a>
@@ -74,13 +74,13 @@ export default function Privacy() {
 
         <h2>AI processing</h2>
         <p>
-          To answer a question, QueryMuse sends the question, relevant table and column descriptions, and samples of
+          To answer a question, EasyQuery sends the question, relevant table and column descriptions, and samples of
           query results or uploaded files to an AI model. By default this is Google&rsquo;s Gemini API; if you add
           your own AI-provider key, requests go to that provider under your agreement with them.
         </p>
 
         <h2>Service providers</h2>
-        <p>We share information only with providers that help us run QueryMuse, under contracts that limit their use:</p>
+        <p>We share information only with providers that help us run EasyQuery, under contracts that limit their use:</p>
         <ul>
           <li>Google Cloud (hosting and storage in the United States, sign-in via Identity Platform, Gemini AI models).</li>
           <li>Resend (sending invitation and password-reset emails).</li>
@@ -100,7 +100,7 @@ export default function Privacy() {
         <p>
           Data is stored on Google Cloud in the United States, encrypted in transit (HTTPS) and at rest. Each
           organization&rsquo;s data is kept separate by row-level security in our database and per-organization
-          storage paths. We keep account information and content while the account or organization uses QueryMuse.
+          storage paths. We keep account information and content while the account or organization uses EasyQuery.
           You can delete conversations in the app; to delete your account or your organization&rsquo;s data, contact
           your organization&rsquo;s administrator or write to {mail}. We delete it within 30 days of a verified
           request, except records we must keep for legal or security reasons.
@@ -109,14 +109,14 @@ export default function Privacy() {
         <h2>Your choices and rights</h2>
         <p>
           Depending on where you live, you may have the right to access, correct, delete or export your personal
-          information, or to object to its processing. To make a request, write to {mail}. If you use QueryMuse
-          through your organization, we may refer your request to them. You can revoke QueryMuse&rsquo;s access to
+          information, or to object to its processing. To make a request, write to {mail}. If you use EasyQuery
+          through your organization, we may refer your request to them. You can revoke EasyQuery&rsquo;s access to
           your Google account at any time at{" "}
           <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.
         </p>
 
         <h2>Children</h2>
-        <p>QueryMuse is a business service and is not directed to children under 16.</p>
+        <p>EasyQuery is a business service and is not directed to children under 16.</p>
 
         <h2>Changes</h2>
         <p>

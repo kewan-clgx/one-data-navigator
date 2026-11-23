@@ -25,12 +25,12 @@ class Settings(BaseSettings):
     # personal Google accounts reach it through the issuer's '*' mapping). Empty = no personal email sign-up.
     personal_tenant: str = ""
     # Branded invite/reset emails via Resend (odn.platform.mailer); no key = Identity Platform's own emails.
-    public_url: str = ""  # app origin used in email links, e.g. https://app.querymuse.ai
+    public_url: str = ""  # app origin used in email links, e.g. https://easyquery.ai
     resend_api_key: str = ""
     resend_api_key_secret: str = ""  # Secret Manager version name, e.g. projects/<p>/secrets/<s>/versions/latest
-    mail_from: str = "QueryMuse <noreply@querymuse.ai>"
-    mail_reply_to: str = "support@querymuse.ai"
-    # Collibra (docs/collibra_int_phase5_plan.md): QueryMuse signs short-lived per-user tokens that Collibra trusts
+    mail_from: str = "EasyQuery <noreply@easyquery.ai>"
+    mail_reply_to: str = "support@easyquery.ai"
+    # Collibra (docs/collibra_int_phase5_plan.md): EasyQuery signs short-lived per-user tokens that Collibra trusts
     # through our JWKS (/.well-known/jwks.json). RSA private key PEM, or a Secret Manager version name; local dev
     # without either uses an ephemeral key.
     collibra_signing_key: str = ""

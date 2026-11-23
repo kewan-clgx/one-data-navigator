@@ -112,7 +112,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     return png(new ImageResponse(
       (
         <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", width: "100%", height: "100%", padding: 80, background: PAPER }}>
-          <div style={{ display: "flex", fontSize: 40, fontWeight: 700, color: ACCENT }}>QueryMuse</div>
+          <div style={{ display: "flex", fontSize: 40, fontWeight: 700, color: ACCENT }}>EasyQuery</div>
           <div style={{ display: "flex", fontSize: 56, color: INK, marginTop: 24 }}>Shared answer</div>
           <div style={{ display: "flex", fontSize: 32, color: MUTED, marginTop: 16 }}>Sign in to view</div>
         </div>
@@ -126,7 +126,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     (
       <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", padding: "40px 64px", background: PAPER }}>
         <div style={{ display: "flex", flexShrink: 0, fontSize: 22, color: MUTED }}>
-          <span style={{ color: ACCENT, fontWeight: 700, marginRight: 14 }}>QueryMuse</span>
+          <span style={{ color: ACCENT, fontWeight: 700, marginRight: 14 }}>EasyQuery</span>
           {short(`Shared answer · ${share.organization}`, 60)}
         </div>
         <div style={{ display: "flex", flexShrink: 0, fontSize: visual ? 40 : 54, fontWeight: 700, color: INK, marginTop: 10, lineHeight: 1.15 }}>

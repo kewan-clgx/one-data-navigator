@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 import { config } from "@/lib/config";
 
-/** QueryMuse's public signing keys (from the API), which Collibra uses to verify per-user tokens. */
+/** EasyQuery's public signing keys (from the API), which Collibra uses to verify per-user tokens. */
 export async function GET() {
   try {
     const res = await fetch(`${config.apiUrl}/.well-known/jwks.json`, { cache: "no-store" });

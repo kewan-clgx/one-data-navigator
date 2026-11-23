@@ -13,7 +13,7 @@ g services enable compute.googleapis.com secretmanager.googleapis.com iap.google
 
 echo "== Service account $ODN_VM_SA_EMAIL"
 exists g iam service-accounts describe "$ODN_VM_SA_EMAIL" ||
-  g iam service-accounts create "$ODN_VM_SA" --display-name "QueryMuse VM"
+  g iam service-accounts create "$ODN_VM_SA" --display-name "EasyQuery VM"
 # Connection credentials (e.g. an enterprise client's BigQuery key) live in Secret Manager as odn-<tenant_id>-*.
 g projects add-iam-policy-binding "$GCP_PROJECT" --condition=None --quiet \
   --member "serviceAccount:$ODN_VM_SA_EMAIL" --role roles/secretmanager.secretAccessor >/dev/null

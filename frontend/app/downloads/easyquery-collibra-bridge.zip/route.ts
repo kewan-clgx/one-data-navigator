@@ -7,9 +7,9 @@ export const dynamic = "force-dynamic";
 
 const DIR = path.join(process.cwd(), "extension", "collibra-bridge");
 const FILES = ["manifest.json", "background.js", "content.js", "policy.js", "options.html", "options.js", "README.md"];
-const FOLDER = "querymuse-collibra-bridge";
+const FOLDER = "easyquery-collibra-bridge";
 
-/** The QueryMuse Collibra Bridge extension as a zip to unpack and "Load unpacked" in Chrome/Edge. */
+/** The EasyQuery Collibra Bridge extension as a zip to unpack and "Load unpacked" in Chrome/Edge. */
 export async function GET() {
   try {
     const files = await Promise.all(

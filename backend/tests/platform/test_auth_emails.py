@@ -32,14 +32,14 @@ def test_invite_is_sent_by_us_with_link_to_our_action_page(calls):
     assert calls["admin"][0]["returnOobLink"] is True and calls["key"] == []
     to, subject, html, text = calls["sent"][0]
     assert to == "ann@acme.com"
-    assert subject == "You're invited to Acme <Labs> on QueryMuse"
+    assert subject == "You're invited to Acme <Labs> on EasyQuery"
     link = "https://app.example.com/auth/action?mode=resetPassword&oobCode=CODE1&tenantId=t1"
     assert link in text and "Acme &lt;Labs&gt;" in html and "Acme <Labs>" not in html
 
 
 def test_reset_subject(calls):
     identity_platform.send_password_email("t1", "ann@acme.com")
-    assert calls["sent"][0][1] == "Reset your QueryMuse password"
+    assert calls["sent"][0][1] == "Reset your EasyQuery password"
 
 
 def test_personal_signup_creates_an_unusable_account_and_emails_a_set_password_link(calls):
@@ -47,7 +47,7 @@ def test_personal_signup_creates_an_unusable_account_and_emails_a_set_password_l
     signup = calls["key"][0]
     assert (signup["email"], signup["tenantId"], signup["displayName"]) == ("pat@example.org", "t1", "Pat")
     assert len(signup["password"]) > 40  # random; nobody knows it until the link sets a new one
-    assert calls["sent"][0][1] == "Finish creating your QueryMuse account"
+    assert calls["sent"][0][1] == "Finish creating your EasyQuery account"
 
 
 def test_unknown_email_sends_nothing(calls):

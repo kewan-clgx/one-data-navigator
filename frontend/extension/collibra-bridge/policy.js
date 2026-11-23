@@ -1,4 +1,4 @@
-// Request policy shared by the service worker and the Node tests: which Collibra reads QueryMuse may ask for.
+// Request policy shared by the service worker and the Node tests: which Collibra reads EasyQuery may ask for.
 // Only bounded, read-only REST GETs on a fixed allowlist; everything else is refused before any request is made.
 
 export const DEFAULT_BASE_URL = "https://corelogic.collibra.com";

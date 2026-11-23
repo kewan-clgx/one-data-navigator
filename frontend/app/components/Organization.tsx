@@ -98,7 +98,7 @@ function SharingSection() {
             <input type="checkbox" checked={settings.public_wall} disabled={!settings.enabled || !settings.public_links}
                    onChange={(e) => save({ ...settings, public_wall: e.target.checked })} />
             <span>
-              Allow posting to the <strong>public QueryMuse Insight Wall</strong>{" "}
+              Allow posting to the <strong>public EasyQuery Insight Wall</strong>{" "}
               <span className="muted">— anyone on the internet can find those answers at {wallAddress}. Turning this off takes them down at once.</span>
             </span>
           </label>

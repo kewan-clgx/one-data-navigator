@@ -11,7 +11,7 @@ export default function SignInToView({ path, refused }: { path: string; refused:
       <div className="shared-page">
         <h1>Sign in to view this conversation</h1>
         <p>
-          {refused ?? "Someone shared a QueryMuse conversation with you. Sign in with your organization and work email to open it."}
+          {refused ?? "Someone shared a EasyQuery conversation with you. Sign in with your organization and work email to open it."}
         </p>
         {!refused && (
           <p><button type="button" className="odn-btn" onClick={signIn}>Sign in</button></p>

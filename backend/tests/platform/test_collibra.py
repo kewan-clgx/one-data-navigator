@@ -1,4 +1,4 @@
-"""Collibra option A: QueryMuse-signed per-user tokens, public JWKS, and the read-only REST client."""
+"""Collibra option A: EasyQuery-signed per-user tokens, public JWKS, and the read-only REST client."""
 
 import time
 
@@ -77,7 +77,7 @@ def test_configured_key_has_a_stable_kid_and_prod_requires_one(monkeypatch: pyte
 
 
 def fake_collibra(users: set[str], seen: list[str] | None = None, audience: str = ENV.audience) -> httpx.MockTransport:
-    """A Collibra environment that trusts QueryMuse's JWKS and knows `users`."""
+    """A Collibra environment that trusts EasyQuery's JWKS and knows `users`."""
 
     def handler(request: httpx.Request) -> httpx.Response:
         auth = request.headers.get("Authorization", "")

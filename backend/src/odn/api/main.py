@@ -22,7 +22,7 @@ from odn.api.workspace_routes import router as workspace_router
 from odn.config import settings
 from odn.platform.connectors.ssh_tunnel import TunnelError
 
-app = FastAPI(title="QueryMuse API")
+app = FastAPI(title="EasyQuery API")
 app.add_middleware(GZipMiddleware, minimum_size=2048)
 app.include_router(shared_connections_router)
 app.include_router(router)

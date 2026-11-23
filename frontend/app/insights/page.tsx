@@ -13,14 +13,14 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: `${PUBLIC_WALL_NAME} — answers people shared`,
-  description: "Data questions and answers people shared on QueryMuse: upvote the useful ones and ask your own follow-up.",
+  description: "Data questions and answers people shared on EasyQuery: upvote the useful ones and ask your own follow-up.",
   robots: { index: false, follow: false },
-  openGraph: { title: PUBLIC_WALL_NAME, description: "Data questions and answers people shared on QueryMuse.", siteName: "QueryMuse" },
+  openGraph: { title: PUBLIC_WALL_NAME, description: "Data questions and answers people shared on EasyQuery.", siteName: "EasyQuery" },
 };
 
 /**
  * The Insight Wall. Signed in: the organization's wall and the public one (votes, search, paging in the browser).
- * Signed out (and on insights.querymuse.ai, which never has the app's session): the public wall, rendered here.
+ * Signed out (and on the insights host, which never has the app's session): the public wall, rendered here.
  */
 export default async function InsightsPage({ searchParams }: { searchParams: Record<string, string | undefined> }) {
   const identity = await currentIdentity();

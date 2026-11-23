@@ -55,7 +55,7 @@ export function FollowUpButton({ shareId, signedIn, organization }: { shareId: s
         {busy ? "Opening…" : "Ask a follow-up"}
       </button>
       <span className="muted">
-        {signedIn ? "Opens your own copy of this conversation in QueryMuse." : "Sign in to QueryMuse to keep asking about this."}
+        {signedIn ? "Opens your own copy of this conversation in EasyQuery." : "Sign in to EasyQuery to keep asking about this."}
       </span>
       {error && <p className="error" role="alert">{error}</p>}
     </div>

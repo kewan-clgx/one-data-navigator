@@ -20,7 +20,7 @@ WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 HOSTNAME=0.0.0.0 PORT=3000
 COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static
-# Served as a zip by app/downloads/querymuse-collibra-bridge.zip (read at request time).
+# Served as a zip by app/downloads/easyquery-collibra-bridge.zip (read at request time).
 COPY --from=build --chown=node:node /app/extension ./extension
 USER node
 EXPOSE 3000

@@ -13,7 +13,7 @@ export default function SiteFrame({ children }: { children: ReactNode }) {
       <BrandBar theme={theme} />
       <main className="odn-site-main">{children}</main>
       <footer className="odn-site-footer">
-        <span>© {new Date().getFullYear()} QueryMuse</span>
+        <span>© {new Date().getFullYear()} EasyQuery</span>
         <nav aria-label="Site">
           <a href="/">Home</a>
           <a href="/privacy">Privacy policy</a>

@@ -190,8 +190,8 @@ class CollibraClient:
             raise CollibraError("Collibra is not reachable.", 502) from None
         if resp.status_code == 401:
             raise CollibraError(
-                f"Collibra ({self.environment.env}) did not accept your QueryMuse sign-in. Its admin must trust "
-                f"QueryMuse's token issuer, and you need a Collibra user named {self.principal}.",
+                f"Collibra ({self.environment.env}) did not accept your EasyQuery sign-in. Its admin must trust "
+                f"EasyQuery's token issuer, and you need a Collibra user named {self.principal}.",
                 403,
             )
         if resp.status_code == 403:
@@ -245,7 +245,7 @@ class CollibraClient:
     # -- operations ----------------------------------------------------------------------------------------
 
     async def status(self) -> dict[str, Any]:
-        """Whether Collibra accepts the user's QueryMuse identity (protected current-user resource)."""
+        """Whether Collibra accepts the user's EasyQuery identity (protected current-user resource)."""
         user = await self._get("users/current")
         if not isinstance(user.get("id"), str):
             raise CollibraError("Collibra returned an invalid user.", 502)

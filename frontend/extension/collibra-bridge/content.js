@@ -1,4 +1,4 @@
-// Content script on QueryMuse pages: relays window.postMessage requests from the QueryMuse app to the extension's
+// Content script on EasyQuery pages: relays window.postMessage requests from the EasyQuery app to the extension's
 // service worker and posts the answers back. Ignores messages from other windows or without the app marker.
 (() => {
   const APP = "querymuse-app";

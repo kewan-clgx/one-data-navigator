@@ -1,7 +1,7 @@
 """Insight Wall (docs/roadmap/insight_wall_dashboards_plan.md): shared answers posted to a wall, ranked by upvotes,
 follow-ups and age.
 
-Two walls: an organization's own (signed-in members, tenant RLS) and the public QueryMuse wall (anyone, read only
+Two walls: an organization's own (signed-in members, tenant RLS) and the public EasyQuery wall (anyone, read only
 through SECURITY DEFINER odn_public_wall()). An item is a share whose owner chose to post it; it disappears when the
 link is revoked or expires, or when its organization turns that wall off.
 """

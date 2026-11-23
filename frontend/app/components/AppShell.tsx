@@ -394,7 +394,7 @@ export default function AppShell({ theme, role, userId, site }: { theme: Theme; 
         <div className="odn-chat-toolbar-actions">
           <AgentStepsToggle />
           <a className="odn-btn odn-btn--outline odn-btn--small" href="/insights"
-             title="Insight Wall: answers your colleagues and the QueryMuse community shared">
+             title="Insight Wall: answers your colleagues and the EasyQuery community shared">
             Insights
           </a>
           <button

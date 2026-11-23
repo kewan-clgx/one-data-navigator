@@ -1,7 +1,7 @@
 /**
  * Collibra for the browser (docs/collibra_int_phase5_plan.md): the organization's environments (admin setting),
- * the QueryMuse Collibra Bridge extension, and one client per environment that reads Collibra either through the
- * user's own browser session (access_mode "browser") or QueryMuse's API (access_mode "token"). Results have the
+ * the EasyQuery Collibra Bridge extension, and one client per environment that reads Collibra either through the
+ * user's own browser session (access_mode "browser") or EasyQuery's API (access_mode "token"). Results have the
  * same shape as the server-side collibra_* tools.
  */
 
@@ -14,16 +14,16 @@ export type Json = Record<string, any>;
 export type BridgeInfo = { version: string } | null;
 
 export const COLLIBRA_CHANGED = "odn:collibra-changed";
-export const EXTENSION_DOWNLOAD_URL = "/downloads/querymuse-collibra-bridge.zip";
+export const EXTENSION_DOWNLOAD_URL = "/downloads/easyquery-collibra-bridge.zip";
 export const EXTENSION_MIN_VERSION = "0.2.0";
 
 /** Plain-language setup steps (Settings, the Collibra tab and the agent's chat guidance use the same text). */
 export function extensionSteps(env?: CollibraEnv | null): string[] {
   return [
-    "Download the QueryMuse Collibra Bridge (zip) and unzip it.",
-    "In Chrome or Edge open chrome://extensions (edge://extensions), turn on Developer mode, click “Load unpacked” and choose the unzipped querymuse-collibra-bridge folder.",
+    "Download the EasyQuery Collibra Bridge (zip) and unzip it.",
+    "In Chrome or Edge open chrome://extensions (edge://extensions), turn on Developer mode, click “Load unpacked” and choose the unzipped easyquery-collibra-bridge folder.",
     `Sign in to Collibra${env ? ` at ${env.base_url}` : ""} in the same browser as usual (SSO).`,
-    "Reload QueryMuse. Collibra then works in chat and in the Collibra tab with your own Collibra permissions.",
+    "Reload EasyQuery. Collibra then works in chat and in the Collibra tab with your own Collibra permissions.",
   ];
 }
 
@@ -63,7 +63,7 @@ export function bridgeGet(baseUrl: string, path: string, params: Record<string, 
     const id = crypto.randomUUID();
     const timer = window.setTimeout(() => {
       window.removeEventListener("message", onMessage);
-      resolve({ ok: false, error: "no_bridge", message: "The QueryMuse Collibra Bridge extension did not answer (is it installed and enabled?)." });
+      resolve({ ok: false, error: "no_bridge", message: "The EasyQuery Collibra Bridge extension did not answer (is it installed and enabled?)." });
     }, TIMEOUT_MS);
     function onMessage(event: MessageEvent) {
       if (event.source !== window || event.data?.source !== BRIDGE || event.data?.id !== id) return;

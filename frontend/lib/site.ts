@@ -17,7 +17,7 @@ export function appHost(): string {
 }
 
 export function supportEmail(): string {
-  return process.env.ODN_SUPPORT_EMAIL || "support@querymuse.ai";
+  return process.env.ODN_SUPPORT_EMAIL || "support@easyquery.ai";
 }
 
 /** Where the public Insight Wall lives: its own host when configured, else the app's /insights page. */

@@ -23,7 +23,7 @@ export default function BrandBar({ theme, company, user, nav }: { theme: Theme; 
       </div>
       <div className="odn-brandbar-right">
         {nav && nav.length > 0 && (
-          <nav aria-label="QueryMuse" className="odn-brandbar-nav">
+          <nav aria-label="EasyQuery" className="odn-brandbar-nav">
             {nav.map((l) => (
               <a key={l.href} href={l.href} className="odn-brandbar-link" aria-current={l.current ? "page" : undefined}>{l.label}</a>
             ))}

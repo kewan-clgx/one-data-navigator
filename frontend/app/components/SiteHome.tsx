@@ -4,14 +4,14 @@ import SiteFrame from "./SiteFrame";
 import { appUrl, supportEmail } from "@/lib/site";
 
 export const SITE_METADATA: Metadata = {
-  title: "QueryMuse — the conversational data analytics platform",
+  title: "EasyQuery — the conversational data analytics platform",
   description:
-    "QueryMuse is a conversational data analytics platform: ask questions about your company's data in plain English and get governed SQL, answers, charts and explanations.",
+    "EasyQuery is a conversational data analytics platform: ask questions about your company's data in plain English and get governed SQL, answers, charts and explanations.",
 };
 
 const STEPS = [
   { title: "Ask", text: "\u201cHow many active businesses do we have in Las Vegas and San Diego, by status?\u201d" },
-  { title: "Analyse", text: "QueryMuse finds the right tables, writes read-only SQL, checks its cost and runs it on your data." },
+  { title: "Analyse", text: "EasyQuery finds the right tables, writes read-only SQL, checks its cost and runs it on your data." },
   { title: "Answer", text: "Get the result as a table or chart with a plain-English explanation, and the SQL one click away." },
 ];
 
@@ -43,14 +43,14 @@ export default function SiteHome() {
         <p className="odn-site-kicker">The conversational data analytics platform</p>
         <h1>Talk to your data. Get answers you can trust.</h1>
         <p className="odn-site-lead">
-          QueryMuse turns plain-English questions into governed analysis. Your team asks; QueryMuse queries your
+          EasyQuery turns plain-English questions into governed analysis. Your team asks; EasyQuery queries your
           BigQuery and Postgres data, explains the results and charts them, with no SQL required and nothing
           hidden.
         </p>
         <div className="odn-site-cta">
           <a className="odn-btn odn-btn--lg" href={`${appUrl()}/signin`}>Sign in</a>
-          <a className="link" href={`mailto:${support}?subject=QueryMuse%20for%20my%20organization`}>
-            Get QueryMuse for your organization
+          <a className="link" href={`mailto:${support}?subject=EasyQuery%20for%20my%20organization`}>
+            Get EasyQuery for your organization
           </a>
         </div>
       </section>
@@ -65,7 +65,7 @@ export default function SiteHome() {
         ))}
       </section>
 
-      <section className="odn-site-features" aria-label="Why QueryMuse">
+      <section className="odn-site-features" aria-label="Why EasyQuery">
         {FEATURES.map((f) => (
           <article key={f.title} className="odn-site-card">
             <h2>{f.title}</h2>
