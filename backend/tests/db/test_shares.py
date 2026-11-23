@@ -148,7 +148,7 @@ def test_answers_only_organization_audience_expiry_and_switch(env) -> None:
     assert as_(ann).post("/v1/shares", json={"thread_id": "someone-elses", "audience": "organization"}).status_code == 404
 
     admin = as_(user(slug, "boss", role="admin"))
-    assert admin.put("/v1/admin/sharing", json={"enabled": False}).json() == {"enabled": False, "public_links": True}
+    assert admin.put("/v1/admin/sharing", json={"enabled": False}).json().items() >= {"enabled": False, "public_links": True}.items()
     blocked = as_(ann).post("/v1/shares", json={"thread_id": THREAD, "audience": "organization"})
     assert blocked.status_code == 403
 

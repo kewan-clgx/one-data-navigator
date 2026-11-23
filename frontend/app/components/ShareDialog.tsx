@@ -5,6 +5,7 @@ import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 
 
 import { api } from "@/lib/client-api";
 import { cleanAnswer, suggestTitle, summaryText } from "@/lib/share";
+import { PUBLIC_WALL_NAME, wallLabel, type WallChoice } from "@/lib/wall";
 
 import Chart, { type ChartData } from "./Chart";
 
@@ -14,10 +15,19 @@ type Turn = {
   charts: { name: string; title: string; result: ChartData }[];
   default_artifacts: string[]; used_collibra: boolean; used_personal_connections: boolean;
 };
-type Preview = { title: string; turns: Turn[]; sharing_enabled: boolean; public_links: boolean };
+type WallSwitches = { org_wall: boolean; public_wall: boolean; personal: boolean };
+type Preview = WallSwitches & { title: string; turns: Turn[]; sharing_enabled: boolean; public_links: boolean };
 type Audience = "public" | "organization";
-type Created = { id: string; title: string; url: string; expires_at: string };
-type MyShare = { id: string; title: string; audience: string; status: string; expires_at: string; views: number };
+type Created = { id: string; title: string; url: string; expires_at: string; wall: WallChoice };
+type MyShare = { id: string; title: string; audience: string; status: string; expires_at: string; views: number; wall: WallChoice };
+
+/** Walls a link with this audience may be posted to under the organization's settings. */
+export function wallChoices(s: WallSwitches & { public_links: boolean }, audience: string): WallChoice[] {
+  const out: WallChoice[] = ["none"];
+  if (s.org_wall && (audience === "organization" || audience === "public")) out.push("organization");
+  if (s.public_wall && s.public_links && audience === "public") out.push("public");
+  return out;
+}
 
 export const SHARES_CHANGED = "odn:shares-changed";
 
@@ -56,6 +66,12 @@ function ShareResult({ created, turn, audience, onDone }: { created: Created; tu
           : "People in your organization can open it after signing in."}{" "}
         It works until {new Date(created.expires_at).toLocaleDateString()}.
       </p>
+      {created.wall !== "none" && (
+        <p>
+          Posted to the {wallLabel(created.wall)} —{" "}
+          <a href="/insights" target="_blank" rel="noreferrer">see it on the wall</a>.
+        </p>
+      )}
       <div className="share-link">
         <input readOnly value={created.url} aria-label="Share link" onFocus={(e) => e.currentTarget.select()} />
         <button type="button" onClick={() => copy(created.url, "link")}>{copied === "link" ? "Copied ✓" : "Copy link"}</button>
@@ -79,7 +95,7 @@ function ShareResult({ created, turn, audience, onDone }: { created: Created; tu
   );
 }
 
-function MyShares({ threadId }: { threadId: string }) {
+function MyShares({ threadId, switches }: { threadId: string; switches: (WallSwitches & { public_links: boolean }) | null }) {
   const [items, setItems] = useState<MyShare[] | null>(null);
   const load = useCallback(() => {
     api<MyShare[]>(`shares?scope=mine&thread_id=${encodeURIComponent(threadId)}`).then(setItems).catch(() => setItems([]));
@@ -104,7 +120,16 @@ function MyShares({ threadId }: { threadId: string }) {
             <span className="muted">
               {s.audience === "public" ? "anyone with the link" : s.audience === "organization" ? "organization" : "chosen people"} · {s.views} signed-in views ·{" "}
               {s.status === "active" ? `until ${new Date(s.expires_at).toLocaleDateString()}` : s.status}
+              {s.wall !== "none" && <> · on the {wallLabel(s.wall)}</>}
             </span>{" "}
+            {s.status === "active" && switches && wallChoices(switches, s.audience).length > 1 && (
+              <select className="share-wall-select" aria-label={`Insight Wall for ${s.title}`} value={s.wall}
+                      onChange={(e) => act(`shares/${s.id}/wall`, { method: "PUT", body: JSON.stringify({ wall: e.target.value }) })}>
+                {wallChoices(switches, s.audience).map((w) => (
+                  <option key={w} value={w}>{w === "none" ? "Not on a wall" : `Post to the ${wallLabel(w)}`}</option>
+                ))}
+              </select>
+            )}{" "}
             {s.status !== "revoked" && (
               <>
                 <button type="button" className="link" onClick={() => act(`shares/${s.id}/extend`, { method: "POST", body: JSON.stringify({ days: 30 }) })}>
@@ -135,6 +160,7 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
   const [turnId, setTurnId] = useState("");
   const [chosen, setChosen] = useState<string[]>([]);
   const [title, setTitle] = useState("");
+  const [wall, setWall] = useState<WallChoice>("none");
   const turn = preview?.turns.find((t) => t.id === turnId) ?? null;
 
   useEffect(() => {
@@ -146,7 +172,7 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
 
   useEffect(() => {
     if (!open) return;
-    setPreview(null); setError(null); setCreated(null); setDays(30);
+    setPreview(null); setError(null); setCreated(null); setDays(30); setWall("none");
     api<Preview>(`shares/preview?thread_id=${encodeURIComponent(threadId)}`)
       .then((p) => {
         setPreview(p);
@@ -169,7 +195,7 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
         method: "POST",
         body: JSON.stringify({
           thread_id: threadId, title: title.trim() || turn.question.slice(0, 200), audience, include_results: chosen.length > 0,
-          expires_days: days, mode: "answer", turn_id: turn.id, artifact_names: chosen,
+          expires_days: days, mode: "answer", turn_id: turn.id, artifact_names: chosen, wall,
         }),
       });
       setCreated(share);
@@ -192,6 +218,7 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
     `${t.row_count.toLocaleString()} ${t.row_count === 1 ? "row" : "rows"}${t.columns.length ? ` — ${t.columns.slice(0, 4).join(", ")}${t.columns.length > 4 ? "…" : ""}` : ""}`;
   const warnPersonal = !!turn?.used_personal_connections && chosen.some((n) => n.startsWith("q"));
   const warnCollibra = !!turn?.used_collibra;
+  const walls = preview ? wallChoices(preview, audience) : ["none" as WallChoice];
 
   return (
     <dialog ref={ref} className="share-dialog" aria-labelledby={`${ids}-h`} onClose={onClose}>
@@ -269,6 +296,21 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
               ? "Anyone with the link can open this summary without signing in. Asking a follow-up needs a QueryMuse sign-in."
               : "Your organization requires people to sign in to open shared links."}
           </p>
+          {walls.length > 1 && (
+            <fieldset className="share-wall">
+              <legend>Post to an Insight Wall <span className="muted">— people can find, upvote and follow up on it</span></legend>
+              {walls.map((w) => (
+                <label key={w} className="choice">
+                  <input type="radio" name={`${ids}-wall`} value={w} checked={wall === w} onChange={() => setWall(w)} />
+                  <span>
+                    {w === "none" ? "Don't post — only people with the link"
+                      : w === "organization" ? "Your organization's Insight Wall"
+                      : <>The {PUBLIC_WALL_NAME} <span className="muted">— anyone on the internet can find it at insights.querymuse.ai</span></>}
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+          )}
           <label>
             Link expires after
             <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
@@ -284,7 +326,7 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
           {error && <p className="error" role="alert">{error}</p>}
         </form>
       )}
-      {open && <MyShares threadId={threadId} />}
+      {open && <MyShares threadId={threadId} switches={preview} />}
     </dialog>
   );
 }

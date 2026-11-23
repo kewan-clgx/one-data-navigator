@@ -180,6 +180,7 @@ the same, so **clients' database firewall allowlists do not change**.
    ```sh
    ODN_HOSTNAME=app.querymuse.ai
    ODN_SITE_HOSTNAME=www.querymuse.ai   # public home page + /privacy; other paths redirect to the app
+   ODN_INSIGHTS_HOSTNAME=insights.querymuse.ai  # public Insight Wall; DNS A record to the VM like the others
    ODN_REDIRECT_HOSTS=querymuse.ai      # -> the website
    ACME_EMAIL=support@querymuse.ai   # optional
    ```

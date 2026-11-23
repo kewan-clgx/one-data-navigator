@@ -30,6 +30,17 @@
 	reverse_proxy frontend:3000
 }
 
+# Public Insight Wall (ODN_INSIGHTS_HOSTNAME, e.g. insights.querymuse.ai): the public wall, rendered by the same
+# frontend without the app's session; report pages (/s/...), sign-in and voting belong to the app. Unset means
+# insights.localhost (no public certificate needed).
+{$ODN_INSIGHTS_HOSTNAME:insights.localhost} {
+	import security_headers
+	@app not path / /insights /_next/*
+	redir @app https://{$ODN_HOSTNAME}{uri}
+	rewrite / /insights
+	reverse_proxy frontend:3000
+}
+
 # Other hostnames (ODN_REDIRECT_HOSTS, comma-separated, e.g. the apex) -> the website, else the app.
 # Unset or empty means localhost, which needs no public certificate, so the block is harmless.
 {$ODN_REDIRECT_HOSTS:localhost} {

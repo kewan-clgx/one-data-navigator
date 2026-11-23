@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 from odn.api.admin_routes import record_event
 from odn.api.deps import Context, require_admin
 from odn.db import tenant_transaction
-from odn.platform.sharing import service
+from odn.platform.sharing import service, wall
 from odn.platform.sharing.notify import notify_recipients, share_url
 from odn.tenancy.context import RequestContext
 
@@ -47,10 +47,15 @@ class ShareIn(BaseModel):
     mode: service.Mode = "conversation"
     turn_id: str | None = Field(default=None, max_length=200)
     artifact_names: list[str] = Field(default_factory=list, max_length=20)
+    wall: service.Wall = "none"
 
 
 class ExtendIn(BaseModel):
     days: int = 30
+
+
+class WallIn(BaseModel):
+    wall: service.Wall
 
 
 @router.get("/preview")
@@ -72,7 +77,7 @@ async def create(body: ShareIn, request: Request, ctx: Context) -> dict[str, Any
         share = await run_in_threadpool(
             service.create, ctx, _token(request), thread_id=body.thread_id, title=body.title, audience=body.audience,
             recipient_ids=body.recipient_ids, include_results=body.include_results, expires_days=body.expires_days,
-            mode=body.mode, turn_id=body.turn_id, artifact_names=body.artifact_names,
+            mode=body.mode, turn_id=body.turn_id, artifact_names=body.artifact_names, wall=body.wall,
         )
     except service.ShareError as exc:
         raise _http(exc) from None
@@ -154,6 +159,14 @@ def extend(share_id: ShareId, body: ExtendIn, ctx: Context) -> dict[str, str]:
         raise _http(exc) from None
 
 
+@router.put("/{share_id}/wall")
+def set_wall(share_id: ShareId, body: WallIn, ctx: Context) -> dict[str, str]:
+    try:
+        return wall.set_wall(ctx, share_id, body.wall)
+    except service.ShareError as exc:
+        raise _http(exc) from None
+
+
 @router.delete("/{share_id}", status_code=status.HTTP_204_NO_CONTENT)
 def revoke(share_id: ShareId, ctx: Context) -> None:
     try:
@@ -165,6 +178,9 @@ def revoke(share_id: ShareId, ctx: Context) -> None:
 class SharingSettingsIn(BaseModel):
     enabled: bool
     public_links: bool = True
+    # None keeps the current value (or the default for the kind of organization).
+    org_wall: bool | None = None
+    public_wall: bool | None = None
 
 
 @admin_router.get("")
@@ -176,10 +192,13 @@ def sharing_settings(ctx: Admin) -> dict[str, bool]:
 def save_sharing_settings(body: SharingSettingsIn, ctx: Admin) -> dict[str, bool]:
     with tenant_transaction(ctx.tenant_id) as conn:
         conn.execute(
-            "INSERT INTO tenant_sharing_settings (tenant_id, enabled, public_links) VALUES (%s, %s, %s) "
+            "INSERT INTO tenant_sharing_settings (tenant_id, enabled, public_links, org_wall, public_wall) "
+            "VALUES (%s, %s, %s, %s, %s) "
             "ON CONFLICT (tenant_id) DO UPDATE SET enabled = EXCLUDED.enabled, public_links = EXCLUDED.public_links, "
-            "updated_at = now()",
-            (ctx.tenant_id, body.enabled, body.public_links),
+            "org_wall = coalesce(EXCLUDED.org_wall, tenant_sharing_settings.org_wall), "
+            "public_wall = coalesce(EXCLUDED.public_wall, tenant_sharing_settings.public_wall), updated_at = now()",
+            (ctx.tenant_id, body.enabled, body.public_links, body.org_wall, body.public_wall),
         )
-        record_event(conn, ctx, "share.settings_saved", None, enabled=body.enabled, public_links=body.public_links)
-    return {"enabled": body.enabled, "public_links": body.public_links}
+        record_event(conn, ctx, "share.settings_saved", None, enabled=body.enabled, public_links=body.public_links,
+                     org_wall=body.org_wall, public_wall=body.public_wall)
+    return service.settings_for(ctx)

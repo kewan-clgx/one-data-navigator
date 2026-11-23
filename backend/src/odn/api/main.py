@@ -16,6 +16,8 @@ from odn.api.share_routes import public_router as public_share_router
 from odn.api.share_routes import router as share_router
 from odn.api.shared_connections_routes import router as shared_connections_router
 from odn.api.usage_routes import router as usage_router
+from odn.api.wall_routes import public_router as public_wall_router
+from odn.api.wall_routes import router as wall_router
 from odn.api.workspace_routes import router as workspace_router
 from odn.config import settings
 from odn.platform.connectors.ssh_tunnel import TunnelError
@@ -36,6 +38,8 @@ app.include_router(jwks_router)
 app.include_router(share_router)
 app.include_router(sharing_admin_router)
 app.include_router(public_share_router)
+app.include_router(wall_router)
+app.include_router(public_wall_router)
 
 
 @app.exception_handler(auth_exc.RefreshError)

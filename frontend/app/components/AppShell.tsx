@@ -204,11 +204,25 @@ export default function AppShell({ theme, role, userId }: { theme: Theme; role?:
   const [shareOpen, setShareOpen] = useState(false);
   const [workbenchHost, setWorkbenchHost] = useState<HTMLDivElement | null>(null);
   const tabRefs = useRef<Partial<Record<TabId, HTMLButtonElement | null>>>({});
+  const deepLink = useRef<string | null>(null);
 
   useEffect(() => {
-    if (localStorage.getItem(PANEL_OPEN_KEY) === "false") setPanelOpen(false);
+    // Links from standalone pages (e.g. the Insight Wall): /?new=1 starts a conversation, /?tab=<id> opens a tab.
+    // Read once per mount (the ref survives React's dev double-run after the URL is cleaned below).
+    deepLink.current ??= window.location.search;
+    const params = new URLSearchParams(deepLink.current);
+    const wanted = TABS.find((t) => t.id === params.get("tab") && (t.id !== "organization" || role === "admin"))?.id;
+    const fresh = params.get("new") === "1";
+    if (wanted) setTab(wanted);
+    if (!wanted && localStorage.getItem(PANEL_OPEN_KEY) === "false") setPanelOpen(false);
     // Reload reopens the conversation the user was last in.
-    setThreadId(localStorage.getItem(THREAD_KEY) || crypto.randomUUID());
+    setThreadId((!fresh && localStorage.getItem(THREAD_KEY)) || crypto.randomUUID());
+    if (params.has("tab") || params.has("new")) {
+      params.delete("tab");
+      params.delete("new");
+      const rest = params.toString();
+      window.history.replaceState(null, "", `${window.location.pathname}${rest ? `?${rest}` : ""}`);
+    }
   }, []);
 
   useEffect(() => {
@@ -378,6 +392,10 @@ export default function AppShell({ theme, role, userId }: { theme: Theme; role?:
         </div>
         <div className="odn-chat-toolbar-actions">
           <AgentStepsToggle />
+          <a className="odn-btn odn-btn--outline odn-btn--small" href="/insights"
+             title="Insight Wall: answers your colleagues and the QueryMuse community shared">
+            Insights
+          </a>
           <button
             type="button"
             className="odn-btn odn-btn--outline odn-btn--small"

@@ -479,6 +479,10 @@ understandable in five seconds by someone who has never used QueryMuse.**
 | 16 | **Live shared thread** (model C, §8.1) | ≈ 6–8 days; decide after seeing how *Ask a follow-up* is used |
 | 17 | **Embeds**: an iframe/Notion/Confluence embed of the report card | For wikis and dashboards |
 
+**Insight Wall and dashboards:** shared answers posted to an organization wall or the public QueryMuse wall
+(upvotes, Hot/New/Top), and dashboards as refreshable collections of answers (items #8, #9, #14 here). See
+[roadmap/insight_wall_dashboards_plan.md](./roadmap/insight_wall_dashboards_plan.md).
+
 ### Recommended order
 
 1 → 2 → 3 → 6 → 5 → 4 → 7, then reassess with usage data (views, follow-ups per share) before #8–#11.

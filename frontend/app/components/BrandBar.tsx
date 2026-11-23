@@ -1,7 +1,10 @@
 import { brandCompanyLabel, type Theme } from "../themes";
 
 /** "{company} | {product}"; before sign-in there is no tenant yet, so only the product is shown. */
-export default function BrandBar({ theme, company, user }: { theme: Theme; company?: string; user?: string }) {
+export type NavLink = { href: string; label: string; current?: boolean };
+
+/** `nav`: links back into the app from standalone pages (e.g. the Insight Wall). */
+export default function BrandBar({ theme, company, user, nav }: { theme: Theme; company?: string; user?: string; nav?: NavLink[] }) {
   const shown = brandCompanyLabel(theme, company);
   return (
     <header className="odn-brandbar">
@@ -19,6 +22,13 @@ export default function BrandBar({ theme, company, user }: { theme: Theme; compa
         </span>
       </div>
       <div className="odn-brandbar-right">
+        {nav && nav.length > 0 && (
+          <nav aria-label="QueryMuse" className="odn-brandbar-nav">
+            {nav.map((l) => (
+              <a key={l.href} href={l.href} className="odn-brandbar-link" aria-current={l.current ? "page" : undefined}>{l.label}</a>
+            ))}
+          </nav>
+        )}
         {theme.tag && <span className="odn-tag">{theme.tag}</span>}
         {user !== undefined && (
           <>

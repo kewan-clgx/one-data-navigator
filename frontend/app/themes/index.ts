@@ -35,7 +35,7 @@ const cotality: Theme = {
   about: [
     {
       kicker: "One place",
-      title: "All your data work, one chat",
+      title: "All your data Query, one Chat",
       lead: "Ask in plain English, get answers in seconds.",
       points: [
         "Connect to BigQuery, Snowflake, and any Database",

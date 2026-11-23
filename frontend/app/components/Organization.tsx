@@ -36,8 +36,11 @@ const FAILURE_LABELS: Record<string, string> = {
   other_sign_in_method: "account uses another sign-in method",
 };
 
-type Sharing = { enabled: boolean; public_links: boolean };
-type OrgShare = { id: string; title: string; audience: string; status: string; expires_at: string; views: number; owner_name: string | null; owner_email: string };
+type Sharing = { enabled: boolean; public_links: boolean; org_wall: boolean; public_wall: boolean; personal: boolean };
+type OrgShare = {
+  id: string; title: string; audience: string; status: string; expires_at: string; views: number; owner_name: string | null;
+  owner_email: string; wall: "none" | "organization" | "public"; featured: boolean;
+};
 
 /** Sharing settings: on/off, whether links can be opened by anyone, and every link in the organization. */
 function SharingSection() {
@@ -55,6 +58,7 @@ function SharingSection() {
   }, [load]);
   const save = (next: Sharing) =>
     api<Sharing>("admin/sharing", { method: "PUT", body: JSON.stringify(next) }).then(setSettings).catch((e: Error) => setError(e.message));
+  const act = (path: string, init: RequestInit) => api(path, init).then(load).catch((e: Error) => setError(e.message));
   const revoke = (id: string) =>
     window.confirm("Revoke this link? Nobody can open it any more.") &&
     api(`shares/${id}`, { method: "DELETE" }).then(load).catch((e: Error) => setError(e.message));
@@ -78,6 +82,24 @@ function SharingSection() {
               <span className="muted">— Teams, Slack and email show the question, answer and chart. Turning this off hides those links at once.</span>
             </span>
           </label>
+          {!settings.personal && (
+            <label className="choice">
+              <input type="checkbox" checked={settings.org_wall} disabled={!settings.enabled}
+                     onChange={(e) => save({ ...settings, org_wall: e.target.checked })} />
+              <span>
+                <strong>Organization Insight Wall</strong>{" "}
+                <span className="muted">— people can post shared answers to one page (<a href="/insights" target="_blank" rel="noreferrer">Insights</a>) where colleagues find, upvote and follow up on them.</span>
+              </span>
+            </label>
+          )}
+          <label className="choice">
+            <input type="checkbox" checked={settings.public_wall} disabled={!settings.enabled || !settings.public_links}
+                   onChange={(e) => save({ ...settings, public_wall: e.target.checked })} />
+            <span>
+              Allow posting to the <strong>public QueryMuse Insight Wall</strong>{" "}
+              <span className="muted">— anyone on the internet can find those answers at insights.querymuse.ai. Turning this off takes them down at once.</span>
+            </span>
+          </label>
           {error && <p className="error" role="alert">{error}</p>}
         </div>
       )}
@@ -85,7 +107,7 @@ function SharingSection() {
         <div className="org-table">
           <table className="grid">
             <thead>
-              <tr><th scope="col">Answer</th><th scope="col">Shared by</th><th scope="col">Who can open</th><th scope="col">Status</th><th scope="col"><span className="sr-only">Actions</span></th></tr>
+              <tr><th scope="col">Answer</th><th scope="col">Shared by</th><th scope="col">Who can open</th><th scope="col">Wall</th><th scope="col">Status</th><th scope="col"><span className="sr-only">Actions</span></th></tr>
             </thead>
             <tbody>
               {links.map((l) => (
@@ -93,8 +115,19 @@ function SharingSection() {
                   <td><a href={`/s/${l.id}`} target="_blank" rel="noreferrer">{l.title}</a></td>
                   <td>{l.owner_name || l.owner_email}</td>
                   <td>{l.audience === "public" ? "Anyone with the link" : l.audience === "organization" ? "Organization" : "Chosen people"}</td>
+                  <td>{l.wall === "public" ? "Public" : l.wall === "organization" ? "Organization" : "—"}{l.featured && " · featured"}</td>
                   <td>{l.status === "active" ? `until ${new Date(l.expires_at).toLocaleDateString()}` : l.status}</td>
                   <td className="org-actions">
+                    {l.wall !== "none" && l.status === "active" && (
+                      <>
+                        <button type="button" className="link" onClick={() => act(`wall/${l.id}/feature`, { method: "POST", body: JSON.stringify({ featured: !l.featured }) })}>
+                          {l.featured ? "Unfeature" : "Feature"}
+                        </button>{" "}
+                        <button type="button" className="link" onClick={() => window.confirm("Take this answer off the Insight Wall? The link keeps working.") && act(`shares/${l.id}/wall`, { method: "PUT", body: JSON.stringify({ wall: "none" }) })}>
+                          Remove from wall
+                        </button>{" "}
+                      </>
+                    )}
                     {l.status !== "revoked" && <button type="button" className="link" onClick={() => revoke(l.id)}>Revoke</button>}
                   </td>
                 </tr>

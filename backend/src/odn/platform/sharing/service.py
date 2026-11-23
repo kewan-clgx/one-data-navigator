@@ -38,6 +38,7 @@ RESULTS_OMITTED = '{"omitted": "Results were not included in this share."}'
 
 Audience = Literal["people", "organization", "public"]
 Mode = Literal["conversation", "answer"]
+Wall = Literal["none", "organization", "public"]
 MAX_TURNS = 30
 
 
@@ -246,20 +247,50 @@ def preview(ctx: RequestContext, token: str, thread_id: str) -> dict[str, Any]:
         "tables": len(arts["tables"]), "charts": len(arts["charts"]), "files": len(arts["files"]),
         "used_personal_connections": any(t["personal"] for t in arts["tables"]),
         "used_collibra": any(n.startswith("collibra") for n in _tool_names(convo["messages"])),
+        **{k: v for k, v in settings_for(ctx).items() if k != "enabled"},
         "sharing_enabled": settings_for(ctx)["enabled"],
-        "public_links": settings_for(ctx)["public_links"],
     }
 
 
+def is_personal(ctx: RequestContext) -> bool:
+    """The open personal-accounts tenant (anyone can join): no organization wall, posts go to the public wall."""
+    return bool(settings.personal_tenant) and ctx.tenant_slug == settings.personal_tenant
+
+
 def settings_for(ctx: RequestContext) -> dict[str, bool]:
-    """Organization sharing settings; no row = sharing on and answer links open without sign-in."""
+    """Organization sharing settings; no row = sharing on and answer links open without sign-in.
+
+    Insight Wall switches (NULL = default for the kind of organization): enterprise organizations have their wall on
+    and the public wall off; the personal tenant never has an organization wall and posts to the public wall.
+    """
     with tenant_transaction(ctx.tenant_id) as conn:
-        row = conn.execute("SELECT enabled, public_links FROM tenant_sharing_settings").fetchone()
-    return {"enabled": row is None or bool(row["enabled"]), "public_links": row is None or bool(row["public_links"])}
+        row = conn.execute("SELECT enabled, public_links, org_wall, public_wall FROM tenant_sharing_settings").fetchone()
+    personal = is_personal(ctx)
+    return {
+        "enabled": row is None or bool(row["enabled"]),
+        "public_links": row is None or bool(row["public_links"]),
+        "org_wall": not personal and (row is None or row["org_wall"] is not False),
+        "public_wall": personal if row is None or row["public_wall"] is None else bool(row["public_wall"]),
+        "personal": personal,
+    }
 
 
 def sharing_enabled(ctx: RequestContext) -> bool:
     return settings_for(ctx)["enabled"]
+
+
+def check_wall(s: dict[str, bool], audience: str, wall: Wall) -> None:
+    """Whether a link with this audience may be posted to this wall under the organization's settings."""
+    if wall == "organization":
+        if not (s["enabled"] and s["org_wall"]):
+            raise ShareError("Your organization's Insight Wall is turned off.", 403)
+        if audience not in ("organization", "public"):
+            raise ShareError("Only links your whole organization can open can go on its Insight Wall.", 422)
+    elif wall == "public":
+        if not (s["enabled"] and s["public_links"] and s["public_wall"]):
+            raise ShareError("Your organization doesn't allow posting to the public QueryMuse Insight Wall.", 403)
+        if audience != "public":
+            raise ShareError("Only links anyone can open can go on the public Insight Wall.", 422)
 
 
 def _active_recipients(conn: Any, ctx: RequestContext, ids: list[uuid.UUID]) -> list[dict[str, Any]]:
@@ -278,11 +309,14 @@ def create(
     ctx: RequestContext, token: str, *, thread_id: str, title: str, audience: Audience,
     recipient_ids: list[uuid.UUID], include_results: bool, expires_days: int,
     mode: Mode = "conversation", turn_id: str | None = None, artifact_names: list[str] | None = None,
+    wall: Wall = "none",
 ) -> dict[str, Any]:
-    if not sharing_enabled(ctx):
+    org = settings_for(ctx)
+    if not org["enabled"]:
         raise ShareError("Sharing is turned off for your organization.", 403)
-    if audience == "public" and not settings_for(ctx)["public_links"]:
+    if audience == "public" and not org["public_links"]:
         raise ShareError("Your organization doesn't allow links that anyone can open. Share with your organization instead.", 403)
+    check_wall(org, audience, wall)
     if expires_days not in EXPIRY_DAYS:
         raise ShareError(f"Expiry must be one of {EXPIRY_DAYS} days.", 422)
     if audience == "people" and not recipient_ids:
@@ -337,12 +371,13 @@ def create(
         expires = datetime.now(UTC) + timedelta(days=expires_days)
         conn.execute(
             "INSERT INTO shared_conversations (id, tenant_id, owner_user_id, source_thread_id, source_session_id, title, "
-            "audience, include_results, messages, artifacts, used_personal_connections, used_collibra, expires_at, kind) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "audience, include_results, messages, artifacts, used_personal_connections, used_collibra, expires_at, kind, "
+            "wall, listed_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, "
+            "CASE WHEN %s <> 'none' THEN now() END)",
             (share_id, ctx.tenant_id, ctx.user_id, thread_id, convo["session_id"],
              final_title, audience, include_results,
              Jsonb(messages), Jsonb(artifacts), used_personal,
-             any(n.startswith("collibra") for n in tool_names), expires, mode),
+             any(n.startswith("collibra") for n in tool_names), expires, mode, wall, wall),
         )
         for r in recipients:
             conn.execute(
@@ -353,16 +388,17 @@ def create(
             "INSERT INTO admin_events (tenant_id, actor_user_id, action, target, detail) VALUES (%s, %s, %s, %s, %s)",
             (ctx.tenant_id, ctx.user_id, "share.created", share_id,
              Jsonb({"kind": mode, "audience": audience, "recipients": [r["email"] for r in recipients],
-                    "include_results": include_results, "expires_days": expires_days})),
+                    "include_results": include_results, "expires_days": expires_days, "wall": wall})),
         )
     return {"id": share_id, "title": final_title, "kind": mode, "expires_at": expires.isoformat(),
-            "recipients": [dict(r) for r in recipients]}
+            "recipients": [dict(r) for r in recipients], "wall": wall}
 
 
 # -- reading ----------------------------------------------------------------------------------------------------
 
 _SUMMARY = (
     "s.id, s.kind, s.title, s.audience, s.include_results, s.created_at, s.expires_at, s.revoked_at, s.source_thread_id, "
+    "s.wall, s.featured_at IS NOT NULL AS featured, "
     "s.used_personal_connections, s.used_collibra, s.owner_user_id, u.display_name AS owner_name, u.email AS owner_email"
 )
 
