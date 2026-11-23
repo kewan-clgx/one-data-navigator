@@ -7,6 +7,7 @@ This guide shows how to configure QueryMuse to query Google Cloud's [`bigquery-p
 - **Datasets:** `bigquery-public-data` is a public GCP project with hundreds of free datasets (GitHub repos, Wikipedia, NYC taxi rides, weather, census data, etc.)
 - **Billing:** Query costs are billed to *your* project, not Google's. The first 1 TB of queries per month is free.
 - **Service account:** You need a service account in your project with BigQuery permissions. The account does *not* need access to the public datasets—it only runs jobs in your project.
+- **Global Access (QueryMuse Pro):** Organizations can enable a **shared, globally-accessible connection** to `bigquery-public-data` so all users can query public datasets without individual setup. See [Global Public Access Setup](#global-public-access-setup-organizations) below.
 
 ## Quick Setup (Using gcloud CLI)
 
@@ -167,3 +168,166 @@ Browse all datasets [here](https://console.cloud.google.com/bigquery?project=big
 | Test connection fails at **Read** | Billing project is wrong or key is missing `bigquery.jobUser`. | Verify the billing project ID and re-check roles. |
 | Query hangs or times out | Dataset is very large or query is inefficient. | Reduce the allowlist or add `LIMIT 10000` to queries. |
 | High costs | Too many large datasets in the allowlist. | Update the allowlist to include only needed datasets. Use `INFORMATION_SCHEMA` to explore before large queries. |
+
+---
+
+## Global Public Access Setup (Organizations)
+
+QueryMuse Pro organizations can enable a **shared `bigquery-public-data` connection** so all users across all tenants can query public datasets without individual setup.
+
+### How It Works
+
+Instead of each user creating their own personal connection, the organization:
+
+1. Creates **one service account** with BigQuery permissions in a GCP project
+2. Uploads the service account key **once** to QueryMuse
+3. Creates a **global shared connection** visible to all users
+4. All users can immediately access `bigquery-public-data` datasets
+
+**Benefits:**
+- ✅ Centralized credential management (one key, not many)
+- ✅ No per-user setup required
+- ✅ All costs tracked in one billing project
+- ✅ Consistent configuration across the organization
+- ✅ Users across **all tenants** (personal and enterprise) can access
+
+### Implementation for Admins
+
+#### Prerequisites
+
+You need a GCP project where the organization has permissions:
+
+```bash
+PROJECT=your-gcp-project          # e.g., my-analytics-project
+SA_NAME=sa-bq-public-reader       # or your choice
+SA_EMAIL=$SA_NAME@$PROJECT.iam.gserviceaccount.com
+```
+
+#### Step 1: Enable APIs
+
+```bash
+gcloud services enable bigquery.googleapis.com bigquerystorage.googleapis.com --project $PROJECT
+```
+
+#### Step 2: Create Service Account
+
+```bash
+gcloud iam service-accounts create $SA_NAME --project $PROJECT \
+  --display-name "QueryMuse global BigQuery public data access"
+```
+
+#### Step 3: Grant BigQuery Roles
+
+```bash
+gcloud projects add-iam-policy-binding $PROJECT \
+  --member serviceAccount:$SA_EMAIL --role roles/bigquery.jobUser
+
+gcloud projects add-iam-policy-binding $PROJECT \
+  --member serviceAccount:$SA_EMAIL --role roles/bigquery.readSessionUser
+```
+
+#### Step 4: Create and Download JSON Key
+
+```bash
+gcloud iam service-accounts keys create sa-key.json \
+  --iam-account $SA_EMAIL --project $PROJECT
+```
+
+**Keep this key file secure and do not commit it to version control.**
+
+#### Step 5: Create Shared Connection in QueryMuse
+
+1. Login as an **organization admin** or **data lead** (requires appropriate role)
+2. Go to **Settings** → **Connections** → **Create Connection** → **BigQuery**
+3. Fill in:
+
+   | Field | Value |
+   |---|---|
+   | **Connection name** | `bigquery-public-data` or similar |
+   | **Service-account key (JSON)** | Upload the JSON key from step 4 |
+   | **Project ID** | `bigquery-public-data` |
+   | **Billing project** | Your GCP project ID (e.g., `my-analytics-project`) |
+   | **Location** (optional) | `US` (most public datasets are in US multi-region) |
+   | **Default dataset** (optional) | Leave empty or specify (e.g., `samples`) |
+   | **Datasets/tables** (optional) | Leave empty to allow all, or allowlist specific datasets |
+
+4. Click **Test connection** to verify all 4 checks pass:
+   - ✅ **Auth:** Service account authenticates
+   - ✅ **Network:** Can reach BigQuery
+   - ✅ **Metadata:** Can list datasets in bigquery-public-data
+   - ✅ **Read:** Can execute test query in billing project
+
+5. Click **Save** to make the connection available to **all users**
+
+#### Step 6: Verify Global Access
+
+The connection is now automatically visible to all users. Users can:
+- Access the connection in the connection explorer
+- See datasets in the catalog
+- Run queries immediately without any additional setup
+
+### Database Schema (Global Connections)
+
+Internally, global shared connections have:
+
+```sql
+-- Global connection visible to all users
+SELECT * FROM connections WHERE 
+  tenant_id IS NULL              -- No tenant restriction
+  AND owner_user_id IS NULL      -- Shared (not personal)
+  AND kind = 'bigquery'
+  AND name = 'bigquery-public-data';
+```
+
+This allows:
+- **Any user in any tenant** to access the connection (via RLS policy)
+- **No individual credentials needed** (centrally managed)
+- **Consistent configuration** across all users
+
+### Cost Management
+
+When using a global connection:
+
+- **Who pays:** Costs are billed to the GCP project specified in the **Billing project** field
+- **Who controls costs:** The organization admin
+- **How to track:** 
+  - Check BigQuery costs in the specified GCP project
+  - Optionally restrict datasets via the **Datasets/tables** allowlist
+
+### Updating the Global Connection
+
+If you need to update the connection (e.g., change billing project, add dataset allowlist):
+
+1. Login as an **organization admin** or **data lead**
+2. Go to **Settings** → **Connections**
+3. Find `bigquery-public-data` and click **Edit**
+4. Make your changes
+5. Click **Test connection** to verify
+6. Click **Save**
+
+**Changes take effect immediately** for all users.
+
+### Troubleshooting Global Access
+
+| Problem | Cause | Fix |
+|---|---|---|
+| Connection not visible to users | Connection is personal, not global | Make sure `owner_user_id = NULL` and `tenant_id = NULL` in database |
+| "HTTP 500" error when updating | RLS policy blocks global connections | Update RLS policy (see [RLS Policy Migration](../db/migrations/0024_global_connections_rls.sql)) |
+| "credential cannot be decrypted" | Incorrect encryption AAD | Ensure connection uses global AAD: `connection:platform:shared:<id>` |
+| Some users can't access | Connection scoped to specific tenant | Verify connection has `tenant_id = NULL` |
+
+### Deprecation: Personal Connections
+
+Users with personal `bigquery-public-data` connections can keep using them. However, we recommend transitioning to the global connection:
+
+**Benefits of switching to global:**
+- ✅ No duplicate credentials to manage
+- ✅ Consistent configuration
+- ✅ Centralized cost tracking
+- ✅ Easier for teams to collaborate
+
+**To migrate:** Delete personal connection (after global connection is set up) and start using the global one.
+
+---
+
+## Troubleshooting (Original - Personal Setup)
