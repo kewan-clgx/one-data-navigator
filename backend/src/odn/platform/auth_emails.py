@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from html import escape
 
+from odn.config import settings
+
 PRODUCT = "QueryMuse"
 
 
@@ -40,7 +42,7 @@ def password_email(link: str, *, invite: bool, org_name: str | None, signup: boo
 <tr><td style="font-size:13px;line-height:1.5;color:#52525b">{escape(note + ignore)}</td></tr>
 <tr><td style="font-size:12px;line-height:1.5;color:#71717a;padding-top:16px;word-break:break-all">Button not working? Paste this link into your browser:<br>{escape(link)}</td></tr>
 </table>
-<p style="font-size:12px;color:#71717a">Questions? Reply to this email or write to support@querymuse.ai.</p>
+<p style="font-size:12px;color:#71717a">Questions? Reply to this email or write to {escape(settings.mail_reply_to)}.</p>
 </td></tr></table>
 </body></html>"""
     return subject, html, text

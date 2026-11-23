@@ -4,6 +4,7 @@ import { Markdown } from "@copilotkit/react-ui";
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
 
 import { api } from "@/lib/client-api";
+import { useSite } from "@/lib/site-context";
 import { cleanAnswer, suggestTitle, summaryText } from "@/lib/share";
 import { PUBLIC_WALL_NAME, wallLabel, type WallChoice } from "@/lib/wall";
 
@@ -149,6 +150,7 @@ function MyShares({ threadId, switches }: { threadId: string; switches: (WallSwi
 
 /** Share one answer: the question, its final answer and the chart/table it produced, as a link for Teams, Slack or email. */
 export default function ShareDialog({ threadId, open, onClose }: { threadId: string; open: boolean; onClose: () => void }) {
+  const { wallAddress } = useSite();
   const ids = useId();
   const ref = useRef<HTMLDialogElement>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
@@ -305,7 +307,7 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
                   <span>
                     {w === "none" ? "Don't post — only people with the link"
                       : w === "organization" ? "Your organization's Insight Wall"
-                      : <>The {PUBLIC_WALL_NAME} <span className="muted">— anyone on the internet can find it at insights.querymuse.ai</span></>}
+                      : <>The {PUBLIC_WALL_NAME} <span className="muted">— anyone on the internet can find it at {wallAddress}</span></>}
                   </span>
                 </label>
               ))}

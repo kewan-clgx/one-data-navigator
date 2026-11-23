@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
 
 import { api } from "@/lib/client-api";
+import { useSite } from "@/lib/site-context";
 
 type Role = "member" | "data_lead" | "admin";
 type Org = { slug: string; name: string; auth_method: string; join_policy: string; domains: string[] };
@@ -44,6 +45,7 @@ type OrgShare = {
 
 /** Sharing settings: on/off, whether links can be opened by anyone, and every link in the organization. */
 function SharingSection() {
+  const { wallAddress } = useSite();
   const ids = useId();
   const [settings, setSettings] = useState<Sharing | null>(null);
   const [links, setLinks] = useState<OrgShare[]>([]);
@@ -97,7 +99,7 @@ function SharingSection() {
                    onChange={(e) => save({ ...settings, public_wall: e.target.checked })} />
             <span>
               Allow posting to the <strong>public QueryMuse Insight Wall</strong>{" "}
-              <span className="muted">— anyone on the internet can find those answers at insights.querymuse.ai. Turning this off takes them down at once.</span>
+              <span className="muted">— anyone on the internet can find those answers at {wallAddress}. Turning this off takes them down at once.</span>
             </span>
           </label>
           {error && <p className="error" role="alert">{error}</p>}

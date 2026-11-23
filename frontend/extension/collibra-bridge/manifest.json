@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "QueryMuse Collibra Bridge",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Lets QueryMuse read the Collibra catalog with your own Collibra browser session. Read-only; nothing is stored by QueryMuse.",
   "permissions": ["storage"],
   "host_permissions": ["https://*.collibra.com/*"],
@@ -9,7 +9,7 @@
   "background": { "service_worker": "background.js", "type": "module" },
   "content_scripts": [
     {
-      "matches": ["https://app.querymuse.ai/*", "http://localhost:3100/*"],
+      "matches": ["https://easyquery.ai/*", "https://app.querymuse.ai/*", "http://localhost:3100/*"],
       "js": ["content.js"],
       "run_at": "document_start"
     }

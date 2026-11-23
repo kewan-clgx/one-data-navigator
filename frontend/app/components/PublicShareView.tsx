@@ -19,7 +19,7 @@ export function FollowUpButton({ shareId, signedIn, organization }: { shareId: s
   async function go() {
     if (!signedIn) {
       document.cookie = `odn_return=${encodeURIComponent(`/s/${shareId}?followup=1`)}; Max-Age=900; Path=/; SameSite=Lax`;
-      window.location.assign("/");
+      window.location.assign("/signin");
       return;
     }
     setBusy(true);

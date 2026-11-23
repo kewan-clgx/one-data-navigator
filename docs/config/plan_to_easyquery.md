@@ -180,7 +180,16 @@ sender domain is fine for deliverability as long as it's the verified one.
   from the querymuse property.
 - **Monitoring / uptime checks, bookmarks in docs, client onboarding material:** update URLs.
 
-## 5. Code changes (≈ 0.5 day)
+## 5. Code changes (≈ 0.5 day) — ✅ done 2026-11-23
+
+Built: smart root (`/` = marketing page `SiteHome` when signed out, the app when signed in; `/signin` = sign-in;
+all sign-in redirects, sign-out and expired sessions go to `/signin`; old `/?account=personal` → `/signin?…`);
+`/terms`; footer Privacy · Terms · support on the website and sign-in page; `lib/site.ts` (`ODN_SUPPORT_EMAIL`,
+wall address from `ODN_INSIGHTS_HOSTNAME`, app host from `ODN_PUBLIC_URL`) replacing hard-coded querymuse text;
+email footer / Reply-To from `ODN_SUPPORT_EMAIL`; Caddy `ODN_LEGACY_APP_HOSTS` / `ODN_LEGACY_INSIGHTS_HOSTS`
+redirect blocks (path kept; `caddy validate` passes with the easyquery values — **multiple hosts must be separated
+by ", "**); Collibra extension 0.3.0 (allows `https://easyquery.ai`); `deploy/.env.prod.example` shows the
+easyquery values. Original checklist:
 
 1. Caddyfile: the two legacy redirect blocks (§3); compose passes `ODN_LEGACY_*` to Caddy. Check that an empty
    `ODN_SITE_HOSTNAME` really falls back (compose default `site.localhost`) and `ODN_REDIRECT_TARGET` resolves to

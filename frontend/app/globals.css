@@ -1095,3 +1095,5 @@ figure.shared-artifact { margin: 0; }
 .share-wall { border: 1px solid var(--border); border-radius: var(--radius); padding: 0.5rem 0.75rem; display: flex; flex-direction: column; gap: 0.35rem; }
 .share-wall legend { font-size: 0.8rem; padding: 0 0.25rem; }
 .share-wall-select { font: inherit; font-size: 0.75rem; }
+.odn-signin-legal { margin: 1rem 0 0; font-size: 0.78rem; color: var(--fg-muted); text-align: center; }
+.odn-signin-legal a { color: inherit; }

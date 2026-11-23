@@ -9,7 +9,8 @@ export const dynamic = "force-dynamic";
 /** Page loads with an expired but renewable token land here (server components cannot set cookies). */
 export async function GET() {
   const session = await freshSession();
-  const res = NextResponse.redirect(new URL("/", config.publicUrl), 303);
+  // Renewed: back to the app; session over: to sign-in.
+  const res = NextResponse.redirect(new URL(session ? "/" : "/signin", config.publicUrl), 303);
   if (!session) res.cookies.delete(SESSION_COOKIE);
   return res;
 }

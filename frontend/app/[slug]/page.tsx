@@ -21,7 +21,7 @@ export async function generateMetadata({ params }: { params: { slug: string } })
 export default async function OrganizationEntry({ params }: { params: { slug: string } }) {
   const entry = await fetchEntry(params.slug);
   if (!entry) notFound();
-  if (entry.personal) redirect("/?account=personal");
+  if (entry.personal) redirect("/signin?account=personal");
   const identity = await currentIdentity();
   if (identity.kind === "expired") redirect("/auth/refresh");
   if (identity.kind === "ok" && identity.me.tenant.slug === entry.slug) redirect("/");
@@ -61,7 +61,7 @@ export default async function OrganizationEntry({ params }: { params: { slug: st
                 <h1>Sign in to {entry.organization}</h1>
                 <OrganizationSignIn slug={entry.slug} organization={entry.organization} method={entry.method} hd={entry.hd} />
                 <p className="odn-signin-hint">
-                  Not with {entry.organization}? <a href="/">Sign in another way</a>
+                  Not with {entry.organization}? <a href="/signin">Sign in another way</a>
                 </p>
               </>
             )}

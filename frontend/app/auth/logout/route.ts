@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
   // Back to an organization's sign-in link when signing out from it (/<slug> only; never an outside URL).
   const form = await req.formData().catch(() => null);
   const next = String(form?.get("next") ?? "");
-  const target = /^\/[a-z0-9][a-z0-9-]{1,62}$/.test(next) ? next : "/";
+  const target = /^\/[a-z0-9][a-z0-9-]{1,62}$/.test(next) ? next : "/signin";
   const res = NextResponse.redirect(new URL(target, config.publicUrl), 303);
   res.cookies.delete(SESSION_COOKIE);
   return res;

@@ -2,7 +2,7 @@
 // Only bounded, read-only REST GETs on a fixed allowlist; everything else is refused before any request is made.
 
 export const DEFAULT_BASE_URL = "https://corelogic.collibra.com";
-export const APP_ORIGINS = ["https://app.querymuse.ai", "http://localhost:3100"];
+export const APP_ORIGINS = ["https://easyquery.ai", "https://app.querymuse.ai", "http://localhost:3100"];
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ROUTES = [

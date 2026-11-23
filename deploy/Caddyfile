@@ -24,7 +24,7 @@
 # frontend; any other path belongs to the app. Unset means site.localhost (no public certificate needed).
 {$ODN_SITE_HOSTNAME:site.localhost} {
 	import security_headers
-	@app not path / /site /privacy /_next/*
+	@app not path / /site /privacy /terms /_next/*
 	redir @app https://{$ODN_HOSTNAME}{uri}
 	rewrite / /site
 	reverse_proxy frontend:3000
@@ -41,8 +41,19 @@
 	reverse_proxy frontend:3000
 }
 
-# Other hostnames (ODN_REDIRECT_HOSTS, comma-separated, e.g. the apex) -> the website, else the app.
+# Other hostnames (ODN_REDIRECT_HOSTS, separated by ", " — comma AND space, e.g. "www.x.ai, app.x.ai") -> the website, else the app.
 # Unset or empty means localhost, which needs no public certificate, so the block is harmless.
 {$ODN_REDIRECT_HOSTS:localhost} {
 	redir https://{$ODN_REDIRECT_TARGET}{uri} permanent
+}
+
+# Old hosts after a domain move (ODN_LEGACY_APP_HOSTS / ODN_LEGACY_INSIGHTS_HOSTS, separated by ", ", e.g.
+# app.querymuse.ai / insights.querymuse.ai): permanent redirect to the new app / wall host, path and query kept,
+# so share links, set-password emails and bookmarks keep working. Unset means *.localhost (inert).
+{$ODN_LEGACY_APP_HOSTS:legacy-app.localhost} {
+	redir https://{$ODN_HOSTNAME}{uri} permanent
+}
+
+{$ODN_LEGACY_INSIGHTS_HOSTS:legacy-insights.localhost} {
+	redir https://{$ODN_INSIGHTS_HOSTNAME}{uri} permanent
 }

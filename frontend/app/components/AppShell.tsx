@@ -10,6 +10,7 @@ import { CHAT_ATTACH_ACCEPT, FILES_CHANGED, UPLOAD_MAX_BYTES, uploadChatAttachme
 
 import type { Theme } from "../themes";
 import AboutSlides from "./AboutSlides";
+import { SiteContext, type SiteInfo } from "@/lib/site-context";
 import { AgentStepsToggle, ChatSessionContext, ShowResultsContext, useAgentStepRenderers } from "./AgentSteps";
 import { CollibraBrowserTools, type CollibraScope } from "./CollibraBrowserTools";
 import CollibraPanel from "./CollibraPanel";
@@ -183,7 +184,7 @@ function ChatRenderers() {
   return null;
 }
 
-export default function AppShell({ theme, role, userId }: { theme: Theme; role?: string; userId?: string }) {
+export default function AppShell({ theme, role, userId, site }: { theme: Theme; role?: string; userId?: string; site: SiteInfo }) {
   // The Organization tab (people, invites) is for tenant admins only; the API enforces it too.
   const { envs: collibraEnvs } = useCollibraEnvironments();
   const collibraBridge = useCollibraBridge();
@@ -466,6 +467,7 @@ export default function AppShell({ theme, role, userId }: { theme: Theme; role?:
   if (!threadId) return null;
 
   return (
+    <SiteContext.Provider value={site}>
     <CopilotKit runtimeUrl="/api/copilotkit" agent={AGENT_ID} threadId={threadId}>
       <ShowResultsContext.Provider value={showResults}>
       <ChatSessionContext.Provider value={sessionId}>
@@ -488,5 +490,6 @@ export default function AppShell({ theme, role, userId }: { theme: Theme; role?:
       </ChatSessionContext.Provider>
       </ShowResultsContext.Provider>
     </CopilotKit>
+    </SiteContext.Provider>
   );
 }

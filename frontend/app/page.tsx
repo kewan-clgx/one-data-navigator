@@ -1,15 +1,21 @@
+import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import AboutSlides from "./components/AboutSlides";
 import AppShell from "./components/AppShell";
 import BrandBar from "./components/BrandBar";
-import SignInForm from "./components/SignInForm";
+import SiteHome, { SITE_METADATA } from "./components/SiteHome";
 import { currentTheme, tenantTheme } from "./themes/server";
 import { currentIdentity } from "@/lib/identity";
-import { ORG_COOKIE } from "@/lib/session";
+import { supportEmail, wallAddress } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
+
+/** Signed out, "/" is the marketing page: give it the website's title and description. */
+export async function generateMetadata(): Promise<Metadata> {
+  return (await currentIdentity()).kind === "signed-out" ? SITE_METADATA : {};
+}
 
 export default async function Home({ searchParams }: { searchParams: Record<string, string | undefined> }) {
   const identity = await currentIdentity();
@@ -22,27 +28,10 @@ export default async function Home({ searchParams }: { searchParams: Record<stri
     // malformed cookie: ignore
   }
   if (identity.kind === "ok" && /^\/s\/[A-Za-z0-9_-]{22}(\?followup=1)?$/.test(returnTo)) redirect(returnTo);
+  // Signed out: the marketing landing page (sign-in is at /signin). Old "/?account=personal" links still work.
   if (identity.kind === "signed-out") {
-    const theme = currentTheme();
-    return (
-      <div className="odn-app">
-        <BrandBar theme={theme} />
-        <main className="odn-signin">
-          <section className="odn-panel odn-decor">
-            <AboutSlides slides={theme.about} label={`About ${theme.product}`} />
-          </section>
-          <section className="odn-signin-main">
-            <div className="odn-signin-card">
-              <h1>Welcome to {theme.product}</h1>
-              <SignInForm
-                defaultOrganization={cookies().get(ORG_COOKIE)?.value}
-                defaultAccountType={searchParams.account === "personal" ? "personal" : "enterprise"}
-              />
-            </div>
-          </section>
-        </main>
-      </div>
-    );
+    if (searchParams.account === "personal") redirect("/signin?account=personal");
+    return <SiteHome />;
   }
 
   if (identity.kind === "refused") {
@@ -72,7 +61,7 @@ export default async function Home({ searchParams }: { searchParams: Record<stri
   return (
     <div className="odn-app">
       <BrandBar theme={theme} company={identity.me.tenant.name ?? undefined} user={identity.displayName} />
-      <AppShell theme={theme} role={identity.me.role} userId={identity.me.user_id} />
+      <AppShell theme={theme} role={identity.me.role} userId={identity.me.user_id} site={{ wallAddress: wallAddress(), supportEmail: supportEmail() }} />
     </div>
   );
 }

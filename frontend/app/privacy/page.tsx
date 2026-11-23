@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 
-import SiteFrame, { SUPPORT_EMAIL } from "../components/SiteFrame";
+import SiteFrame from "../components/SiteFrame";
+import { appHost, supportEmail } from "@/lib/site";
 
 export const metadata: Metadata = {
   title: "Privacy policy — QueryMuse",
@@ -8,9 +9,10 @@ export const metadata: Metadata = {
 };
 
 const EFFECTIVE = "November 19, 2026";
-const mail = <a href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>;
 
 export default function Privacy() {
+  const support = supportEmail();
+  const mail = <a href={`mailto:${support}`}>{support}</a>;
   return (
     <SiteFrame>
       <article className="odn-site-doc">
@@ -19,8 +21,7 @@ export default function Privacy() {
 
         <p>
           This policy explains how QueryMuse (&ldquo;QueryMuse&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;) handles
-          information when you use the QueryMuse conversational data analytics platform at app.querymuse.ai and the
-          website at www.querymuse.ai. QueryMuse is provided to organizations (our customers); if you use it through
+          information when you use the QueryMuse conversational data analytics platform and website at {appHost()}. QueryMuse is provided to organizations (our customers); if you use it through
           your employer, your organization controls the data it connects to QueryMuse and the accounts it creates.
         </p>
 

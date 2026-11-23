@@ -31,7 +31,7 @@ QueryMuse agent (server) ─ tool call ─▶ QueryMuse page (your browser) ─p
    └──────────── tool result (catalog metadata) ◀── page ◀── service worker ─GET─▶ Collibra (your session)
 ```
 
-- `content.js` runs only on `https://app.querymuse.ai` (and `http://localhost:3100` for development) and relays
+- `content.js` runs only on `https://easyquery.ai` and `https://app.querymuse.ai` (and `http://localhost:3100` for development) and relays
   messages from that page to the service worker.
 - `background.js` performs the request with the browser's Collibra session (`credentials: "include"`), refusing
   anything outside `policy.js`: only `GET /rest/2.0/` `users/current`, `assets` (name search), `assets/{id}`,

@@ -26,7 +26,7 @@ function Card({ card, appUrl, signedIn, onVote, showOrganization }: {
           <button type="button" className="wall-vote-btn" aria-pressed={!!card.my_vote} disabled={card.is_owner}
                   title={voteLabel} aria-label={`${voteLabel}: ${card.title}`} onClick={() => onVote?.(card)}>▲</button>
         ) : (
-          <a className="wall-vote-btn" href={appUrl} title="Sign in to upvote" aria-label="Sign in to upvote">▲</a>
+          <a className="wall-vote-btn" href={`${appUrl}/signin`} title="Sign in to upvote" aria-label="Sign in to upvote">▲</a>
         )}
         <span className="wall-votes" aria-label={`${card.votes} upvotes`}>{card.votes}</span>
       </div>

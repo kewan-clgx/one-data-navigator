@@ -31,6 +31,7 @@ x-prod-backend-env: &prod-backend-env
   ODN_PUBLIC_URL: https://${ODN_HOSTNAME:?set in .env}
   ODN_RESEND_API_KEY_SECRET: ${ODN_RESEND_API_KEY_SECRET:-}
   ODN_MAIL_FROM: ${ODN_MAIL_FROM:-QueryMuse <noreply@querymuse.ai>}
+  ODN_MAIL_REPLY_TO: ${ODN_SUPPORT_EMAIL:-support@querymuse.ai}
   # Collibra (option A): RSA key that signs per-user Collibra tokens; public part at /.well-known/jwks.json.
   ODN_COLLIBRA_SIGNING_KEY_SECRET: ${ODN_COLLIBRA_SIGNING_KEY_SECRET:-}
   ODN_WORKER_TOKEN: ${ODN_WORKER_TOKEN:?set in .env}
@@ -110,6 +111,8 @@ services:
     environment:
       ODN_ENV: prod
       ODN_PUBLIC_URL: https://${ODN_HOSTNAME:?set in .env}
+      ODN_SUPPORT_EMAIL: ${ODN_SUPPORT_EMAIL:-support@querymuse.ai}
+      ODN_INSIGHTS_HOSTNAME: ${ODN_INSIGHTS_HOSTNAME:-}
       ODN_OIDC_ISSUER: https://accounts.google.com
       ODN_OIDC_PUBLIC_ISSUER: ""
       ODN_OIDC_CLIENT_ID: ${ODN_OIDC_CLIENT_ID:?set in .env}
@@ -132,6 +135,9 @@ services:
       ODN_SITE_HOSTNAME: ${ODN_SITE_HOSTNAME:-site.localhost}
       ODN_INSIGHTS_HOSTNAME: ${ODN_INSIGHTS_HOSTNAME:-insights.localhost}
       ODN_REDIRECT_TARGET: ${ODN_SITE_HOSTNAME:-${ODN_HOSTNAME}}
+      # After a domain move: old app/wall hosts redirect to the new ones keeping the path (share links, emails).
+      ODN_LEGACY_APP_HOSTS: ${ODN_LEGACY_APP_HOSTS:-legacy-app.localhost}
+      ODN_LEGACY_INSIGHTS_HOSTS: ${ODN_LEGACY_INSIGHTS_HOSTS:-legacy-insights.localhost}
       ACME_EMAIL: ${ACME_EMAIL:?set in .env}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro

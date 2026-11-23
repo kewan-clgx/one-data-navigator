@@ -4,7 +4,7 @@
 export default function SignInToView({ path, refused }: { path: string; refused: string | null }) {
   function signIn() {
     document.cookie = `odn_return=${encodeURIComponent(path)}; Max-Age=900; Path=/; SameSite=Lax`;
-    window.location.assign("/");
+    window.location.assign("/signin");
   }
   return (
     <main className="shared-main">

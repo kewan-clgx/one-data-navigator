@@ -47,14 +47,14 @@ export default function SetPasswordForm({ oobCode, tenantId }: { oobCode: string
       <>
         <p className="odn-signin-error" role="alert">{state.message}</p>
         <p>On the sign-in page, enter your email (and organization, for enterprise accounts), then choose <strong>Forgot password?</strong> to get a new link.</p>
-        <a className="odn-btn odn-btn--lg" href="/">Go to sign in</a>
+        <a className="odn-btn odn-btn--lg" href="/signin">Go to sign in</a>
       </>
     );
   if (state.kind === "done")
     return (
       <>
         <p className="odn-signin-notice" role="status">Your password is set for {state.email}.</p>
-        <a className="odn-btn odn-btn--lg" href={state.personal ? "/?account=personal" : "/"}>Continue to sign in</a>
+        <a className="odn-btn odn-btn--lg" href={state.personal ? "/signin?account=personal" : "/signin"}>Continue to sign in</a>
       </>
     );
   return (
