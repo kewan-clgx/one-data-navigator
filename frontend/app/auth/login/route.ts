@@ -2,7 +2,7 @@ import * as client from "openid-client";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { callbackUrl, oidc, toBrowserUrl } from "@/lib/oidc";
-import { AUTH_TX_COOKIE, cookieOptions, seal } from "@/lib/session";
+import { AUTH_TX_COOKIE, ORG_COOKIE, cookieOptions, seal } from "@/lib/session";
 import { config } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
@@ -33,5 +33,8 @@ export async function GET(req: NextRequest) {
 
   const res = NextResponse.redirect(toBrowserUrl(url));
   res.cookies.set(AUTH_TX_COOKIE, await seal({ state, codeVerifier, nonce }, TX_MAX_AGE_S), cookieOptions(TX_MAX_AGE_S));
+  // From an organization's sign-in link (/<slug>): prefill it on the general sign-in page next time.
+  const org = req.nextUrl.searchParams.get("org");
+  if (org && /^[a-z0-9][a-z0-9-]{1,62}$/.test(org)) res.cookies.set(ORG_COOKIE, org, cookieOptions(365 * 24 * 3600));
   return res;
 }

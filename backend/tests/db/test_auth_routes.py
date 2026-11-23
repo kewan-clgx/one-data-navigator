@@ -216,3 +216,26 @@ def test_personal_reset_links_are_reported_as_personal(
     monkeypatch.setattr(identity_platform, "check_reset_code", lambda idp, code: "pat@example.org")
     ok = client.post("/v1/auth/reset", json={"oob_code": "abcdefghijkl", "tenant_id": personal})
     assert ok.json() == {"email": "pat@example.org", "organization": None, "personal": True}
+
+
+def test_entry_link_shows_only_what_the_branded_sign_in_needs(client: TestClient, orgs: str) -> None:
+    s = orgs
+    assert client.get(f"/v1/auth/entry/SSO-{s}").json() == {
+        "slug": f"sso-{s}", "organization": f"Sso {s}", "theme": "default", "method": "google",
+        "hd": f"sso-{s}.com", "personal": False,
+    }
+    pw = client.get(f"/v1/auth/entry/pw-{s}").json()
+    assert (pw["method"], pw["hd"]) == ("password", None)
+    assert client.get(f"/v1/auth/entry/open-{s}").json()["hd"] is None  # no verified domain: no hint
+    assert client.get("/v1/auth/entry/nope-nope").status_code == 404
+    with psycopg.connect(OWNER_URL) as conn:
+        conn.execute("UPDATE tenants SET status = 'suspended' WHERE slug = %s", (f"sso-{s}",))
+    assert client.get(f"/v1/auth/entry/sso-{s}").status_code == 404
+
+
+def test_reserved_slugs_cannot_be_organizations() -> None:
+    migrate(OWNER_URL)
+    with pytest.raises(SystemExit, match="reserved"):
+        upsert_tenant(OWNER_URL, "signin", "Sign in")
+    with psycopg.connect(OWNER_URL) as conn, pytest.raises(psycopg.errors.CheckViolation):
+        conn.execute("INSERT INTO tenants (slug, name) VALUES ('privacy', 'Privacy')")

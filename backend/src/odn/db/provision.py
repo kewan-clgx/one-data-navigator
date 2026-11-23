@@ -54,6 +54,14 @@ def _tenant_id(conn: psycopg.Connection[dict[str, Any]], slug: str) -> uuid.UUID
     return row["id"]
 
 
+# The organization's sign-in link is /<slug>; keep in sync with migration 0025 (tenants_slug_not_reserved).
+RESERVED_SLUGS = frozenset({
+    "about", "admin", "api", "app", "assets", "auth", "blog", "contact", "docs", "downloads", "favicon", "help",
+    "home", "insights", "legal", "login", "logout", "pricing", "privacy", "robots", "s", "security", "settings",
+    "signin", "signup", "site", "sitemap", "static", "status", "support", "terms", "www",
+})
+
+
 def upsert_tenant(
     url: str,
     slug: str,
@@ -66,6 +74,8 @@ def upsert_tenant(
     idp_tenant_id: str | None = None,
 ) -> uuid.UUID:
     """Create or update a tenant; only the given fields change on update."""
+    if slug in RESERVED_SLUGS:
+        raise SystemExit(f"{slug!r} is reserved (its sign-in link /{slug} would clash with an app page); pick another slug")
     with _conn(url) as conn:
         row = conn.execute(
             """

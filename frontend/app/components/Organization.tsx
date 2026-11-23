@@ -107,6 +107,22 @@ function SharingSection() {
   );
 }
 
+/** The organization's own sign-in page (/<slug>): to share in onboarding emails, the intranet or bookmarks. */
+function SignInLink({ slug }: { slug: string }) {
+  const [url, setUrl] = useState(`/${slug}`);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => setUrl(`${window.location.origin}/${slug}`), [slug]);
+  return (
+    <>
+      <a href={url} target="_blank" rel="noreferrer">{url.replace(/^https?:\/\//, "")}</a>{" "}
+      <button type="button" className="link" onClick={() => navigator.clipboard.writeText(url).then(() => setCopied(true))}>
+        {copied ? "Copied ✓" : "Copy"}
+      </button>
+      <div className="muted">Share it with your people: it opens your organization&apos;s sign-in directly.</div>
+    </>
+  );
+}
+
 function when(iso: string | null): string {
   return iso ? new Date(iso).toLocaleString() : "–";
 }
@@ -187,6 +203,8 @@ export default function Organization({ currentUserId }: { currentUserId?: string
             </dd>
             <dt>Admins</dt>
             <dd>{admins.map((a) => a.email).join(", ") || "–"}</dd>
+            <dt>Sign-in link</dt>
+            <dd><SignInLink slug={org.slug} /></dd>
           </dl>
         ) : (
           <p className="muted">Loading…</p>

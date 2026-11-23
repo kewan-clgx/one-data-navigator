@@ -300,6 +300,77 @@ function PersonalSignIn() {
   );
 }
 
+type EntryProps = { slug: string; organization: string; method: "google" | "oidc" | "password"; hd: string | null };
+
+/** One organization's own sign-in link (/<slug>): the organization is fixed and its sign-in method shown directly. */
+export function OrganizationSignIn({ slug, organization, method, hd }: EntryProps) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  if (method !== "password") {
+    const q = new URLSearchParams({ org: slug });
+    if (hd) q.set("hd", hd);
+    return (
+      <div className="odn-signin-form">
+        <a className="odn-btn odn-btn--lg odn-btn--provider" href={`/auth/login?${q}`}>
+          {method === "google" && <GoogleIcon />}
+          {method === "google" ? "Continue with Google" : "Continue"}
+        </a>
+        <p className="odn-signin-hint">Use your {organization} work account{hd ? ` (@${hd})` : ""}.</p>
+      </div>
+    );
+  }
+
+  const signIn = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const { ok, data } = await post("/auth/password", { organization: slug, email, password });
+      if (ok) {
+        window.location.assign("/");
+        return;
+      }
+      setPassword("");
+      setError(message(data, "Sign-in failed."));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const forgot = async () => {
+    if (!email.trim()) return setError("Enter your work email first.");
+    setBusy(true);
+    setError(null);
+    try {
+      const { data } = await post("/auth/forgot", { organization: slug, email });
+      setNotice(message(data, "If the account exists, a reset link is on its way."));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form className="odn-signin-form" onSubmit={signIn}>
+      <label>
+        Work email
+        <input type="email" autoComplete="email" required autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" />
+      </label>
+      <PasswordField label="Password" value={password} onChange={setPassword} autoComplete="current-password" />
+      {error && <p className="odn-signin-error" role="alert">{error}</p>}
+      {notice && <p className="odn-signin-notice" role="status">{notice}</p>}
+      <button type="submit" className="odn-btn odn-btn--lg" disabled={busy || !email.trim() || !password}>
+        {busy ? "Signing in…" : "Sign in"}
+      </button>
+      <button type="button" className="link" onClick={forgot} disabled={busy}>
+        Forgot password?
+      </button>
+    </form>
+  );
+}
+
 /** Account-type switch (enterprise by default) above the matching sign-in form. */
 export default function SignInForm({
   defaultOrganization,

@@ -6,13 +6,14 @@ from the verified token (odn.tenancy.context). Responses never reveal whether an
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
 import jwt
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Path, status
 from pydantic import BaseModel, Field
 
 from odn.api.ratelimit import RateLimiter
+from odn.config import settings
 from odn.db import system_transaction
 from odn.platform import identity_platform
 from odn.platform.governance.auth_events import record_auth_failure
@@ -50,6 +51,16 @@ class ResetIn(BaseModel):
 class ResetOut(BaseModel):
     email: str
     organization: str | None = None
+    personal: bool = False
+
+
+class EntryOut(BaseModel):
+    slug: str
+    organization: str
+    theme: str
+    method: Literal["google", "oidc", "password"]
+    # Google Workspace hint: the organization's only verified email domain, if it has exactly one.
+    hd: str | None = None
     personal: bool = False
 
 
@@ -94,6 +105,23 @@ def discover(body: DiscoverIn) -> DiscoverOut:
         organization=tenant["name"],
         # Google Workspace hint, only for real company domains (personal accounts have none).
         hd=domain if tenant["auth_method"] == "google" and domain not in ("gmail.com", "googlemail.com") else None,
+    )
+
+
+@router.get("/entry/{slug}")
+def entry(slug: Annotated[str, Path(pattern=r"^[A-Za-z0-9][A-Za-z0-9-]{1,62}$")]) -> EntryOut:
+    """An organization's sign-in link (/<slug>): what its branded sign-in page needs. 404 if unknown or inactive."""
+    with system_transaction() as conn:
+        tenant = conn.execute("SELECT * FROM odn_tenant_entry(%s)", (slug,)).fetchone()
+    if tenant is None or tenant["auth_method"] == "saml":
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    if tenant["auth_method"] == "password" and not (tenant["idp_tenant_id"] and identity_platform.enabled()):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    domains = tenant["domains"] or []
+    return EntryOut(
+        slug=tenant["slug"], organization=tenant["name"], theme=tenant["theme"], method=tenant["auth_method"],
+        hd=domains[0] if tenant["auth_method"] == "google" and len(domains) == 1 else None,
+        personal=tenant["slug"] == settings.personal_tenant,
     )
 
 
