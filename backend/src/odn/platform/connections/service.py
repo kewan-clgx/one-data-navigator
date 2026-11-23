@@ -467,6 +467,8 @@ def save_connection(
     current = get_connection(tenant_id, user_id, connection_id) if connection_id else None
     if connection_id and (current is None or current.owner_user_id != owner):
         raise LookupError("connection not found")
+    if current is not None and current.tenant_id is None:
+        raise PermissionError("platform connections are managed by the QueryMuse team and can't be edited here")
     
     # Validate and extract credentials/secrets based on kind
     if data.kind == "bigquery":

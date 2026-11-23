@@ -64,7 +64,7 @@ def test_tenant_sees_only_own_rows(tenants: tuple[uuid.UUID, uuid.UUID]) -> None
             _insert_connection(conn, b, "conn-b")
         with conn.transaction():
             _as_tenant(conn, a)
-            names = {r[0] for r in conn.execute("SELECT name FROM connections")}
+            names = {r[0] for r in conn.execute("SELECT name FROM connections WHERE tenant_id IS NOT NULL")}
         assert names == {"conn-a"}
 
 
@@ -143,3 +143,31 @@ def test_every_table_forces_rls_or_is_a_directory_table() -> None:
         if not (rls and forced) and (name not in DIRECTORY_TABLES or app_reads)
     ]
     assert unprotected == [], f"tables without FORCE ROW LEVEL SECURITY: {unprotected}"
+
+
+def test_platform_connections_are_read_only_for_tenants(tenants: tuple[uuid.UUID, uuid.UUID]) -> None:
+    a, _ = tenants
+    name = f"platform-{uuid.uuid4().hex[:8]}"
+    with psycopg.connect(OWNER_URL) as owner:
+        pid = owner.execute(
+            "INSERT INTO connections (tenant_id, name, kind, config, allowed_objects) "
+            "VALUES (NULL, %s, 'bigquery', '{}', '{}') RETURNING id", (name,),
+        ).fetchone()[0]
+    try:
+        with psycopg.connect(APP_URL) as conn:
+            with conn.transaction():
+                assert conn.execute("SELECT count(*) FROM connections WHERE id = %s", (pid,)).fetchone()[0] == 0
+            with conn.transaction():
+                _as_tenant(conn, a)
+                assert conn.execute("SELECT name FROM connections WHERE id = %s", (pid,)).fetchone()[0] == name
+                assert conn.execute("UPDATE connections SET name = 'hijacked' WHERE id = %s", (pid,)).rowcount == 0
+                assert conn.execute("DELETE FROM connections WHERE id = %s", (pid,)).rowcount == 0
+            with pytest.raises(psycopg.errors.InsufficientPrivilege), conn.transaction():
+                _as_tenant(conn, a)
+                conn.execute(
+                    "INSERT INTO connections (tenant_id, name, kind, config, allowed_objects) "
+                    "VALUES (NULL, 'rogue', 'bigquery', '{}', '{}')"
+                )
+    finally:
+        with psycopg.connect(OWNER_URL) as owner:
+            owner.execute("DELETE FROM connections WHERE id = %s", (pid,))

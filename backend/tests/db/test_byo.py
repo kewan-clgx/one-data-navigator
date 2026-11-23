@@ -71,7 +71,8 @@ def users():
 
 
 def _names(ctx: RequestContext) -> list[tuple[str, bool]]:
-    return [(p.name, p.personal) for p in list_connections(ctx.tenant_id, ctx.user_id)]
+    # Platform connections (tenant_id NULL, e.g. bigquery-public-data) are visible to everyone; not under test here.
+    return [(p.name, p.personal) for p in list_connections(ctx.tenant_id, ctx.user_id) if p.tenant_id is not None]
 
 
 def test_personal_connection_is_visible_only_to_its_owner(users) -> None:

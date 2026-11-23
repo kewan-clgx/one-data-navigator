@@ -47,6 +47,8 @@ def _save(ctx: RequestContext, data: PersonalConnectionInput, connection_id: UUI
         ) from None
     except LookupError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "connection not found") from None
+    except PermissionError as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from None
     except DuplicateName:
         raise HTTPException(status.HTTP_409_CONFLICT, "your organization already has a connection with this name") from None
     except ValueError as exc:
