@@ -9,7 +9,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * Visuals are scripted CSS/SVG illustrations (no real data).
  */
 
-type Links = { signin: string; personal: string; contact: string; support: string; year: number };
+/** `demo` is the live-demo check-in page, when the deployment has one. */
+type Links = { signin: string; personal: string; contact: string; support: string; year: number; demo?: string };
 
 const SLIDES = [
   { id: "ask", label: "Ask your data anything" },
@@ -207,7 +208,11 @@ export default function LandingDeck({ links }: { links: Links }) {
           </span>
         </a>
         <nav className="eq-header-actions" aria-label="Get started">
-          <a className="eq-header-link" href={links.contact}>Get EasyQuery for your team</a>
+          {links.demo ? (
+            <a className="eq-header-link" href={links.demo}>Start a live demo</a>
+          ) : (
+            <a className="eq-header-link" href={links.contact}>Get EasyQuery for your team</a>
+          )}
           <a className="odn-btn odn-btn--small eq-header-signin" href={links.signin}>Sign in</a>
         </nav>
       </header>
@@ -233,6 +238,7 @@ export default function LandingDeck({ links }: { links: Links }) {
               <p className="eq-lead">All your data queries, one chat. Plain English in, answers in seconds.</p>
               <div className="eq-cta">
                 <a className="odn-btn odn-btn--lg eq-btn-light" href={links.signin}>Sign in</a>
+                {links.demo && <a className="eq-cta-link" href={links.demo}>Start a live demo →</a>}
                 <a className="eq-cta-link" href={links.contact}>Get EasyQuery for your team →</a>
               </div>
             </div>
@@ -316,6 +322,7 @@ export default function LandingDeck({ links }: { links: Links }) {
             <p className="eq-lead">Reports in minutes, not weeks. No waiting.</p>
             <div className="eq-cta eq-cta--center">
               <a className="odn-btn odn-btn--lg eq-btn-light" href={links.signin}>Sign in</a>
+              {links.demo && <a className="eq-cta-link" href={links.demo}>Start a live demo</a>}
               <a className="eq-cta-link" href={links.personal}>Create a personal account</a>
               <a className="eq-cta-link" href={links.contact}>Get EasyQuery for your team</a>
             </div>

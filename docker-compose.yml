@@ -24,6 +24,8 @@ x-backend-env: &backend-env
   ODN_IDP_API_KEY: ${ODN_IDP_API_KEY:-}
   # Tenant slug personal email/password accounts sign up into (needs --join domain, no domains, an IdP tenant).
   ODN_PERSONAL_TENANT: ${ODN_PERSONAL_TENANT:-}
+  # Live-demo tenant slug (provision demo <slug>): "Start a live demo" check-in; empty = no demo.
+  ODN_DEMO_TENANT: ${ODN_DEMO_TENANT:-}
   # Branded invite/reset emails via Resend; empty key = Identity Platform's own emails.
   ODN_PUBLIC_URL: http://localhost:3100
   ODN_RESEND_API_KEY: ${ODN_RESEND_API_KEY:-}
@@ -185,6 +187,7 @@ services:
       ODN_AGENT_URL: http://agent:8000
       ODN_ENV: local
       ODN_PUBLIC_URL: http://localhost:3100
+      ODN_DEMO_TENANT: ${ODN_DEMO_TENANT:-}
       ODN_OIDC_ISSUER: http://oidc:8080/odn
       ODN_OIDC_PUBLIC_ISSUER: http://localhost:8180/odn
       ODN_OIDC_CLIENT_ID: odn-web

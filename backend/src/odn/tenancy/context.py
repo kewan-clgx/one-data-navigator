@@ -45,6 +45,8 @@ class RequestContext:
     # True when the email is verified and on one of the tenant's verified domains (gate for identity assertions
     # to other systems, e.g. Collibra tokens).
     email_domain_verified: bool = False
+    # Per-tenant cap on bytes a single warehouse query may scan (tenants.max_bytes_billed); None = global limit.
+    max_bytes_billed: int | None = None
 
 
 @cache
@@ -104,6 +106,7 @@ def resolve_context(token: VerifiedToken) -> RequestContext:
         tenant_slug=tenant["slug"],
         email=token.email,
         email_domain_verified=bool(tenant["has_domains"] and token.email_verified and tenant["domain_ok"]),
+        max_bytes_billed=tenant["max_bytes_billed"],
     )
 
 

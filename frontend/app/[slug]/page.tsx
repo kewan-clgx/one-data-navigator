@@ -8,6 +8,7 @@ import { THEMES } from "../themes";
 import { currentTheme } from "../themes/server";
 import { fetchEntry } from "@/lib/entry";
 import { currentIdentity } from "@/lib/identity";
+import { demoTenant } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +61,11 @@ export default async function OrganizationEntry({ params }: { params: { slug: st
               <>
                 <h1>Sign in to {entry.organization}</h1>
                 <OrganizationSignIn slug={entry.slug} organization={entry.organization} method={entry.method} hd={entry.hd} />
+                {entry.slug === demoTenant() && (
+                  <p className="odn-signin-switch">
+                    Visiting? <a href="/try">Start a live demo</a>
+                  </p>
+                )}
                 <p className="odn-signin-hint">
                   Not with {entry.organization}? <a href="/signin">Sign in another way</a>
                 </p>

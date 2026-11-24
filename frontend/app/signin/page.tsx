@@ -8,6 +8,7 @@ import SignInForm from "../components/SignInForm";
 import { currentTheme } from "../themes/server";
 import { currentIdentity } from "@/lib/identity";
 import { ORG_COOKIE } from "@/lib/session";
+import { demoTenant } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,11 @@ export default async function SignIn({ searchParams }: { searchParams: Record<st
               defaultOrganization={cookies().get(ORG_COOKIE)?.value}
               defaultAccountType={searchParams.account === "personal" ? "personal" : "enterprise"}
             />
+            {demoTenant() && (
+              <p className="odn-signin-switch">
+                Just looking? <a href="/try">Start a live demo</a>
+              </p>
+            )}
             <p className="odn-signin-legal">
               <a href="/">Home</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a>
             </p>

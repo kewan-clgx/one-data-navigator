@@ -54,6 +54,9 @@ Prerequisites: `gcloud` authenticated as an owner/editor of `datahop-514819`, an
    - `ODN_PERSONAL_TENANT`: tenant for email/password personal sign-up (prod: `personal`, created with
      `deploy/deploy.sh provision tenant personal --name Personal --join domain --create-idp-tenant`). Keep it
      free of shared connections: anyone can join it.
+   - `ODN_DEMO_TENANT`: the live-demo tenant ("Start a live demo" at `/try`; prod: `demo`). Anyone can check in,
+     so like `personal` it must hold no shared connections; demo users query the platform
+     `bigquery-public-data` connection. See docs/Tenant_Isolation_User_system.md §4.3b.
    - `LITELLM_MODEL`: use a model ID from the Gemini API with the `gemini/` prefix (for example
      `gemini/gemini-3.5-flash`). Names such as `gemini-3.5-flash-genaicenter-us` are corporate-proxy aliases
      and do not exist in the public Gemini API.

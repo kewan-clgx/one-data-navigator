@@ -20,8 +20,11 @@ export type Session = {
   email?: string;
   /** Present when the IdP issued one; the BFF uses it to renew `accessToken` before it expires. */
   refreshToken?: string;
-  /** "idp" = Identity Platform password sign-in (refreshed via the API); "oidc" = the OIDC provider. */
-  provider?: "oidc" | "idp";
+  /**
+   * "idp" = Identity Platform password sign-in (refreshed via the API); "oidc" = the OIDC provider;
+   * "demo" = live-demo check-in (API-signed token, no refresh: the visitor checks in again).
+   */
+  provider?: "oidc" | "idp" | "demo";
   /** Unix seconds of the interactive sign-in; caps the session at MAX_SESSION_S. */
   loginAt?: number;
 };

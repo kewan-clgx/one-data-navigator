@@ -17,6 +17,10 @@ ALLOWED_ALGORITHMS = ["RS256", "RS384", "RS512", "ES256", "ES384", "PS256"]
 
 IDP_JWKS_URL = "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com"
 
+# Live-demo tokens, signed by the API itself (odn.platform.demo) with the key behind /.well-known/jwks.json.
+DEMO_ISSUER = "urn:querymuse:demo"
+DEMO_AUDIENCE = "odn-demo"
+
 
 class InvalidToken(Exception):
     pass
@@ -133,5 +137,10 @@ def verifier_from_settings() -> TrustedIssuers:
         issuer = f"https://securetoken.google.com/{settings.idp_project}"
         verifiers[issuer] = TokenVerifier(
             issuer=issuer, jwks_url=IDP_JWKS_URL, audience=settings.idp_project, tenant_claim="firebase.tenant"
+        )
+    if settings.demo_tenant:
+        verifiers[DEMO_ISSUER] = TokenVerifier(
+            issuer=DEMO_ISSUER, jwks_url=f"{settings.api_url.rstrip('/')}/.well-known/jwks.json",
+            audience=DEMO_AUDIENCE, tenant_claim="tenant",
         )
     return TrustedIssuers(verifiers)

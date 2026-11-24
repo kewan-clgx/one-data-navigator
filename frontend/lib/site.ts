@@ -16,6 +16,11 @@ export function appHost(): string {
   }
 }
 
+/** Slug of the live-demo organization (ODN_DEMO_TENANT); empty = no "Start a live demo". */
+export function demoTenant(): string {
+  return process.env.ODN_DEMO_TENANT || "";
+}
+
 export function supportEmail(): string {
   return process.env.ODN_SUPPORT_EMAIL || "support@easyquery.ai";
 }

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 import LandingDeck from "./LandingDeck";
-import { appUrl, supportEmail } from "@/lib/site";
+import { appUrl, demoTenant, supportEmail } from "@/lib/site";
 
 export const SITE_METADATA: Metadata = {
   title: "EasyQuery — your AI data analyst",
@@ -21,6 +21,7 @@ export default function SiteHome() {
         contact: `mailto:${support}?subject=EasyQuery%20for%20my%20organization`,
         support,
         year: new Date().getFullYear(),
+        demo: demoTenant() ? `${app}/try` : undefined,
       }}
     />
   );

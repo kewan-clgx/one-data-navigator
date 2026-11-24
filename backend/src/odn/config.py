@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     # Slug of the tenant personal accounts join (email/password sign-up through its Identity Platform tenant;
     # personal Google accounts reach it through the issuer's '*' mapping). Empty = no personal email sign-up.
     personal_tenant: str = ""
+    # Slug of the live-demo tenant: anyone can check in (name + email, not verified) and gets a demo user there,
+    # signed in with tokens this API signs. A check-in with the same email within demo_account_days reopens
+    # that demo user; after that the email starts fresh. Empty = no demo.
+    demo_tenant: str = ""
+    demo_account_days: int = 7
+    demo_session_hours: int = 8
     # Branded invite/reset emails via Resend (odn.platform.mailer); no key = Identity Platform's own emails.
     public_url: str = ""  # app origin used in email links, e.g. https://easyquery.ai
     resend_api_key: str = ""

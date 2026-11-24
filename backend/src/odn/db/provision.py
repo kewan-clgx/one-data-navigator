@@ -17,6 +17,9 @@ Tenant directory (docs/Tenant_Isolation_User_system.md):
     provision invite indulge alice@indulgetheapp.com --role admin
     provision user indulge bob@indulgetheapp.com --status disabled
     provision idp datahop https://accounts.google.com '*'  # issuer fallback tenant (personal Google accounts)
+    provision tenant demo --name Demo --auth password --join invite --create-idp-tenant   # live demo (ODN_DEMO_TENANT)
+    provision demo demo --max-gb 25                        # demo tokens -> demo, sharing off, scan cap
+    provision checkins demo                                # recent demo check-ins
     provision collibra cotality prd --url https://example.collibra.com                     # users' own browser sign-in
     provision collibra cotality prd --url https://example.collibra.com --audience easyquery-collibra   # token mode
 """
@@ -54,11 +57,11 @@ def _tenant_id(conn: psycopg.Connection[dict[str, Any]], slug: str) -> uuid.UUID
     return row["id"]
 
 
-# The organization's sign-in link is /<slug>; keep in sync with migration 0025 (tenants_slug_not_reserved).
+# The organization's sign-in link is /<slug>; keep in sync with tenants_slug_not_reserved (migrations 0025, 0027).
 RESERVED_SLUGS = frozenset({
     "about", "admin", "api", "app", "assets", "auth", "blog", "contact", "docs", "downloads", "favicon", "help",
     "home", "insights", "legal", "login", "logout", "pricing", "privacy", "robots", "s", "security", "settings",
-    "signin", "signup", "site", "sitemap", "static", "status", "support", "terms", "www",
+    "signin", "signup", "site", "sitemap", "static", "status", "support", "terms", "try", "www",
 })
 
 
@@ -115,6 +118,37 @@ def map_identity(url: str, tenant: str, issuer: str, external_id: str) -> None:
             "ON CONFLICT (issuer, external_id) DO UPDATE SET tenant_id = EXCLUDED.tenant_id",
             (issuer, external_id, tenant_id),
         )
+
+
+def setup_demo(url: str, tenant: str, max_gb: int | None) -> None:
+    """Make a tenant the live-demo tenant: demo tokens map to it, sharing is off, optional query scan cap."""
+    from odn.tenancy.oidc import DEMO_ISSUER
+
+    with _conn(url) as conn:
+        tenant_id = _tenant_id(conn, tenant)
+        conn.execute("UPDATE tenants SET max_bytes_billed = %s, updated_at = now() WHERE id = %s",
+                     (max_gb * 1024**3 if max_gb else None, tenant_id))
+        conn.execute(
+            "INSERT INTO tenant_identity_providers (issuer, external_id, tenant_id) VALUES (%s, %s, %s) "
+            "ON CONFLICT (issuer, external_id) DO UPDATE SET tenant_id = EXCLUDED.tenant_id",
+            (DEMO_ISSUER, tenant, tenant_id),
+        )
+        # Visitors share one organization: they must not see each other's answers.
+        conn.execute(
+            "INSERT INTO tenant_sharing_settings (tenant_id, enabled) VALUES (%s, false) "
+            "ON CONFLICT (tenant_id) DO UPDATE SET enabled = false, updated_at = now()",
+            (tenant_id,),
+        )
+
+
+def demo_checkins(url: str, tenant: str, limit: int) -> list[dict[str, Any]]:
+    with _conn(url) as conn:
+        tenant_id = _tenant_id(conn, tenant)
+        return conn.execute(
+            "SELECT checked_in_at, name, email FROM demo_checkins WHERE tenant_id = %s "
+            "ORDER BY checked_in_at DESC LIMIT %s",
+            (tenant_id, limit),
+        ).fetchall()
 
 
 def dns_txt_records(name: str) -> list[str]:
@@ -352,6 +386,14 @@ def main(argv: list[str] | None = None) -> None:
                    help="Collibra username format (JWT sub)")
     p.add_argument("--disable", action="store_true")
 
+    p = sub.add_parser("demo", help="make a tenant the live-demo tenant (set ODN_DEMO_TENANT to its slug)")
+    p.add_argument("tenant")
+    p.add_argument("--max-gb", type=int, help="cap on GB a single query may scan in this tenant")
+
+    p = sub.add_parser("checkins", help="list recent live-demo check-ins (name, email)")
+    p.add_argument("tenant")
+    p.add_argument("--limit", type=int, default=50)
+
     sub.add_parser("show", help="list tenants, connections and users")
 
     args = parser.parse_args(argv)
@@ -400,6 +442,12 @@ def main(argv: list[str] | None = None) -> None:
     elif args.cmd == "collibra":
         upsert_collibra(url, args.tenant, args.env, args.url, args.audience, args.principal, not args.disable)
         print(f"collibra {args.tenant}/{args.env}: {args.url}" + (" (disabled)" if args.disable else ""))
+    elif args.cmd == "demo":
+        setup_demo(url, args.tenant, args.max_gb)
+        print(f"{args.tenant}: live-demo tenant" + (f", queries capped at {args.max_gb} GB" if args.max_gb else ""))
+    elif args.cmd == "checkins":
+        for row in demo_checkins(url, args.tenant, args.limit):
+            print(f"{row['checked_in_at']:%Y-%m-%d %H:%M}  {row['name']}  <{row['email']}>")
     else:
         show(url)
 

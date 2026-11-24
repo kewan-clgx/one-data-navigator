@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
 import pyarrow as pa
@@ -67,6 +67,8 @@ def run_query(
     connector: BaseConnector | None = None,
 ) -> QueryOutcome:
     connector = connector or build_connector(profile)
+    if ctx.max_bytes_billed is not None and ctx.max_bytes_billed < limits.max_bytes_billed:
+        limits = replace(limits, max_bytes_billed=ctx.max_bytes_billed)
     audit = AuditRecord(
         tenant_id=ctx.tenant_id,
         user_id=ctx.user_id,

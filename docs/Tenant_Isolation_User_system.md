@@ -233,6 +233,26 @@ which is also the Google issuer's `'*'` tenant). Anyone can join it, so it must 
 - An email that already signed in with Google cannot also get a password account in the same tenant (and vice
   versa): `users_tenant_email` refuses it ("account uses another sign-in method").
 
+### 4.3b Live demo
+
+"Start a live demo" (landing page, `/signin`, the demo organization's `/demo` page) opens `/try`: the visitor checks
+in with a name and email (**not verified**) and goes straight into the app as a `member` of the mock enterprise
+tenant `ODN_DEMO_TENANT` (prod: `demo`), using the platform `bigquery-public-data` connection (migration 0023).
+
+- `POST /v1/auth/demo` (odn.platform.demo, migration 0027) creates or reopens the demo user and records every
+  check-in in `demo_checkins` (name, email, time; `provision checkins demo` lists them). The API signs the session
+  token itself (issuer `urn:querymuse:demo`, the app signing key behind `/.well-known/jwks.json`); API and agent
+  verify it like any other issuer's, and it maps to the tenant through `tenant_identity_providers`.
+- The same email within `ODN_DEMO_ACCOUNT_DAYS` (7) of its demo user's creation reopens that user and its chats;
+  anyone who types that email gets them, which is accepted for a demo. After that the old user is retired
+  (disabled, email cleared) and the email starts fresh. Tokens never outlive the demo user; no refresh.
+- Emails of the tenant's real accounts (its admins) are refused; an admin-disabled demo user stays refused.
+- Rate limits: per email, per client address (from the BFF) and overall.
+- Setup: `provision tenant demo --name Demo --auth password --join invite --create-idp-tenant`,
+  `provision demo demo --max-gb 25` (demo issuer mapping, sharing off so visitors can't see each other's
+  answers, per-query scan cap `tenants.max_bytes_billed`), `provision invite demo <admin email> --role admin`, then
+  set `ODN_DEMO_TENANT=demo`. Admins sign in on `/demo` (domain-less password tenants are discoverable, 0027).
+
 ### 4.4 Roles
 
 | Role | Scope | Can |

@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Annotated, Literal
 
 import jwt
+import psycopg
 from fastapi import APIRouter, HTTPException, Path, status
 from pydantic import BaseModel, Field
 
@@ -309,3 +310,52 @@ def personal_forgot(body: PersonalEmailIn) -> dict[str, str]:
         except identity_platform.IdentityPlatformError:
             pass
     return message
+
+
+# Live demo -------------------------------------------------------------------------------------------
+# Name + email check-in (not verified) -> a demo user in ODN_DEMO_TENANT (odn.platform.demo).
+
+DEMO_UNAVAILABLE = "The live demo isn't available right now."
+
+_demo_email_limit = RateLimiter(limit=10, window_s=60 * 60)
+_demo_ip_limit = RateLimiter(limit=20, window_s=60 * 60)
+_demo_global_limit = RateLimiter(limit=500, window_s=60 * 60)
+
+
+class DemoIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    email: str = Field(min_length=3, max_length=320)
+    # Set by the BFF from the request it received (this API is not reachable from browsers).
+    client_ip: str | None = Field(default=None, max_length=64)
+
+
+class DemoOut(BaseModel):
+    id_token: str
+    expires_in: int
+
+
+@router.post("/demo")
+def demo_check_in(body: DemoIn) -> DemoOut:
+    from odn.platform import demo
+
+    name = " ".join(body.name.split())
+    if not name:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "enter your name")
+    _domain(body.email, "email address")
+    email = body.email.strip().lower()
+    if not (_demo_email_limit.allow(email) and _demo_ip_limit.allow(body.client_ip or "-")
+            and _demo_global_limit.allow("all")):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, TOO_MANY)
+    try:
+        session = demo.check_in(name, email)
+    except demo.DemoUnavailable:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, DEMO_UNAVAILABLE) from None
+    except demo.EmailReserved:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "This email has a staff account. Sign in with your enterprise account."
+        ) from None
+    except demo.DemoDisabled:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This demo account has been disabled.") from None
+    except psycopg.errors.UniqueViolation:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Please try again.") from None
+    return DemoOut(id_token=session.token, expires_in=session.expires_in)

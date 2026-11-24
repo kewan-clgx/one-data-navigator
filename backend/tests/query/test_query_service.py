@@ -1,3 +1,4 @@
+import dataclasses
 import uuid
 from collections.abc import Iterator
 
@@ -145,6 +146,15 @@ def test_over_billing_cap_rejected_even_if_confirmed(audits: list[AuditRecord]) 
         run_query(CTX, PROFILE, "SELECT id FROM orders", source="chat", sink=PreviewSink(),
                   limits=QueryLimits(max_bytes_billed=1024**4), connector=conn, confirmed=True)
     assert conn.executed == []
+
+
+def test_tenant_scan_cap_lowers_the_limit(audits: list[AuditRecord]) -> None:
+    capped = dataclasses.replace(CTX, max_bytes_billed=25 * 1024**3)
+    with pytest.raises(QueryRejected):
+        run_query(capped, PROFILE, "SELECT id FROM orders", source="chat", sink=PreviewSink(),
+                  limits=QueryLimits(), connector=FakeConnector(bytes_estimate=30 * 1024**3), confirmed=True)
+    run_query(capped, PROFILE, "SELECT id FROM orders", source="chat", sink=PreviewSink(),
+              limits=QueryLimits(), connector=FakeConnector(bytes_estimate=20 * 1024**3), confirmed=True)
 
 
 def test_row_cap_truncates_and_cancels(audits: list[AuditRecord]) -> None:
