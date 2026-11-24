@@ -1,13 +1,53 @@
 # Plan: move production from querymuse.ai to easyquery.ai
 
-**Status:** ✅ **switched 2026-11-23** — production serves `https://easyquery.ai` (release `6381c3b`); `www.` and
-`app.easyquery.ai`, `querymuse.ai`, `www.querymuse.ai` and `app.querymuse.ai` redirect with the path kept; certificates
-issued for easyquery.ai, www, app and insights. Google sign-in redirect and Identity Platform domain added. Prod
-`.env` backup: `/opt/odn/shared/.env.bak-20261123-230816` (rollback: restore it and `deploy/deploy.sh up`).
-Email: since 2026-11-23 sent as `EasyQuery <noreply@easyquery.ai>` (new easyquery.ai sending key = version 2 of
-`odn-resend-api-key`), Reply-To `support@easyquery.ai`. **Open:** (2) Google consent-screen home/privacy/terms links → easyquery.ai (starts re-review);
-(3) Collibra browser-mode users reload extension 0.3.0; (4) `insights.querymuse.ai` never had DNS, so no legacy
-redirect for it.
+**Status (2026-11-23): ✅ done — production is `https://easyquery.ai` and the product is EasyQuery.** The sections
+after the summary are the original plan, kept for reference.
+
+## 0. Summary: done, to do, proposed
+
+### Done
+
+| Area | What | Release / where |
+|---|---|---|
+| DNS (GoDaddy) | `easyquery.ai`, `www`, `app`, `insights` → `136.71.108.203`; Google Search Console TXT; Resend DKIM, DMARC (`p=quarantine`), receiving MX | DNS |
+| Domain switch | App at the apex `https://easyquery.ai`; `www.`/`app.easyquery.ai`, `querymuse.ai`, `www.querymuse.ai`, `app.querymuse.ai` → 301 to the same path on easyquery.ai; Let's Encrypt certificates for easyquery.ai, www, app, insights | `6381c3b`; prod `.env` (backups `/opt/odn/shared/.env.bak-20261123-*`) |
+| Landing + sign-in | Marketing page at `/` when signed out (app when signed in); sign-in at `/signin`; all sign-in redirects, sign-out and expired sessions → `/signin`; `/terms` page; footer Privacy · Terms · support | `6381c3b` |
+| Config instead of hard-coded text | `lib/site.ts`: `ODN_SUPPORT_EMAIL`, wall address (`ODN_INSIGHTS_HOSTNAME`), app host from `ODN_PUBLIC_URL`; Caddy `ODN_LEGACY_APP_HOSTS` / `ODN_LEGACY_INSIGHTS_HOSTS` | `6381c3b` |
+| Google sign-in | OAuth redirect `https://easyquery.ai/auth/callback` + JS origin; consent screen: authorized domain, app name **EasyQuery**, home/privacy/terms on easyquery.ai (re-verification submitted by Kevin) | Google Auth Platform (`datahop-514819`) |
+| Identity Platform | `easyquery.ai` authorized domain | `datahop-514819` |
+| Email | Sent as `EasyQuery <noreply@easyquery.ai>`, Reply-To `support@easyquery.ai`; easyquery.ai sending key = version 2 of secret `odn-resend-api-key`; tested via the production mailer | prod `.env`, Secret Manager |
+| Rebrand QueryMuse → EasyQuery | Product name in app, website, sign-in, privacy, terms, emails, share pages and preview images, Insight Wall, agent persona; staff organization (`datahop`) renamed **EasyQuery** | `28470e3`, prod DB |
+| Collibra Bridge 0.4.0 | Name "EasyQuery Collibra Bridge", download `/downloads/easyquery-collibra-bridge.zip`, message IDs `easyquery-app` / `easyquery-collibra-bridge`, runs on easyquery.ai only; the app requires 0.4.0 and reports older (querymuse) extensions as outdated | `01389be` |
+| Per-client sign-in links | `easyquery.ai/<slug>` (e.g. `/cotality`, `/indulge`): branded sign-in with the organization's method; link in Organization tab (§9.1) | `df294ac` |
+
+Rollback of the domain switch: restore the `.env` backup on the VM and `deploy/deploy.sh up` (the querymuse Google
+redirect URI and Identity Platform domain are still registered).
+
+### To do (owner: Kevin unless noted)
+
+| # | Item | Why |
+|---|---|---|
+| 1 | Watch Google's brand re-verification for "EasyQuery" (Google Auth Platform → Branding / Verification centre); answer any reviewer email | Until approved the consent screen may show the old details |
+| 2 | Resend → easyquery.ai domain: confirm every record is green, especially the **sending** SPF / return-path (`send.easyquery.ai` MX + TXT were not in public DNS on 2026-11-23); use **Auto configure** (GoDaddy) if not | Deliverability with DMARC `p=quarantine` |
+| 3 | `support@easyquery.ai`: confirm the two test emails arrived; if the MX is Resend receiving, turn on **forwarding** to a person's mailbox | Otherwise replies and support mail go unread |
+| 4 | Tidy secrets: remove the plain key from `deploy/.env.prod`; after a day of normal sending, disable the old querymuse-only Resend key and `gcloud secrets versions disable 1 --secret=odn-resend-api-key --project=datahop-514819` | Least privilege |
+| 5 | Tell clients the new address and their sign-in links (`easyquery.ai/cotality`, `easyquery.ai/indulge`); Collibra browser-mode users install extension **0.4.0** (older versions stop working) | Users re-sign in once on the new domain |
+| 6 | Collibra token mode (when Cotality's Collibra admin sets it up): issuer `https://easyquery.ai`, JWKS `https://easyquery.ai/.well-known/jwks.json`, audience e.g. `easyquery-collibra-prd` | Token `iss` changed with the domain |
+| 7 | Microsoft 365 / querymuse.ai mailbox (`support@querymuse.ai`): keep for a while, forward to easyquery | Old emails' replies |
+| 8 | (us) Keep querymuse.ai DNS + redirects **≥ 12 months**; later remove the querymuse entries from the Google OAuth client and Identity Platform domains | Old links in Teams/Slack/emails |
+
+### Proposed next (not scheduled)
+
+| # | Proposal | Effort |
+|---|---|---|
+| P1 | Client subdomains `cotality.easyquery.ai` (wildcard DNS once, Caddy on-demand TLS, central sign-in handoff) — when a client asks (§9.2) | ≈ 2–3 days |
+| P2 | Client-owned domains (`data.cotality.com`) for enterprise (§9.3) | on top of P1 |
+| P3 | Sign-in link in invite emails (today only in the Organization tab) | ≈ 0.5 day |
+| P4 | Resend hardening: retries with backoff for 429/5xx and an idempotency key per invite/reset; bounce webhook shown to admins | ≈ 0.5–1 day |
+| P5 | Publish the Collibra extension in the Chrome Web Store (unlisted) so updates install automatically instead of manual "Load unpacked" | ≈ 1 day + store review (docs/collibra_extension_publish.md) |
+| P6 | Rename the remaining docs/README references from QueryMuse to EasyQuery (code and UI are done) | ≈ 1 h |
+| P7 | Microsoft (Entra) sign-in using easyquery.ai from the start (docs/Tenant_login_microsoft_plan.md) | ≈ 2 days + client admin consent |
+
 **Goal:** clients land on the app at the **apex `https://easyquery.ai`** (no `app.` prefix); `www.easyquery.ai` and
 `app.easyquery.ai` redirect to it; public wall at `insights.easyquery.ai`; same VM (`136.71.108.203`). Every existing
 `querymuse.ai` link, bookmark and email keeps working through permanent redirects.
@@ -212,7 +252,7 @@ easyquery values. Original checklist:
    `collibra_extension_publish.md`, MVP plan) → easyquery examples.
 6. Tests: unchanged behaviour (`ODN_PUBLIC_URL`-driven); add a Caddyfile check if we have one (`caddy validate`).
 
-## 6. Decision needed: domain only, or rename the product too?
+## 6. Decision needed: domain only, or rename the product too? — ✅ decided 2026-11-23: rename to EasyQuery (done)
 
 The repo's product name is **QueryMuse** (`themes/index.ts product: "QueryMuse.AI"`, email sender name, page
 titles, privacy policy, Google consent screen app name, Collibra extension name "QueryMuse Collibra Bridge",
