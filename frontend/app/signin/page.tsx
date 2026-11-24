@@ -22,7 +22,7 @@ export default async function SignIn({ searchParams }: { searchParams: Record<st
   if (identity.kind !== "signed-out") redirect("/");
   const theme = currentTheme();
   return (
-    <div className="odn-app">
+    <div className="odn-app eq-signin">
       <BrandBar theme={theme} />
       <main className="odn-signin">
         <section className="odn-panel odn-decor">
