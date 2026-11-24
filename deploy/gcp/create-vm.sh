@@ -59,7 +59,7 @@ cat <<MSG
 
 Done. Static IP: $IP
 Next:
-  1. DNS: A record  ${ODN_HOSTNAME:-app.querymuse.ai}  ->  $IP
+  1. DNS: A record  ${ODN_HOSTNAME:-easyquery.ai}  ->  $IP
   2. Fill a copy of deploy/.env.prod.example, then:  deploy/deploy.sh env <file> && deploy/deploy.sh up
   See docs/deploy_gcp_vm.md for the Google OAuth client and tenant/connection provisioning.
 MSG

@@ -15,7 +15,7 @@ from odn.platform.collibra.client import CollibraClient, CollibraError, Environm
 
 ASSET = "0192aaaa-0000-7000-8000-000000000001"
 FIELD = "0192aaaa-0000-7000-8000-000000000002"
-ENV = Environment(env="prd", base_url="https://catalog.example.com", audience="querymuse-collibra")
+ENV = Environment(env="prd", base_url="https://catalog.example.com", audience="easyquery-collibra")
 
 
 @pytest.fixture(autouse=True)

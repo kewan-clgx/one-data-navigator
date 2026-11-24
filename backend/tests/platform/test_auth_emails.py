@@ -76,7 +76,7 @@ def test_mailer_reports_provider_rejection(monkeypatch: pytest.MonkeyPatch):
 
     def post(url, headers, json, timeout):
         seen.update(headers=headers, json=json)
-        return httpx.Response(403, json={"message": "The querymuse.ai domain is not verified"})
+        return httpx.Response(403, json={"message": "The easyquery.ai domain is not verified"})
 
     monkeypatch.setattr(httpx, "post", post)
     with pytest.raises(mailer.MailError, match="not verified"):

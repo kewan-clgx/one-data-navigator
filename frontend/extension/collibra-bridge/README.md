@@ -13,7 +13,7 @@ Then each user:
 1. Downloads the zip from **Settings → Collibra** (or the Collibra tab, or the link the assistant gives):
    `https://easyquery.ai/downloads/easyquery-collibra-bridge.zip`, and unzips it.
 2. Opens `chrome://extensions` (or `edge://extensions`), turns on **Developer mode**, clicks **Load unpacked** and
-   chooses the unzipped `querymuse-collibra-bridge` folder.
+   chooses the unzipped `easyquery-collibra-bridge` folder.
 3. Signs in to Collibra in the **same browser profile** as usual (SSO/MFA).
 4. Reloads EasyQuery and uses the **Collibra** tab or asks, e.g. *"Using Collibra, what is the definition of
    Corporate Revenue?"*
@@ -31,7 +31,7 @@ EasyQuery agent (server) ─ tool call ─▶ EasyQuery page (your browser) ─p
    └──────────── tool result (catalog metadata) ◀── page ◀── service worker ─GET─▶ Collibra (your session)
 ```
 
-- `content.js` runs only on `https://easyquery.ai` and `https://app.querymuse.ai` (and `http://localhost:3100` for development) and relays
+- `content.js` runs only on `https://easyquery.ai` (and `http://localhost:3100` for development) and relays
   messages from that page to the service worker.
 - `background.js` performs the request with the browser's Collibra session (`credentials: "include"`), refusing
   anything outside `policy.js`: only `GET /rest/2.0/` `users/current`, `assets` (name search), `assets/{id}`,

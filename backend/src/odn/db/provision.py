@@ -18,7 +18,7 @@ Tenant directory (docs/Tenant_Isolation_User_system.md):
     provision user indulge bob@indulgetheapp.com --status disabled
     provision idp datahop https://accounts.google.com '*'  # issuer fallback tenant (personal Google accounts)
     provision collibra cotality prd --url https://example.collibra.com                     # users' own browser sign-in
-    provision collibra cotality prd --url https://example.collibra.com --audience querymuse-collibra   # token mode
+    provision collibra cotality prd --url https://example.collibra.com --audience easyquery-collibra   # token mode
 """
 
 from __future__ import annotations

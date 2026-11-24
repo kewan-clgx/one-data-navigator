@@ -20,7 +20,7 @@
 	reverse_proxy frontend:3000
 }
 
-# Public website (ODN_SITE_HOSTNAME, e.g. www.querymuse.ai): home page and privacy policy, served by the same
+# Public website (ODN_SITE_HOSTNAME, e.g. www.example.ai): home page and privacy policy, served by the same
 # frontend; any other path belongs to the app. Unset means site.localhost (no public certificate needed).
 {$ODN_SITE_HOSTNAME:site.localhost} {
 	import security_headers
@@ -30,7 +30,7 @@
 	reverse_proxy frontend:3000
 }
 
-# Public Insight Wall (ODN_INSIGHTS_HOSTNAME, e.g. insights.querymuse.ai): the public wall, rendered by the same
+# Public Insight Wall (ODN_INSIGHTS_HOSTNAME, e.g. insights.easyquery.ai): the public wall, rendered by the same
 # frontend without the app's session; report pages (/s/...), sign-in and voting belong to the app. Unset means
 # insights.localhost (no public certificate needed).
 {$ODN_INSIGHTS_HOSTNAME:insights.localhost} {

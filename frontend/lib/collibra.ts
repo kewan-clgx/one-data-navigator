@@ -15,7 +15,7 @@ export type BridgeInfo = { version: string } | null;
 
 export const COLLIBRA_CHANGED = "odn:collibra-changed";
 export const EXTENSION_DOWNLOAD_URL = "/downloads/easyquery-collibra-bridge.zip";
-export const EXTENSION_MIN_VERSION = "0.2.0";
+export const EXTENSION_MIN_VERSION = "0.4.0";
 
 /** Plain-language setup steps (Settings, the Collibra tab and the agent's chat guidance use the same text). */
 export function extensionSteps(env?: CollibraEnv | null): string[] {
@@ -27,8 +27,11 @@ export function extensionSteps(env?: CollibraEnv | null): string[] {
   ];
 }
 
-const APP = "querymuse-app";
-const BRIDGE = "querymuse-collibra-bridge";
+const APP = "easyquery-app";
+const BRIDGE = "easyquery-collibra-bridge";
+// Extensions before 0.4.0 used the product's former name; heard only to tell the user to update.
+const LEGACY_APP = "querymuse-app";
+const LEGACY_BRIDGE = "querymuse-collibra-bridge";
 const TIMEOUT_MS = 30000;
 const MAX_TEXT = 2000;
 // Data-profiling statistics Collibra attaches to columns: noise for definitions/mapping (same list as the server).
@@ -81,11 +84,14 @@ export function useCollibraBridge(): BridgeInfo {
   const [info, setInfo] = useState<BridgeInfo>(null);
   useEffect(() => {
     function onMessage(event: MessageEvent) {
-      if (event.source !== window || event.data?.source !== BRIDGE || event.data?.type !== "ready") return;
-      setInfo({ version: String(event.data.version) });
+      if (event.source !== window || event.data?.type !== "ready") return;
+      if (event.data?.source === BRIDGE) setInfo({ version: String(event.data.version) });
+      // An old extension: shown as outdated (it can't serve requests any more).
+      else if (event.data?.source === LEGACY_BRIDGE) setInfo((cur) => cur ?? { version: String(event.data.version) });
     }
     window.addEventListener("message", onMessage);
     window.postMessage({ source: APP, type: "ping" }, window.location.origin);
+    window.postMessage({ source: LEGACY_APP, type: "ping" }, window.location.origin);
     return () => window.removeEventListener("message", onMessage);
   }, []);
   return info;

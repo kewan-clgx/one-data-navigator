@@ -159,7 +159,7 @@ function EnvironmentForm({ draft, issuer, jwks, onDone }: { draft: Draft; issuer
           <div className="settings-grid">
             <label>
               JWT audience
-              <input value={d.audience} onChange={(e) => set({ audience: e.target.value })} required placeholder={`querymuse-collibra-${d.env || "prd"}`} />
+              <input value={d.audience} onChange={(e) => set({ audience: e.target.value })} required placeholder={`easyquery-collibra-${d.env || "prd"}`} />
             </label>
             <label>
               Collibra username

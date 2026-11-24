@@ -1,5 +1,5 @@
 {
-  "name": "querymuse-collibra-bridge",
+  "name": "easyquery-collibra-bridge",
   "private": true,
   "type": "module",
   "scripts": { "test": "node --test test/" }

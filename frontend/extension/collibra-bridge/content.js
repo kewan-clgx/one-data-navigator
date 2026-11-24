@@ -1,8 +1,8 @@
 // Content script on EasyQuery pages: relays window.postMessage requests from the EasyQuery app to the extension's
 // service worker and posts the answers back. Ignores messages from other windows or without the app marker.
 (() => {
-  const APP = "querymuse-app";
-  const BRIDGE = "querymuse-collibra-bridge";
+  const APP = "easyquery-app";
+  const BRIDGE = "easyquery-collibra-bridge";
 
   function reply(id, payload) {
     window.postMessage({ source: BRIDGE, id, ...payload }, window.location.origin);
