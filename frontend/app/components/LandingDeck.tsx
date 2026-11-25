@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DB_LOGOS } from "./dbLogos";
 
 /**
  * The marketing site as a pitch deck: full-screen slides (scroll / arrow keys snap slide to slide) that hand
@@ -14,10 +15,9 @@ type Links = { signin: string; personal: string; contact: string; support: strin
 
 const SLIDES = [
   { id: "ask", label: "Ask your data anything" },
+  { id: "connect", label: "Connected and governed" },
   { id: "weeks", label: "Reports in minutes" },
   { id: "evidence", label: "Every answer shows its work" },
-  { id: "governed", label: "Governed by design" },
-  { id: "connect", label: "Your data, where it lives" },
   { id: "managers", label: "Built for managers" },
   { id: "start", label: "Start asking" },
 ] as const;
@@ -145,22 +145,15 @@ function SharePreview() {
   );
 }
 
-const GOVERNANCE = [
-  { t: "Read-only", d: "Queries can never change your data." },
-  { t: "Allowlisted", d: "Only the tables your admins approve." },
-  { t: "Approval first", d: "Expensive scans wait for your OK." },
-  { t: "Audited", d: "Every query is logged." },
-  { t: "Separated", d: "Each organization is isolated." },
+// Stroke icons (24×24) for the guardrail layer.
+const GUARDRAILS = [
+  { t: "Read-only", d: "Queries can never change your data.", icon: "M7 11V7a5 5 0 0 1 10 0v4M5 11h14v10H5zM12 15v2" },
+  { t: "Allowlisted", d: "Only the tables your admins approve.", icon: "M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2" },
+  { t: "Approval first", d: "Expensive scans wait for your OK.", icon: "M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 7v5l3 2" },
+  { t: "Audited", d: "Every query is logged.", icon: "M6 3h9l4 4v14H6zM14 3v5h5M9 13h7M9 17h5" },
+  { t: "Isolated", d: "Each organization's data stays separate.", icon: "M3 21V9l5-3v15M8 21V4l7 3v14M15 21V11l6 2v8M2 21h20" },
 ];
 
-const CONNECTORS = [
-  { t: "BigQuery", ready: true },
-  { t: "PostgreSQL", ready: true },
-  { t: "CSV & Excel uploads", ready: true },
-  { t: "Snowflake", ready: false },
-  { t: "More databases", ready: false },
-  { t: "Documents", ready: false },
-];
 
 export default function LandingDeck({ links }: { links: Links }) {
   const [current, setCurrent] = useState(0);
@@ -249,7 +242,56 @@ export default function LandingDeck({ links }: { links: Links }) {
           </button>
         </section>
 
-        <section ref={ref(1)} id="weeks" className={slide(1)} aria-labelledby="eq-h-weeks">
+        <section ref={ref(1)} id="connect" className={slide(1)} aria-labelledby="eq-h-connect">
+          <div className="eq-inner">
+            <p className="eq-kicker">Connected and governed</p>
+            <h2 id="eq-h-connect">Your data stays where it lives. Safely.</h2>
+            <p className="eq-lead">Connect the warehouse, database or data catalog you already use. Every answer is read under your rules.</p>
+
+            <ul className="eq-logos" aria-label="Supported data sources, all available today">
+              {DB_LOGOS.map((d, i) => (
+                <li key={d.id} className="eq-reveal" style={{ animationDelay: `${0.1 + i * 0.07}s` }}>
+                  <span className="eq-logo-badge" aria-hidden>
+                    {d.markup ? (
+                      <svg viewBox={d.viewBox} focusable="false" dangerouslySetInnerHTML={{ __html: d.markup }} />
+                    ) : (
+                      <svg viewBox={d.viewBox} fill={d.color} focusable="false">
+                        <path d={d.path} />
+                      </svg>
+                    )}
+                  </span>
+                  <span className="eq-logo-name">{d.name}</span>
+                </li>
+              ))}
+            </ul>
+
+            <div className="eq-guard eq-reveal" style={{ animationDelay: "0.5s" }}>
+              <p className="eq-guard-title">
+                <svg aria-hidden viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z" />
+                </svg>
+                Every question passes five guardrails
+              </p>
+              <ul>
+                {GUARDRAILS.map((g) => (
+                  <li key={g.t}>
+                    <svg aria-hidden viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <path d={g.icon} />
+                    </svg>
+                    <h3>{g.t}</h3>
+                    <p>{g.d}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <p className="eq-logos-more eq-reveal" style={{ animationDelay: "0.7s" }}>
+              All available today. Plus <strong>CSV &amp; Excel uploads</strong>. <span>Documents coming soon.</span>
+            </p>
+          </div>
+        </section>
+
+        <section ref={ref(2)} id="weeks" className={slide(2)} aria-labelledby="eq-h-weeks">
           <div className="eq-inner">
             <p className="eq-kicker">The problem</p>
             <h2 id="eq-h-weeks">Reports take weeks. They shouldn&rsquo;t.</h2>
@@ -259,7 +301,7 @@ export default function LandingDeck({ links }: { links: Links }) {
           </div>
         </section>
 
-        <section ref={ref(2)} id="evidence" className={slide(2)} aria-labelledby="eq-h-evidence">
+        <section ref={ref(3)} id="evidence" className={slide(3)} aria-labelledby="eq-h-evidence">
           <div className="eq-inner eq-split">
             <div className="eq-copy">
               <p className="eq-kicker">Trust</p>
@@ -270,38 +312,7 @@ export default function LandingDeck({ links }: { links: Links }) {
           </div>
         </section>
 
-        <section ref={ref(3)} id="governed" className={slide(3)} aria-labelledby="eq-h-governed">
-          <div className="eq-inner">
-            <p className="eq-kicker">Governed by design</p>
-            <h2 id="eq-h-governed">Safe enough for your warehouse.</h2>
-            <ul className="eq-tiles">
-              {GOVERNANCE.map((g, i) => (
-                <li key={g.t} className="eq-reveal" style={{ animationDelay: `${0.1 + i * 0.12}s` }}>
-                  <h3>{g.t}</h3>
-                  <p>{g.d}</p>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
-
-        <section ref={ref(4)} id="connect" className={slide(4)} aria-labelledby="eq-h-connect">
-          <div className="eq-inner">
-            <p className="eq-kicker">Connections</p>
-            <h2 id="eq-h-connect">Your data, where it lives.</h2>
-            <p className="eq-lead">Connect a warehouse or database, or drop in a spreadsheet and ask about it.</p>
-            <ul className="eq-tiles eq-tiles--connect">
-              {CONNECTORS.map((c, i) => (
-                <li key={c.t} className={`eq-reveal${c.ready ? "" : " is-soon"}`} style={{ animationDelay: `${0.1 + i * 0.1}s` }}>
-                  <h3>{c.t}</h3>
-                  <p>{c.ready ? "Available" : "Coming soon"}</p>
-                </li>
-              ))}
-            </ul>
-          </div>
-        </section>
-
-        <section ref={ref(5)} id="managers" className={slide(5)} aria-labelledby="eq-h-managers">
+        <section ref={ref(4)} id="managers" className={slide(4)} aria-labelledby="eq-h-managers">
           <div className="eq-inner eq-split">
             <div className="eq-copy">
               <p className="eq-kicker">Share and collaborate</p>
@@ -316,7 +327,7 @@ export default function LandingDeck({ links }: { links: Links }) {
           </div>
         </section>
 
-        <section ref={ref(6)} id="start" className={slide(6, "odn-decor eq-slide--end")} aria-labelledby="eq-h-start">
+        <section ref={ref(5)} id="start" className={slide(5, "odn-decor eq-slide--end")} aria-labelledby="eq-h-start">
           <div className="eq-inner eq-end">
             <h2 id="eq-h-start">Start asking.</h2>
             <p className="eq-lead">Reports in minutes, not weeks. No waiting.</p>
