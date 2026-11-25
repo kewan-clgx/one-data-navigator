@@ -1,6 +1,6 @@
 # Demo tenant: "Start a live demo"
 
-**Status (2026-11-24): ✅ live on `https://easyquery.ai`.** A visitor clicks **Start a live demo**, enters a name and
+**Status (last updated 2026-11-24): ✅ live on `https://easyquery.ai`.** A visitor clicks **Start a live demo**, enters a name and
 email (not verified) and goes straight into the app as a member of **Demo**, a mock enterprise client, querying the
 curated **Demo store** dataset and Google BigQuery public data. Releases `1b7483c` (demo), `c6a0dcf` (P1, P2, P3,
 P7, P8, P9, P10). Design notes: [Tenant_Isolation_User_system.md §4.3b](../Tenant_Isolation_User_system.md).
@@ -23,8 +23,8 @@ P7, P8, P9, P10). Design notes: [Tenant_Isolation_User_system.md §4.3b](../Tena
 | Curated data (P9) | BigQuery dataset `datahop-514819.easyquery_demo` (US): `orders`, `order_items`, `products`, `customers`, `distribution_centers`, a snapshot of theLook e-commerce with table/column descriptions, no names/emails/addresses (~31 MB). Script: [deploy/demo/easyquery_demo.sql](../../deploy/demo/easyquery_demo.sql). Service account `odn-demo-bq` (BigQuery Job User + Read Session User on the project, READER on this dataset only); key in Secret Manager `odn-b1f425a9-5379-4878-8a75-a962442d03a5-bq`. Tenant-shared connection **Demo store** (`949e4a9c-…`) in `demo`, allowlist `datahop-514819.easyquery_demo.*` | `c6a0dcf`, prod |
 | Returning visitors (P7) | Check-in always starts instantly. The **same browser** reopens its demo user via a device token (httpOnly cookie `odn_demo_device`, signed by the API, bound to the email, ≤ 7 days). Elsewhere, an email that already has demo chats gets a **fresh** demo user (no email on it) and the inbox gets a one-hour **link** (`/try/continue`) to reopen the earlier chats, so only the inbox owner gets them back. A demo user lasts 7 days, then the email starts fresh; a session never outlives its demo user | `c6a0dcf` |
 | Guards | Staff emails (real accounts in `demo`) refused (409); admin-disabled demo users stay refused (403); rate limits per email (10/h), per client address (20/h) and overall (500/h) | `1b7483c` |
-| Data | Demo users use the platform `bigquery-public-data` connection (billing `datahop-514819`); per-query scan cap **25 GB** (`tenants.max_bytes_billed`, new per-tenant cap enforced in `run_query`) | prod DB |
-| Isolation | Sharing turned off in `demo` (visitors can't see each other's answers); no tenant-shared connections created by us | `provision demo` |
+| Data | Demo users see two connections: **Demo store** (curated, see P9) and the platform `bigquery-public-data` connection (billing `datahop-514819`); per-query scan cap **25 GB** (`tenants.max_bytes_billed`, per-tenant cap enforced in `run_query`) | prod DB |
+| Isolation | Sharing turned off in `demo` (visitors can't see each other's answers). The only tenant-shared connection is **Demo store**, which holds demo data only; anything shared in `demo` is visible to every visitor | `provision demo` |
 | Admin | `support@easyquery.ai` invited as **admin** of `demo` (set-password email); signs in at `easyquery.ai/demo` (domain-less password tenants are now discoverable); can share connections/datasets with all visitors in **Settings → Connections** and manage demo users | prod DB, Identity Platform tenant `demo-zjhs9` |
 | Prod config | `demo` tenant `b1f425a9-5379-4878-8a75-a962442d03a5`, `ODN_DEMO_TENANT=demo` (api, agent, frontend); `.env` backup `/opt/odn/shared/.env.bak-*` | prod |
 | Verified on prod | 2026-11-23: `/try` 200; check-in → `demo` member; platform connection catalog; a real BigQuery query; agent accepts demo tokens and rejects bad ones; links on `/`, `/signin`, `/demo`. 2026-11-24: new browser → fresh + link email; same browser → reopened; Demo store catalog and a revenue query through `odn-demo-bq`; new-visitor email sent; agent `/demo-chats` answers. Locally: banner, starter prompts, placeholder, upgrade link prefill | 2026-11-24 |
@@ -34,14 +34,14 @@ P7, P8, P9, P10). Design notes: [Tenant_Isolation_User_system.md §4.3b](../Tena
 
 | # | Item | Why / notes |
 |---|---|---|
-| T1 | Run one full **chat** as a demo visitor on prod | Verified everything except an end-to-end agent answer (local LLM gateway `llm-uat.cotality.com` was unreachable). |
-| T2 | `support@easyquery.ai` sets a password and signs in at `easyquery.ai/demo` | Confirms the admin path (invite email → set password → sign in → Settings → Connections). |
-| T3 | Review the Demo store and public datasets | Demo store (curated) is the main demo data. The platform connection still allows only `samples`, `usa_names`, `austin_bikeshare`, `austin_311`, `austin_crime` and is shared by every organization; the Demo admin can share more demo-only connections in Settings. |
+| T1 | Run one full **chat** as a demo visitor on prod (e.g. a starter prompt on the Demo store) | Every step was verified on prod except an agent answer end to end. Locally the chat works (on the Cotality VPN) but queries fail on the local key (T6). |
+| T2 | `support@easyquery.ai` sets a password and signs in at `easyquery.ai/demo` | Confirms the admin path (invite email → set password → sign in → Organization → Demo visitors, Settings → Connections). |
+| T3 | Check **Demo visitors** (funnel, list, CSV) and the **import banner** in a real browser on prod | Covered by API tests; needs T2 and a personal account created from the demo banner with the demo email. |
 | T4 | Set a **demo LLM budget** | `demo` uses the defaults: 2M tokens/day for the whole tenant, plus a 200k/day trial per visitor. Set explicitly: `deploy/deploy.sh provision budget demo <tokens>`. |
-| T5 | Mention demo check-in data in **/privacy** | We store name + email (unverified) to follow up; the check-in page says so, the privacy page should too. |
-| T7 | Check the **Demo visitors** section and the **import** banner in a real browser on prod | Covered by API tests; needs an admin sign-in (T2) and a personal account created from the demo banner. |
-| T8 | Refresh the Demo store snapshot occasionally | Dates are frozen at 2026-11-24; prompts say "last 12 months". Re-run `deploy/demo/easyquery_demo.sql`. |
-| T6 | Fix the **local** demo setup | Local `bigquery-public-data` platform row now points at `file:datahop-514819-d24f3a966b27.json` (`navigator-bff-sa`), which lacks `bigquery.jobs.create` → local queries fail. Use a key with BigQuery Job User (see [bigquery-public-data-setting.md](bigquery-public-data-setting.md)). |
+| T5 | Mention demo check-in data in **/privacy** | We store name + email (unverified) to follow up and email new visitors to support; the check-in page says so, the privacy page should too. |
+| T6 | Fix the **local** demo setup | Local `bigquery-public-data` platform row points at `file:datahop-514819-d24f3a966b27.json` (`navigator-bff-sa`), which lacks `bigquery.jobs.create`; the local Demo store connection doesn't exist (its key is only in Secret Manager). Use a key with BigQuery Job User (see [bigquery-public-data-setting.md](bigquery-public-data-setting.md)). |
+| T7 | Review the datasets visitors see | Demo store is the main demo data. The platform connection allows only `samples`, `usa_names`, `austin_bikeshare`, `austin_311`, `austin_crime` and is shared by every organization; the Demo admin can share more demo-only connections in Settings. |
+| T8 | Refresh the Demo store snapshot occasionally | Dates are frozen at 2026-11-24; a starter prompt says "last 12 months". Re-run `deploy/demo/easyquery_demo.sql`. |
 
 ### Proposed (optimizations)
 
@@ -55,6 +55,9 @@ Done: P1, P2, P3 (instant email), P7, P8, P9, P10 (see Done). Still open:
 | P6 | **Bot protection** on `/try` (Turnstile/reCAPTCHA) if abuse appears | Rate limits cap cost but not fake check-ins. |
 | P8b | Import also copies stored **result files and charts** (today: conversations only; Demo store data is not reachable outside the demo) | Fully carried-over chats. |
 | P11 | Funnel by **traffic source** (UTM on `/try`) and a weekly trend | Know which channels bring visitors who ask questions. |
+| P12 | Count **fresh** check-ins (same email, new browser) as "came back" in the funnel | Today "came back" = same-browser or link reopen, or check-ins on 2+ days; a returning visitor on a new device counts as came back only on a different day. |
+| P13 | Per-address rate limit on the email **link** endpoint (`/v1/auth/demo/link`) | Links are signed and expire in an hour; today they share the reset-link limiter (per token). |
+| P14 | Show "Start a live demo" in the landing header on small screens | Below 860 px the header hides `.eq-header-link` (globals.css), so phones only see it in the hero and on the last slide. |
 
 ## 1. How it works
 
