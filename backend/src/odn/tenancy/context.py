@@ -47,6 +47,8 @@ class RequestContext:
     email_domain_verified: bool = False
     # Per-tenant cap on bytes a single warehouse query may scan (tenants.max_bytes_billed); None = global limit.
     max_bytes_billed: int | None = None
+    # The token says the email is verified (gate for claiming data tied to that email, e.g. demo chats).
+    email_verified: bool = False
 
 
 @cache
@@ -107,6 +109,7 @@ def resolve_context(token: VerifiedToken) -> RequestContext:
         email=token.email,
         email_domain_verified=bool(tenant["has_domains"] and token.email_verified and tenant["domain_ok"]),
         max_bytes_billed=tenant["max_bytes_billed"],
+        email_verified=token.email_verified,
     )
 
 

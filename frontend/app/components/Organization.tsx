@@ -163,7 +163,90 @@ function when(iso: string | null): string {
 }
 
 /** Organization tab (admins): profile, people and invites, admin activity. */
-export default function Organization({ currentUserId }: { currentUserId?: string }) {
+type Funnel = { visitors: number; new_visitors: number; asked: number; answered: number; returned: number; checkins: number };
+type Checkin = { checked_in_at: string; name: string; email: string; kind: string; questions: number; queries: number };
+
+const CHECKIN_KINDS: Record<string, string> = {
+  new: "new",
+  returning: "came back",
+  fresh: "came back (new browser)",
+  link: "reopened by email",
+};
+
+/** Live-demo organization: who checked in (name, email as typed, not verified) and how far they got. */
+function DemoVisitorsSection() {
+  const ids = useId();
+  const [days, setDays] = useState(30);
+  const [funnel, setFunnel] = useState<Funnel | null>(null);
+  const [rows, setRows] = useState<Checkin[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setError(null);
+    Promise.all([api<Funnel>(`admin/demo/funnel?days=${days}`), api<Checkin[]>(`admin/demo/checkins?days=${days}&limit=200`)])
+      .then(([f, r]) => {
+        setFunnel(f);
+        setRows(r);
+      })
+      .catch((e: Error) => setError(e.message));
+  }, [days]);
+
+  const pct = (n: number) => (funnel && funnel.visitors ? ` (${Math.round((100 * n) / funnel.visitors)}%)` : "");
+  return (
+    <section className="settings-card" aria-labelledby={`${ids}-demo`}>
+      <h2 id={`${ids}-demo`}>Demo visitors</h2>
+      <label className="demo-window">
+        Period{" "}
+        <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
+          <option value={7}>Last 7 days</option>
+          <option value={30}>Last 30 days</option>
+          <option value={90}>Last 90 days</option>
+        </select>
+      </label>
+      {error && <p className="settings-error" role="alert">{error}</p>}
+      {funnel && (
+        <dl className="org-profile demo-funnel" aria-label="Demo funnel (people, by email)">
+          <dt>Checked in</dt>
+          <dd>{funnel.visitors} people ({funnel.new_visitors} new, {funnel.checkins} check-ins)</dd>
+          <dt>Asked a question</dt>
+          <dd>{funnel.asked}{pct(funnel.asked)}</dd>
+          <dt>Got a data answer</dt>
+          <dd>{funnel.answered}{pct(funnel.answered)}</dd>
+          <dt>Came back</dt>
+          <dd>{funnel.returned}{pct(funnel.returned)}</dd>
+        </dl>
+      )}
+      {rows && rows.length === 0 && <p className="muted">No check-ins in this period.</p>}
+      {rows && rows.length > 0 && (
+        <div className="demo-checkins">
+          <table>
+            <thead>
+              <tr><th>When</th><th>Name</th><th>Email</th><th>Visit</th><th>Questions</th><th>Queries</th></tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i}>
+                  <td>{when(r.checked_in_at)}</td>
+                  <td>{r.name}</td>
+                  <td><a href={`mailto:${r.email}`}>{r.email}</a></td>
+                  <td>{CHECKIN_KINDS[r.kind] ?? r.kind}</td>
+                  <td>{r.questions}</td>
+                  <td>{r.queries}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="muted">
+        Emails are as typed at check-in (not verified).{" "}
+        <a href={`/api/odn/admin/demo/checkins.csv?days=${days}`} download>Download CSV</a>
+      </p>
+    </section>
+  );
+}
+
+export default function Organization({ currentUserId, demo = false }: { currentUserId?: string; demo?: boolean }) {
   const ids = useId();
   const [org, setOrg] = useState<Org | null>(null);
   const [users, setUsers] = useState<User[]>([]);
@@ -343,6 +426,8 @@ export default function Organization({ currentUserId }: { currentUserId?: string
           </table>
         </div>
       </section>
+
+      {demo && <DemoVisitorsSection />}
 
       <SharingSection />
 

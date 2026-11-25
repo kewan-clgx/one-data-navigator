@@ -5,10 +5,12 @@ Admins only. All work runs in the caller's tenant RLS context; the directory mod
 
 from __future__ import annotations
 
+import csv
+import io
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from psycopg.types.json import Jsonb
 from pydantic import BaseModel, Field
 
@@ -125,3 +127,73 @@ def events(ctx: Admin, limit: int = 100) -> list[dict[str, Any]]:
                 (ctx.tenant_id, max(1, min(limit, 500))),
             )
         ]
+
+
+# Live demo (docs/config/config_demo_tenant.md): who checked in and how far they got. Any tenant may call these;
+# only the demo tenant has check-ins.
+
+_CHECKINS = """
+SELECT c.checked_in_at, c.name, c.email, c.kind,
+       (SELECT coalesce(sum(u.requests), 0) FROM llm_usage u WHERE u.user_id = c.user_id) AS questions,
+       (SELECT count(*) FROM audit_logs a WHERE a.user_id = c.user_id AND a.decision = 'allowed') AS queries
+FROM demo_checkins c
+WHERE c.tenant_id = %s AND c.checked_in_at > now() - make_interval(days => %s)
+ORDER BY c.checked_in_at DESC
+LIMIT %s
+"""
+
+
+def _checkins(ctx: RequestContext, days: int, limit: int) -> list[dict[str, Any]]:
+    with tenant_transaction(ctx.tenant_id, ctx.user_id) as conn:
+        return [dict(r) for r in conn.execute(_CHECKINS, (ctx.tenant_id, max(1, min(days, 365)), limit))]
+
+
+@router.get("/demo/checkins")
+def demo_checkins(ctx: Admin, days: int = 30, limit: int = 200) -> list[dict[str, Any]]:
+    return _checkins(ctx, days, max(1, min(limit, 1000)))
+
+
+@router.get("/demo/checkins.csv")
+def demo_checkins_csv(ctx: Admin, days: int = 90) -> Response:
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(["checked_in_at", "name", "email", "kind", "questions", "queries"])
+    for r in _checkins(ctx, days, 100_000):
+        # A leading =, +, - or @ would run as a formula in spreadsheets (names and emails are visitor input).
+        writer.writerow([r["checked_in_at"].isoformat(), *(_cell(r[k]) for k in ("name", "email", "kind")),
+                         r["questions"], r["queries"]])
+    return Response(out.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="demo-checkins-{days}d.csv"'})
+
+
+def _cell(value: str) -> str:
+    return "'" + value if value[:1] in ("=", "+", "-", "@") else value
+
+
+@router.get("/demo/funnel")
+def demo_funnel(ctx: Admin, days: int = 30) -> dict[str, int]:
+    """People (by email) who checked in, asked the AI something, got a data answer, and came back."""
+    with tenant_transaction(ctx.tenant_id, ctx.user_id) as conn:
+        row = conn.execute(
+            """
+            WITH c AS (
+              SELECT * FROM demo_checkins
+              WHERE tenant_id = %s AND checked_in_at > now() - make_interval(days => %s)
+            ), people AS (
+              SELECT email, array_agg(DISTINCT user_id) AS users, bool_or(kind = 'new') AS is_new,
+                     count(DISTINCT checked_in_at::date) AS days, bool_or(kind IN ('returning', 'link')) AS back
+              FROM c GROUP BY email
+            )
+            SELECT count(*) AS visitors,
+                   count(*) FILTER (WHERE is_new) AS new_visitors,
+                   count(*) FILTER (WHERE EXISTS (SELECT 1 FROM llm_usage u
+                                                  WHERE u.user_id = ANY (p.users) AND u.requests > 0)) AS asked,
+                   count(*) FILTER (WHERE EXISTS (SELECT 1 FROM audit_logs a
+                                                  WHERE a.user_id = ANY (p.users) AND a.decision = 'allowed')) AS answered,
+                   count(*) FILTER (WHERE days > 1 OR back) AS returned,
+                   (SELECT count(*) FROM c) AS checkins
+            FROM people p
+            """,
+            (ctx.tenant_id, max(1, min(days, 365))),
+        ).fetchone()
+    return {k: int(v) for k, v in dict(row).items()}

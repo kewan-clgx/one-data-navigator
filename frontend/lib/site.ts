@@ -21,6 +21,11 @@ export function demoTenant(): string {
   return process.env.ODN_DEMO_TENANT || "";
 }
 
+/** Slug of the personal-accounts organization (ODN_PERSONAL_TENANT). */
+export function personalTenant(): string {
+  return process.env.ODN_PERSONAL_TENANT || "";
+}
+
 export function supportEmail(): string {
   return process.env.ODN_SUPPORT_EMAIL || "support@easyquery.ai";
 }

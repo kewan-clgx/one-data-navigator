@@ -19,6 +19,7 @@ import ArtifactsPanel from "./ArtifactsPanel";
 import ChatsPanel, { useConversations } from "./Conversations";
 import Explorer, { type ActiveConnection, type TableScope } from "./Explorer";
 import ResultsPanel, { AGENT_ID, type AgentState } from "./Results";
+import { DEMO_PLACEHOLDER, DEMO_SUGGESTIONS, DemoImportBanner, DemoUpgradeBanner, type DemoVisitor } from "./DemoBanners";
 import ShareDialog from "./ShareDialog";
 import Organization from "./Organization";
 import Settings from "./Settings";
@@ -184,7 +185,26 @@ function ChatRenderers() {
   return null;
 }
 
-export default function AppShell({ theme, role, userId, site }: { theme: Theme; role?: string; userId?: string; site: SiteInfo }) {
+export default function AppShell({
+  theme,
+  role,
+  userId,
+  site,
+  demo,
+  demoOrg = false,
+  personal = false,
+}: {
+  theme: Theme;
+  role?: string;
+  userId?: string;
+  site: SiteInfo;
+  /** Set for live-demo visitors: demo prompts and the "keep using EasyQuery" banner. */
+  demo?: DemoVisitor;
+  /** The organization is the live-demo organization (its admins see demo visitors in the Organization tab). */
+  demoOrg?: boolean;
+  /** Personal accounts may import chats from an earlier live demo. */
+  personal?: boolean;
+}) {
   // The Organization tab (people, invites) is for tenant admins only; the API enforces it too.
   const { envs: collibraEnvs } = useCollibraEnvironments();
   const collibraBridge = useCollibraBridge();
@@ -375,7 +395,7 @@ export default function AppShell({ theme, role, userId, site }: { theme: Theme; 
       </div>
       {role === "admin" && (
         <div role="tabpanel" id="tabpanel-organization" aria-labelledby="tab-organization" hidden={tab !== "organization"} className="odn-tabpanel">
-          <div className="odn-sheet">{tab === "organization" && <Organization currentUserId={userId} />}</div>
+          <div className="odn-sheet">{tab === "organization" && <Organization currentUserId={userId} demo={demoOrg} />}</div>
         </div>
       )}
     </section>
@@ -411,12 +431,17 @@ export default function AppShell({ theme, role, userId, site }: { theme: Theme; 
           </button>
         </div>
       </div>
-      <TrialBanner
-        onOpenSettings={() => {
-          showPanel(true);
-          selectTab("settings");
-        }}
-      />
+      {demo ? (
+        <DemoUpgradeBanner visitor={demo} />
+      ) : (
+        <TrialBanner
+          onOpenSettings={() => {
+            showPanel(true);
+            selectTab("settings");
+          }}
+        />
+      )}
+      {personal && <DemoImportBanner />}
       {collibraScope && (
         <div className="odn-scope-chip">
           Collibra: <code>{collibraScope.name}</code>
@@ -454,8 +479,9 @@ export default function AppShell({ theme, role, userId, site }: { theme: Theme; 
             }}
             labels={{
               title: theme.product,
-              initial: "Ask anything about your data, e.g. “How many businesses per status in CA?”",
+              initial: demo ? DEMO_PLACEHOLDER : "Ask anything about your data, e.g. “How many businesses per status in CA?”",
             }}
+            {...(demo ? { suggestions: DEMO_SUGGESTIONS } : {})}
           />
         </div>
         <div ref={setWorkbenchHost} className="odn-workbench-host" />

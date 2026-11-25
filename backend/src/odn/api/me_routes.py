@@ -6,6 +6,7 @@ from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Header, HTTPException, status
+from pydantic import BaseModel, Field
 
 from odn.api.deps import Context
 from odn.api.routes import ConnectionOut
@@ -143,3 +144,39 @@ def my_llm_config(ctx: Context, x_odn_agent_token: Annotated[str, Header()] = ""
     if cfg is not None:
         return {"source": "user", **cfg}
     return {"source": "platform", "budget": budget_status(ctx.tenant_id, ctx.user_id).model_dump(mode="json")}
+
+
+# Demo -> personal account (docs/config/config_demo_tenant.md, upgrade path). Called by the agent, which moves the
+# conversations; personal accounts only, and only for a verified email.
+
+
+class DemoImported(BaseModel):
+    subjects: list[str] = Field(max_length=200)
+
+
+def _demo_importer(ctx: Context) -> str:
+    from odn.config import settings
+
+    if not (settings.demo_tenant and settings.personal_tenant and ctx.tenant_slug == settings.personal_tenant
+            and ctx.email and ctx.email_verified):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no demo chats to import")
+    return ctx.email
+
+
+@router.get("/demo-chats")
+def demo_chats(ctx: Context) -> dict[str, Any]:
+    from odn.config import settings
+    from odn.platform import demo
+
+    email = _demo_importer(ctx)
+    try:
+        return {"tenant": settings.demo_tenant, "subjects": demo.importable(email)}
+    except demo.DemoUnavailable:
+        return {"tenant": settings.demo_tenant, "subjects": []}
+
+
+@router.post("/demo-chats/imported")
+def demo_chats_imported(body: DemoImported, ctx: Context) -> dict[str, int]:
+    from odn.platform import demo
+
+    return {"retired": demo.retire_imported(_demo_importer(ctx), body.subjects)}

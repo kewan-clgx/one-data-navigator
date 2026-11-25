@@ -106,3 +106,41 @@ async def test_imported_share_reads_back_as_history_and_is_never_rerun() -> None
     handled = {k[len(main.PROCESSED_PREFIX):] for k, v in session.state.items() if k.startswith(main.PROCESSED_PREFIX) and v}
     assert {e.id for e in session.events} | {"t1"} <= handled  # the client re-sends these; none run again
     assert "shared by Ann" in continued_note(session.state["odn_continued_from"])
+
+
+async def test_demo_chats_move_into_the_callers_account(monkeypatch: pytest.MonkeyPatch) -> None:
+    from google.adk.events import Event
+    from google.genai import types
+
+    demo = await main.session_service.create_session(
+        app_name=main.APP_NAME, user_id="demo:visitor1",
+        state={main.THREAD_ID_STATE_KEY: "thread-d1", "conversation_title": "Top products"},
+    )
+    await main.session_service.append_event(
+        demo, Event(author="user", content=types.Content(role="user", parts=[types.Part(text="Top products?")]))
+    )
+    await _thread("demo:stranger", "thread-d2", "Someone else's chat")
+    calls = []
+
+    async def api(method: str, path: str, **kwargs):
+        calls.append((method, path, kwargs.get("json")))
+        return {"tenant": "demo", "subjects": ["visitor1"]} if method == "GET" else {"retired": 1}
+
+    monkeypatch.setattr(main, "_api", api)
+    token = user_key.set("personal:pat")
+    try:
+        assert await main.demo_chats() == {"count": 1, "titles": ["Top products"]}
+        assert await main.import_demo_chats() == {"imported": 1}
+        mine = (await main.conversations())["conversations"]
+        assert [(c["threadId"], c["title"]) for c in mine] == [("thread-d1", "Top products")]
+        moved = await main.session_service.get_session(app_name=main.APP_NAME, user_id="personal:pat",
+                                                       session_id=demo.id)
+        assert [e.content.parts[0].text for e in moved.events] == ["Top products?"]
+        assert await main.demo_chats() == {"count": 0, "titles": []}
+    finally:
+        user_key.reset(token)
+    left = await main.session_service.list_sessions(app_name=main.APP_NAME, user_id="demo:visitor1")
+    assert left.sessions == []
+    assert ("POST", "/v1/me/demo-chats/imported", {"subjects": ["visitor1"]}) in calls
+    others = await main.session_service.list_sessions(app_name=main.APP_NAME, user_id="demo:stranger")
+    assert len(others.sessions) == 1

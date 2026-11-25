@@ -118,6 +118,7 @@ function EnterpriseSignIn({ defaultOrganization }: { defaultOrganization?: strin
 
 type AccountType = "enterprise" | "personal";
 type PersonalView = "sign-in" | "create" | "forgot";
+type PersonalPrefill = { name: string; email: string };
 
 
 function GoogleIcon() {
@@ -172,10 +173,10 @@ function PasswordField({
 }
 
 /** Personal accounts: Google (OIDC redirect), or email + password (sign in, create account, forgot password). */
-function PersonalSignIn() {
-  const [view, setView] = useState<PersonalView>("sign-in");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
+function PersonalSignIn({ prefill }: { prefill?: PersonalPrefill }) {
+  const [view, setView] = useState<PersonalView>(prefill ? "create" : "sign-in");
+  const [name, setName] = useState(prefill?.name ?? "");
+  const [email, setEmail] = useState(prefill?.email ?? "");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -375,9 +376,12 @@ export function OrganizationSignIn({ slug, organization, method, hd }: EntryProp
 export default function SignInForm({
   defaultOrganization,
   defaultAccountType = "enterprise",
+  personalPrefill,
 }: {
   defaultOrganization?: string;
   defaultAccountType?: AccountType;
+  /** Opens "Create account" with these values (the live demo's upgrade link). */
+  personalPrefill?: PersonalPrefill;
 }) {
   const [type, setType] = useState<AccountType>(defaultAccountType);
   const options: { id: AccountType; label: string }[] = [
@@ -400,7 +404,7 @@ export default function SignInForm({
           </button>
         ))}
       </div>
-      {type === "enterprise" ? <EnterpriseSignIn defaultOrganization={defaultOrganization} /> : <PersonalSignIn />}
+      {type === "enterprise" ? <EnterpriseSignIn defaultOrganization={defaultOrganization} /> : <PersonalSignIn prefill={personalPrefill} />}
     </>
   );
 }

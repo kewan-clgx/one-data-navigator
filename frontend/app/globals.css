@@ -560,6 +560,13 @@ body.resizing iframe { pointer-events: none; }
   border-radius: var(--radius);
 }
 .trial-banner.exceeded { background: var(--warning-bg); border-left-color: var(--danger); }
+.demo-banner-form { display: inline; }
+.demo-window { display: inline-flex; gap: 0.4rem; align-items: center; font-size: 0.85rem; margin-bottom: 0.5rem; }
+.demo-funnel { margin-bottom: 0.75rem; }
+.demo-checkins { max-height: 22rem; overflow: auto; border: 1px solid var(--border); border-radius: var(--radius); }
+.demo-checkins table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+.demo-checkins th, .demo-checkins td { padding: 0.3rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.demo-checkins th { position: sticky; top: 0; background: var(--panel-bg); color: var(--fg-muted); font-weight: 600; }
 
 /* ============ SQL workbench overlay (over the chat) ============ */
 

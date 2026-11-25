@@ -30,6 +30,8 @@ class Settings(BaseSettings):
     demo_tenant: str = ""
     demo_account_days: int = 7
     demo_session_hours: int = 8
+    # Gets an email for every new demo visitor (e.g. support@easyquery.ai); empty = no notifications.
+    demo_notify_email: str = ""
     # Branded invite/reset emails via Resend (odn.platform.mailer); no key = Identity Platform's own emails.
     public_url: str = ""  # app origin used in email links, e.g. https://easyquery.ai
     resend_api_key: str = ""

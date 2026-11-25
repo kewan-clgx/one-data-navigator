@@ -3,6 +3,7 @@ import re
 import uuid
 from typing import Any
 
+import httpx
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 from fastapi import FastAPI, HTTPException, status
 from google.adk.apps import App, ResumabilityConfig
@@ -12,7 +13,7 @@ from google.genai import types
 from pydantic import BaseModel, Field
 
 from odn.agent.agent import CONTINUED_STATE_KEY, TITLE_STATE_KEY, build_root_agent, conversation_title
-from odn.agent.identity import BearerAuthMiddleware, user_key
+from odn.agent.identity import BearerAuthMiddleware, bearer_token, user_key
 from odn.config import settings
 
 app = FastAPI(title="EasyQuery Agent Runtime")
@@ -200,3 +201,66 @@ async def import_conversation(body: ImportIn) -> dict[str, str]:
     for event in events:
         await session_service.append_event(session, event)
     return {"threadId": body.threadId}
+
+
+# Demo -> personal account: the API says which demo users' chats this caller (verified email) may import; the
+# conversations move here, where the session store lives (events are copied, then the demo sessions are deleted).
+
+
+async def _api(method: str, path: str, **kwargs: Any) -> dict[str, Any]:
+    token = bearer_token.get()
+    async with httpx.AsyncClient(base_url=settings.api_url, timeout=15) as client:
+        resp = await client.request(method, path, headers={"Authorization": f"Bearer {token}"}, **kwargs)
+    if resp.status_code == 404:
+        return {}
+    resp.raise_for_status()
+    return resp.json()
+
+
+async def _demo_sessions() -> tuple[dict[str, Any], list[tuple[str, Session]]]:
+    claim = await _api("GET", "/v1/me/demo-chats")
+    keys = [f"{claim['tenant']}:{s}" for s in claim.get("subjects", [])] if claim else []
+    found: list[tuple[str, Session]] = []
+    for key in keys:
+        for s in (await session_service.list_sessions(app_name=APP_NAME, user_id=key)).sessions:
+            if s.state.get(THREAD_ID_STATE_KEY):
+                found.append((key, s))
+    return claim, found
+
+
+@app.get("/demo-chats")
+async def demo_chats() -> dict[str, Any]:
+    """Chats from the caller's live demo that can be imported (none unless a personal account, verified email)."""
+    _, found = await _demo_sessions()
+    titles = [s.state.get(TITLE_STATE_KEY) or "" for _, s in found]
+    return {"count": len(found), "titles": [t for t in titles if t][:10]}
+
+
+@app.post("/demo-chats/import")
+async def import_demo_chats() -> dict[str, int]:
+    key = user_key.get()
+    if not key:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "unauthenticated")
+    claim, found = await _demo_sessions()
+    mine = {s.id for s in await _user_sessions()}
+    moved = 0
+    for demo_key, listed in found:
+        source = await session_service.get_session(app_name=APP_NAME, user_id=demo_key, session_id=listed.id)
+        if source is None:
+            continue
+        if source.id not in mine:
+            state = {k: v for k, v in source.state.items() if not k.startswith(("temp:", "app:", "user:"))}
+            state["_ag_ui_user_id"] = key
+            target = await session_service.create_session(
+                app_name=APP_NAME, user_id=key, session_id=source.id, state=state
+            )
+            for event in source.events:
+                # The copied state already holds the result; replaying deltas would only repeat it.
+                await session_service.append_event(
+                    target, event.model_copy(update={"actions": event.actions.model_copy(update={"state_delta": {}})})
+                )
+            moved += 1
+        await session_service.delete_session(app_name=APP_NAME, user_id=demo_key, session_id=source.id)
+    if claim:
+        await _api("POST", "/v1/me/demo-chats/imported", json={"subjects": claim.get("subjects", [])})
+    return {"imported": moved}

@@ -8,7 +8,8 @@ import BrandBar from "./components/BrandBar";
 import SiteHome, { SITE_METADATA } from "./components/SiteHome";
 import { currentTheme, tenantTheme } from "./themes/server";
 import { currentIdentity } from "@/lib/identity";
-import { supportEmail, wallAddress } from "@/lib/site";
+import { demoTenant, personalTenant, supportEmail, wallAddress } from "@/lib/site";
+import { readSession } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -58,10 +59,25 @@ export default async function Home({ searchParams }: { searchParams: Record<stri
   }
 
   const theme = await tenantTheme();
+  // Live-demo visitors (signed in by check-in, not by an account) get demo prompts and the upgrade banner.
+  const demoOrg = Boolean(demoTenant()) && identity.me.tenant.slug === demoTenant();
+  const session = await readSession();
+  const visitor =
+    demoOrg && session?.provider === "demo"
+      ? { name: identity.me.user.name ?? "", email: session.email ?? identity.me.user.email ?? "" }
+      : undefined;
   return (
     <div className="odn-app">
       <BrandBar theme={theme} company={identity.me.tenant.name ?? undefined} user={identity.displayName} />
-      <AppShell theme={theme} role={identity.me.role} userId={identity.me.user_id} site={{ wallAddress: wallAddress(), supportEmail: supportEmail() }} />
+      <AppShell
+        theme={theme}
+        role={identity.me.role}
+        userId={identity.me.user_id}
+        site={{ wallAddress: wallAddress(), supportEmail: supportEmail() }}
+        demo={visitor}
+        demoOrg={demoOrg}
+        personal={Boolean(personalTenant()) && identity.me.tenant.slug === personalTenant()}
+      />
     </div>
   );
 }

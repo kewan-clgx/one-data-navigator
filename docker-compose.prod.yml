@@ -29,6 +29,10 @@ x-prod-backend-env: &prod-backend-env
   ODN_PERSONAL_TENANT: ${ODN_PERSONAL_TENANT:-}
   # Live-demo tenant slug (provision demo <slug>): "Start a live demo" check-in; empty = no demo.
   ODN_DEMO_TENANT: ${ODN_DEMO_TENANT:-}
+  # Live demo: new-visitor notifications (e.g. support@easyquery.ai), session length, how long a demo user lasts.
+  ODN_DEMO_NOTIFY_EMAIL: ${ODN_DEMO_NOTIFY_EMAIL:-}
+  ODN_DEMO_SESSION_HOURS: ${ODN_DEMO_SESSION_HOURS:-8}
+  ODN_DEMO_ACCOUNT_DAYS: ${ODN_DEMO_ACCOUNT_DAYS:-7}
   # Branded invite/reset emails via Resend (key in Secret Manager); empty = Identity Platform's own emails.
   ODN_PUBLIC_URL: https://${ODN_HOSTNAME:?set in .env}
   ODN_RESEND_API_KEY_SECRET: ${ODN_RESEND_API_KEY_SECRET:-}
@@ -114,6 +118,7 @@ services:
       ODN_ENV: prod
       ODN_PUBLIC_URL: https://${ODN_HOSTNAME:?set in .env}
       ODN_DEMO_TENANT: ${ODN_DEMO_TENANT:-}
+      ODN_PERSONAL_TENANT: ${ODN_PERSONAL_TENANT:-}
       ODN_SUPPORT_EMAIL: ${ODN_SUPPORT_EMAIL:-support@easyquery.ai}
       ODN_INSIGHTS_HOSTNAME: ${ODN_INSIGHTS_HOSTNAME:-}
       ODN_OIDC_ISSUER: https://accounts.google.com

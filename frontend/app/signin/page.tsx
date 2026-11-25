@@ -35,6 +35,11 @@ export default async function SignIn({ searchParams }: { searchParams: Record<st
             <SignInForm
               defaultOrganization={cookies().get(ORG_COOKIE)?.value}
               defaultAccountType={searchParams.account === "personal" ? "personal" : "enterprise"}
+              personalPrefill={
+                searchParams.create === "1"
+                  ? { name: searchParams.name?.slice(0, 200) ?? "", email: searchParams.email?.slice(0, 320) ?? "" }
+                  : undefined
+              }
             />
             {demoTenant() && (
               <p className="odn-signin-switch">

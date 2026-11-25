@@ -10,7 +10,7 @@ from typing import Annotated, Literal
 
 import jwt
 import psycopg
-from fastapi import APIRouter, HTTPException, Path, status
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Path, status
 from pydantic import BaseModel, Field
 
 from odn.api.ratelimit import RateLimiter
@@ -316,10 +316,12 @@ def personal_forgot(body: PersonalEmailIn) -> dict[str, str]:
 # Name + email check-in (not verified) -> a demo user in ODN_DEMO_TENANT (odn.platform.demo).
 
 DEMO_UNAVAILABLE = "The live demo isn't available right now."
+LINK_SENT = "Welcome back! We started a fresh demo and emailed you a link to reopen your earlier chats."
 
 _demo_email_limit = RateLimiter(limit=10, window_s=60 * 60)
 _demo_ip_limit = RateLimiter(limit=20, window_s=60 * 60)
 _demo_global_limit = RateLimiter(limit=500, window_s=60 * 60)
+_demo_link_limit = RateLimiter(limit=3, window_s=60 * 60)
 
 
 class DemoIn(BaseModel):
@@ -327,16 +329,28 @@ class DemoIn(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     # Set by the BFF from the request it received (this API is not reachable from browsers).
     client_ip: str | None = Field(default=None, max_length=64)
+    # The browser's device token from its previous check-in (httpOnly cookie kept by the BFF).
+    device_token: str | None = Field(default=None, max_length=4096)
+
+
+class DemoLinkIn(BaseModel):
+    token: str = Field(min_length=10, max_length=4096)
 
 
 class DemoOut(BaseModel):
     id_token: str
     expires_in: int
+    device_token: str
+    notice: str | None = None
+
+
+def _demo_out(session) -> DemoOut:
+    return DemoOut(id_token=session.token, expires_in=session.expires_in, device_token=session.device_token)
 
 
 @router.post("/demo")
-def demo_check_in(body: DemoIn) -> DemoOut:
-    from odn.platform import demo
+def demo_check_in(body: DemoIn, background: BackgroundTasks) -> DemoOut:
+    from odn.platform import demo, demo_notify
 
     name = " ".join(body.name.split())
     if not name:
@@ -347,7 +361,7 @@ def demo_check_in(body: DemoIn) -> DemoOut:
             and _demo_global_limit.allow("all")):
         raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, TOO_MANY)
     try:
-        session = demo.check_in(name, email)
+        session = demo.check_in(name, email, body.device_token)
     except demo.DemoUnavailable:
         raise HTTPException(status.HTTP_404_NOT_FOUND, DEMO_UNAVAILABLE) from None
     except demo.EmailReserved:
@@ -358,4 +372,29 @@ def demo_check_in(body: DemoIn) -> DemoOut:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "This demo account has been disabled.") from None
     except psycopg.errors.UniqueViolation:
         raise HTTPException(status.HTTP_409_CONFLICT, "Please try again.") from None
-    return DemoOut(id_token=session.token, expires_in=session.expires_in)
+    out = _demo_out(session)
+    if session.kind == "new":
+        background.add_task(demo_notify.new_visitor, name, email)
+    elif session.link_token and _demo_link_limit.allow(email):
+        background.add_task(demo_notify.reopen_link, name, email, session.link_token)
+        out.notice = LINK_SENT
+    return out
+
+
+@router.post("/demo/link")
+def demo_link(body: DemoLinkIn) -> DemoOut:
+    """The emailed "reopen your demo chats" link."""
+    from odn.platform import demo
+
+    if not _reset_limit.allow(body.token[-64:]):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, TOO_MANY)
+    try:
+        return _demo_out(demo.open_link(body.token))
+    except demo.DemoUnavailable:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, DEMO_UNAVAILABLE) from None
+    except demo.LinkInvalid:
+        raise HTTPException(
+            status.HTTP_410_GONE, "This link has expired. Check in again to get a new one."
+        ) from None
+    except demo.DemoDisabled:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "This demo account has been disabled.") from None
