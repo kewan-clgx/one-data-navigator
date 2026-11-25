@@ -59,6 +59,11 @@ def _safe_error(exc: SnowflakeError) -> ConnectorError:
             "Snowflake connection or authentication failed (error 250001); "
             "check account identifier, network access, and authentication policy"
         )
+    if code == 390186:
+        return ConnectorError(
+            "Snowflake role is not granted to this user (error 390186); "
+            "choose a granted read-only role or clear Role to use the user's default"
+        )
     return ConnectorError(f"Snowflake request failed{f' (error {code})' if isinstance(code, int) else ''}")
 
 

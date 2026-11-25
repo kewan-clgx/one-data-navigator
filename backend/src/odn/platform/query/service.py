@@ -141,7 +141,7 @@ def run_query(
     audit.rows_returned = rows
     audit.duration_ms = _ms(start)
     write_audit(audit)
-    if connector.dialect == "snowflake":
+    if build_policy(profile, connector).case_sensitive:
         record_usage(ctx, profile.id, decision.tables, preserve_case=True)
     else:
         record_usage(ctx, profile.id, decision.tables)

@@ -66,7 +66,7 @@ def list_favorites(ctx: RequestContext, connection_id: UUID, policy: SqlPolicy) 
 
 
 def add_favorite(ctx: RequestContext, connection_id: UUID, policy: SqlPolicy, path: list[str]) -> Favorite:
-    parts = tuple(path) if policy.dialect == "snowflake" else tuple(p.lower() for p in path)
+    parts = tuple(path) if policy.case_sensitive else tuple(p.lower() for p in path)
     if any(not p or "." in p for p in parts):
         raise NotAllowed(".".join(parts))
     kind = _kind(policy, parts)

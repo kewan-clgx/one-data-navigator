@@ -234,9 +234,9 @@ def dictionary(connection_id: UUID, ctx: Context, path: Annotated[list[str], Que
 def definitions(connection_id: UUID, ctx: Context) -> list[dict[str, str]]:
     profile = _profile(ctx, connection_id)
     rows = all_definitions(ctx, profile.id)
-    if profile.kind != "snowflake":
+    if profile.kind not in ("snowflake", "mysql", "oracle"):
         return rows
-    policy = SqlPolicy(dialect="snowflake", allowed_objects=frozenset(profile.allowed_objects))
+    policy = SqlPolicy(dialect=profile.kind, allowed_objects=frozenset(profile.allowed_objects))
     return [
         row for row in rows
         if policy.allows_object(tuple(row["table_path"].split(".")))
@@ -272,7 +272,7 @@ def my_tables(connection_id: UUID, ctx: Context) -> MyTables:
     policy = build_policy(profile, _connector(profile))
     return MyTables(
         favorites=list_favorites(ctx, profile.id, policy), recent=recent_tables(ctx, profile.id, policy),
-        case_sensitive=policy.dialect == "snowflake",
+        case_sensitive=policy.case_sensitive,
     )
 
 
@@ -288,7 +288,7 @@ def put_favorite(connection_id: UUID, data: FavoriteInput, ctx: Context) -> Favo
 @router.delete("/connections/{connection_id}/favorites", status_code=status.HTTP_204_NO_CONTENT)
 def delete_favorite(connection_id: UUID, ctx: Context, path: Annotated[list[str], Query()]) -> None:
     profile = _profile(ctx, connection_id)
-    remove_favorite(ctx, profile.id, path, preserve_case=profile.kind == "snowflake")
+    remove_favorite(ctx, profile.id, path, preserve_case=profile.kind in ("snowflake", "mysql", "oracle"))
 
 
 @router.post("/connections/{connection_id}/query")

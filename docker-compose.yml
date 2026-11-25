@@ -37,6 +37,20 @@ x-backend-env: &backend-env
   ODN_AGENT_URL: http://agent:8000
 
 services:
+  oracle-egress:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.oracle-egress
+    environment:
+      ODN_ORACLE_ALLOWED_ENDPOINTS: ${ODN_ORACLE_ALLOWED_ENDPOINTS:-}
+      ODN_ORACLE_ALLOWED_CIDRS: ${ODN_ORACLE_ALLOWED_CIDRS:-}
+    expose: ["8080"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+    cpus: 0.5
+
   postgres:
     image: pgvector/pgvector:pg16
     environment:
@@ -105,6 +119,8 @@ services:
       ODN_AGENT_TOKEN: ${ODN_AGENT_TOKEN:-local-dev-agent-token}
       ODN_LLM_DAILY_TOKEN_BUDGET: ${ODN_LLM_DAILY_TOKEN_BUDGET:-2000000}
       ODN_LLM_TRIAL_USER_DAILY_TOKENS: ${ODN_LLM_TRIAL_USER_DAILY_TOKENS:-200000}
+      ODN_ORACLE_PROXY_HOST: oracle-egress
+      ODN_ORACLE_PROXY_PORT: 8080
       # Encrypts user-supplied credentials (connection keys, LLM keys). Local default only.
       ODN_SECRETS_KEY: ${ODN_SECRETS_KEY:-N2R7fz4qBIBVzHkefFUcCe79JC-NccgQwsOUpHK8JNE}
       # BQ_SA_KEY_FILE in .env is relative to the repo root (e.g. keys/<sa>.json).
@@ -116,6 +132,8 @@ services:
     ports:
       - "127.0.0.1:8100:8000"
     depends_on:
+      oracle-egress:
+        condition: service_started
       postgres:
         condition: service_healthy
       gcs:

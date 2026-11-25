@@ -44,6 +44,9 @@ x-prod-backend-env: &prod-backend-env
   ODN_AGENT_TOKEN: ${ODN_AGENT_TOKEN:?set in .env}
 
 services:
+  oracle-egress:
+    restart: unless-stopped
+
   postgres:
     restart: unless-stopped
     environment:
@@ -71,11 +74,17 @@ services:
       ODN_MIGRATIONS_DATABASE_URL: postgresql://odn:${ODN_DB_OWNER_PASSWORD:?set in .env}@postgres:5432/odn
       # Encrypts user-supplied connection and LLM keys; back it up (losing it makes them unreadable).
       ODN_SECRETS_KEY: ${ODN_SECRETS_KEY:?set in .env}
+      ODN_MYSQL_ALLOWED_ENDPOINTS: ${ODN_MYSQL_ALLOWED_ENDPOINTS:-}
+      ODN_MYSQL_ALLOWED_CIDRS: ${ODN_MYSQL_ALLOWED_CIDRS:-}
+      ODN_ORACLE_PROXY_HOST: oracle-egress
+      ODN_ORACLE_PROXY_PORT: 8080
       ODN_LLM_DAILY_TOKEN_BUDGET: ${ODN_LLM_DAILY_TOKEN_BUDGET:-2000000}
       ODN_LLM_TRIAL_USER_DAILY_TOKENS: ${ODN_LLM_TRIAL_USER_DAILY_TOKENS:-200000}
     volumes: !reset []
     ports: !reset []
     depends_on: !override
+      oracle-egress:
+        condition: service_started
       postgres:
         condition: service_healthy
       worker:

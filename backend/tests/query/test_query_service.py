@@ -104,6 +104,60 @@ def test_successful_query_records_table_usage(audits: list[AuditRecord], usage: 
     assert usage == [("proj.sales.orders",)]
 
 
+def test_mysql_usage_preserves_catalog_case(audits, monkeypatch):
+    class MySQLFake(FakeConnector):
+        dialect = "mysql"
+
+        @property
+        def default_namespace(self) -> tuple[str, ...]:
+            return ("Sales",)
+
+    profile = ConnectionProfile(
+        id=uuid.uuid4(), tenant_id=CTX.tenant_id, name="mysql", kind="mysql",
+        config={"host": "mysql.example.com", "database": "Sales", "user": "reader"},
+        secret_ref="file:test", allowed_objects=["Sales.Orders"],
+    )
+    recorded = []
+    monkeypatch.setattr(
+        service, "record_usage",
+        lambda ctx, cid, tables, *, preserve_case: recorded.append((tables, preserve_case)),
+    )
+    result = run_query(
+        CTX, profile, "SELECT id FROM Orders", source="chat", sink=PreviewSink(),
+        limits=QueryLimits(), connector=MySQLFake(),
+    )
+    assert result.tables == ("Sales.Orders",)
+    assert recorded == [(("Sales.Orders",), True)]
+    assert audits[0].dialect == "mysql"
+
+
+def test_oracle_usage_preserves_quoted_catalog_case(audits, monkeypatch):
+    class OracleFake(FakeConnector):
+        dialect = "oracle"
+
+        @property
+        def default_namespace(self) -> tuple[str, ...]:
+            return ("HR",)
+
+    profile = ConnectionProfile(
+        id=uuid.uuid4(), tenant_id=CTX.tenant_id, name="oracle", kind="oracle",
+        config={"host": "oracle.example.com", "service_name": "reports", "schema": "HR", "user": "READER"},
+        secret_ref="file:test", allowed_objects=["HR.Orders"],
+    )
+    recorded = []
+    monkeypatch.setattr(
+        service, "record_usage",
+        lambda ctx, cid, tables, *, preserve_case: recorded.append((tables, preserve_case)),
+    )
+    result = run_query(
+        CTX, profile, 'SELECT id FROM "HR"."Orders"', source="chat", sink=PreviewSink(),
+        limits=QueryLimits(), connector=OracleFake(),
+    )
+    assert result.tables == ("HR.Orders",)
+    assert recorded == [(("HR.Orders",), True)]
+    assert audits[0].dialect == "oracle"
+
+
 def test_rejected_query_records_no_usage(audits: list[AuditRecord], usage: list[tuple[str, ...]]) -> None:
     with pytest.raises(QueryRejected):
         run_query(CTX, PROFILE, "SELECT * FROM proj.hr.salaries", source="chat", sink=PreviewSink(),

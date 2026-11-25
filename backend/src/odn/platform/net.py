@@ -1,4 +1,4 @@
-"""Guard for user-supplied URLs the platform will call (e.g. an OpenAI-compatible LLM endpoint).
+"""Destination guards for user-supplied URLs and operator-approved MySQL endpoints.
 
 Without it a user could point the server at internal services or the cloud metadata server (SSRF).
 """
@@ -7,13 +7,44 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+from time import monotonic
 from urllib.parse import urlsplit
 
 from odn.config import settings
+from odn.platform.egress import DestinationError, approved_addresses, canonical_host
 
 
 class UnsafeUrl(ValueError):
     pass
+
+
+def mysql_host(host: str) -> str:
+    try:
+        return canonical_host(host)
+    except ValueError:
+        raise ValueError("invalid MySQL host; use a hostname or IP address without a URL or port") from None
+
+
+def mysql_socket(host: str, port: int, timeout: int = 10) -> socket.socket:
+    """Resolve once, approve every address, then pin TCP while the driver retains the TLS hostname."""
+    from odn.platform.connectors.base import ConnectorError
+
+    try:
+        addresses = approved_addresses(
+            mysql_host(host), port, settings.mysql_allowed_endpoints, settings.mysql_allowed_cidrs, "MySQL"
+        )
+    except DestinationError as exc:
+        raise ConnectorError(str(exc)) from None
+    deadline = monotonic() + timeout
+    for address in addresses:
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            break
+        try:
+            return socket.create_connection((address, port), timeout=remaining)
+        except OSError:
+            continue
+    raise ConnectorError("MySQL network connection failed; check approved endpoint reachability")
 
 
 def check_public_url(url: str) -> str:

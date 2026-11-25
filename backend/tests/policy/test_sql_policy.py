@@ -15,10 +15,24 @@ PG = SqlPolicy(
     default_namespace=("sales",),
 )
 DUCK = SqlPolicy(dialect="duckdb", allowed_objects=frozenset({"q_1", "q_2"}))
+MYSQL = SqlPolicy(
+    dialect="mysql", allowed_objects=frozenset({"Sales.Orders", "Reporting.*"}), default_namespace=("Sales",),
+)
+ORACLE = SqlPolicy(
+    dialect="oracle", allowed_objects=frozenset({"HR.ORDERS", "REPORTING.Orders"}), default_namespace=("HR",),
+)
 
-POLICIES = {"bq": BQ, "pg": PG, "duck": DUCK}
+POLICIES = {"bq": BQ, "pg": PG, "duck": DUCK, "mysql": MYSQL, "oracle": ORACLE}
 
 ALLOWED = [
+    ("oracle", "SELECT COUNT(*) FROM hr.orders"),
+    ("oracle", 'SELECT * FROM "REPORTING"."Orders" FETCH FIRST 10 ROWS ONLY'),
+    ("oracle", "WITH x AS (SELECT * FROM orders) SELECT SUM(amount) FROM x"),
+    ("oracle", "SELECT ROW_NUMBER() OVER (ORDER BY amount) FROM orders"),
+    ("mysql", "SELECT COUNT(*) FROM `Sales`.`Orders`"),
+    ("mysql", "SELECT SUM(amount) FROM Orders"),
+    ("mysql", "WITH t AS (SELECT * FROM Orders) SELECT * FROM t"),
+    ("mysql", "SELECT * FROM Sales.Orders o JOIN Reporting.Totals t ON o.id = t.id"),
     ("bq", "SELECT * FROM proj.sales.orders"),
     ("bq", "SELECT * FROM `proj.sales.orders`"),
     ("bq", "SELECT region, SUM(amount) FROM sales.orders GROUP BY region"),
@@ -38,6 +52,39 @@ ALLOWED = [
 ]
 
 REJECTED = [
+    ("oracle", 'SELECT * FROM HR."orders"'),
+    ("oracle", "SELECT * FROM REPORTING.Orders"),
+    ("oracle", "SELECT * FROM HR.ORDERS@remote"),
+    ("oracle", "SELECT * FROM SYS.ALL_USERS"),
+    ("oracle", "SELECT 1 FROM DUAL"),
+    ("oracle", "SELECT seq.NEXTVAL FROM orders"),
+    ("oracle", "SELECT UTL_HTTP.REQUEST('https://example.com') FROM orders"),
+    ("oracle", "SELECT custom_function(1) FROM orders"),
+    ("oracle", "SELECT * FROM orders FOR UPDATE"),
+    ("oracle", "SELECT /*+ PARALLEL(100) */ * FROM orders"),
+    ("oracle", "SELECT :password FROM orders"),
+    ("oracle", "SELECT * FROM orders; DELETE FROM orders"),
+    ("oracle", "BEGIN DBMS_LOCK.SLEEP(5); END;"),
+    ("mysql", "SELECT * FROM sales.orders"),
+    ("mysql", "SELECT * FROM `Sales.Orders`"),
+    ("mysql", "SELECT * FROM mysql.user"),
+    ("mysql", "SELECT * FROM performance_schema.threads"),
+    ("mysql", "SELECT * FROM sys.session"),
+    ("mysql", "SELECT SLEEP(1)"),
+    ("mysql", "SELECT GET_LOCK('x', 1)"),
+    ("mysql", "SELECT BENCHMARK(10000, 1)"),
+    ("mysql", "SELECT LOAD_FILE('/etc/passwd')"),
+    ("mysql", "SELECT Reporting.custom_function(1)"),
+    ("mysql", "SELECT custom_function(1)"),
+    ("mysql", "SELECT @x := 1"),
+    ("mysql", "SELECT @@version"),
+    ("mysql", "SELECT /*!50000 SLEEP(1) */ 1"),
+    ("mysql", "SELECT /*+ MAX_EXECUTION_TIME(0) */ * FROM Orders"),
+    ("mysql", "SELECT /*+ SET_VAR(sql_mode='ANSI_QUOTES') */ * FROM Orders"),
+    ("mysql", "SELECT * FROM Orders FOR UPDATE"),
+    ("mysql", "SELECT * FROM Orders LOCK IN SHARE MODE"),
+    ("mysql", "SELECT * FROM Orders INTO OUTFILE '/tmp/x'"),
+    ("mysql", "SELECT 1; DELETE FROM Orders"),
     # DML / DDL
     ("bq", "INSERT INTO proj.sales.orders VALUES (1)"),
     ("bq", "UPDATE proj.sales.orders SET amount = 0 WHERE TRUE"),
@@ -138,6 +185,30 @@ def test_rejected(policy: str, sql: str) -> None:
     decision = POLICIES[policy].validate(sql)
     assert not decision.allowed
     assert decision.reason
+
+
+def test_mysql_allowlist_and_catalog_paths_preserve_exact_case():
+    assert MYSQL.validate("SELECT * FROM Orders").tables == ("Sales.Orders",)
+    assert MYSQL.allows_object(("Sales", "Orders"))
+    assert not MYSQL.allows_object(("Sales", "orders"))
+    assert MYSQL.allows_container(("Reporting",))
+    assert not MYSQL.allows_container(("reporting",))
+    wildcard = SqlPolicy(dialect="mysql", allowed_objects=frozenset({"*.*"}))
+    for database in ("mysql", "sys", "information_schema", "performance_schema"):
+        assert not wildcard.allows_container((database,))
+        assert not wildcard.allows_object((database, "users"))
+        assert not wildcard.validate(f"SELECT * FROM {database}.users").allowed
+
+
+def test_oracle_quoted_case_and_system_restrictions():
+    assert ORACLE.validate("SELECT * FROM hr.orders").tables == ("HR.ORDERS",)
+    assert ORACLE.allows_object(("REPORTING", "Orders"))
+    assert not ORACLE.allows_object(("REPORTING", "ORDERS"))
+    wildcard = SqlPolicy("oracle", frozenset({"*.*"}), ("HR",))
+    for schema in ("SYS", "SYSTEM", "XDB"):
+        assert not wildcard.allows_container((schema,))
+        assert not wildcard.allows_object((schema, "T"))
+        assert not wildcard.validate(f"SELECT * FROM {schema}.T").allowed
 
 
 def test_adversarial_suite_size() -> None:

@@ -2,6 +2,19 @@
 
 Snowflake connections use a service user's RSA key pair or password and can browse permitted schemas in multiple databases. The default database and schema are used to resolve partially qualified SQL names; they do not limit the allowlist to one database. Personal connections are private to their owner; admins and data leads can create organization-shared connections.
 
+## Delivery and verification status
+
+Snowflake support is implemented and deployed. On 2026-11-24, the user confirmed successful live operation on production (`easyquery.ai`):
+
+- All four connection checks passed: authentication, network, metadata, and read.
+- After being asked to save, browse a table in Explorer, and run a small read query, the user confirmed it works. This is user-reported end-to-end verification, not an exhaustive integration test.
+
+Delivered functionality includes encrypted write-only password/key-pair credentials, personal and organization-shared profiles, browser-side TOML paste/upload, multi-database catalog discovery, Snowflake identifier-aware allowlists, and read-only query integration.
+
+The clearer diagnostic for an ungranted role (`390186`) is implemented locally but not yet deployed. Its regression test and the existing Snowflake connector suite pass (14 tests), with targeted Ruff checks passing.
+
+Live key-pair authentication/rotation, multi-database and quoted-name edge cases, denied objects, timeout behavior, large-result limits, and warehouse-credit impact have not been independently verified in this live session. Query cancellation, interactive MFA/SSO, and Snowflake credit estimation remain unsupported.
+
 ## Snowflake prerequisites
 
 1. Create a dedicated service user. For recommended key-pair authentication, follow [Snowflake key-pair authentication](https://docs.snowflake.com/en/user-guide/key-pair-auth), register the public key and retain the private key securely. QueryMuse accepts a PEM private key of at least 2048 bits and an optional passphrase. Password authentication is also supported where the Snowflake account policy allows it; interactive MFA and SSO are not supported.
@@ -38,5 +51,6 @@ The password or private key is decrypted server-side only when needed and stored
 - Snowflake result rows and Arrow bytes are capped and statement execution has a timeout. Query cancellation is not currently exposed; the server-side timeout is the execution safeguard. There is no Snowflake credit estimate or per-query credit cap in QueryMuse.
 - Schema discovery fails visibly at Snowflake's 10,000-row `SHOW` limit; restrict the role's visible schemas if necessary. Only simple identifiers are exposed.
 - A failed test includes a sanitized Snowflake error code, not the underlying raw SQL or secrets. Check the Snowflake account identifier, service login and password or registered public key, authentication policy, role grants, network access, and warehouse state in Snowflake. An account requiring interactive MFA or SSO cannot use the password flow. A credential change requires updating the connection.
+- Error `390186` means the role specified in the connection is not granted to the user. Choose a granted read-only role, ask a Snowflake administrator to grant the intended read-only role, or clear the optional Role field to use the user's default role. Do not grant `ACCOUNTADMIN` just to make the connection test pass.
 - A TLS failure can indicate an untrusted certificate or network inspection. Snowflake does not support altered TLS certificates; work with your network administrator to allow certificate passthrough to the required [Snowflake endpoints](https://docs.snowflake.com/en/user-guide/hostname-allowlist). Do not disable certificate verification.
-- Live integration verification remains pending until the test account is configured. Test against a read-only role in at least two databases, including quoted names, denied objects, preview/query, and warehouse costs before production rollout.
+- Basic live verification has passed as recorded above. For broader acceptance, test against a read-only role in at least two databases, including quoted names, denied objects, preview/query, timeouts, result limits, and warehouse costs; do not treat a passing connection test as proof of all these cases.

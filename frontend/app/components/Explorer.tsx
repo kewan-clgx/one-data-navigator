@@ -55,15 +55,21 @@ const PREVIEW_COLUMNS = 10;
 const PREVIEW_SAMPLE_MIN_BYTES = 1024 ** 3;
 
 function previewSql(s: TableSchema, focus: string | null, connectionKind: string = "bigquery"): string {
-  const names = s.columns.map((c) => c.name).filter((n) => connectionKind === "snowflake" || !n.includes("."));
+  const names = s.columns.map((c) => c.name).filter((n) => ["snowflake", "mysql", "oracle"].includes(connectionKind) || !n.includes("."));
   const cols = (focus && names.includes(focus) ? [focus, ...names.filter((n) => n !== focus)] : names).slice(
     0,
     PREVIEW_COLUMNS,
   );
   
   // Dialect-specific SQL generation
-  if (connectionKind === "snowflake") {
+  if (connectionKind === "oracle") {
     const quote = (part: string) => `"${part.replaceAll('"', '""')}"`;
+    return `SELECT ${cols.map(quote).join(", ")}\nFROM ${s.path.map(quote).join(".")}\nFETCH FIRST ${PREVIEW_ROWS} ROWS ONLY`;
+  } else if (connectionKind === "snowflake") {
+    const quote = (part: string) => `"${part.replaceAll('"', '""')}"`;
+    return `SELECT ${cols.map(quote).join(", ")}\nFROM ${s.path.map(quote).join(".")}\nLIMIT ${PREVIEW_ROWS}`;
+  } else if (connectionKind === "mysql") {
+    const quote = (part: string) => `\`${part.replaceAll("`", "``")}\``;
     return `SELECT ${cols.map(quote).join(", ")}\nFROM ${s.path.map(quote).join(".")}\nLIMIT ${PREVIEW_ROWS}`;
   } else if (connectionKind === "postgres") {
     // PostgreSQL: use quoted identifiers and LIMIT (no TABLESAMPLE)
@@ -247,7 +253,8 @@ export default function Explorer({
     };
   }, [connectionId, loadMine, onScopeChange]);
 
-  const caseSensitive = connections.find((c) => c.id === connectionId)?.kind === "snowflake";
+  const caseSensitive = ["snowflake", "mysql", "oracle"].includes(connections.find((c) => c.id === connectionId)?.kind ?? "");
+  const tablePathParts = ["mysql", "oracle"].includes(connections.find((c) => c.id === connectionId)?.kind ?? "") ? 2 : 3;
   const prefs = useMemo(() => prefsOf(mine, caseSensitive), [mine, caseSensitive]);
 
   // Stored paths are lowercase (matching is case-insensitive); map back to the catalog's spelling.
@@ -271,7 +278,7 @@ export default function Explorer({
           ...m,
           favorites: on
             ? m.favorites.filter((f) => f.path !== key)
-            : [{ path: key, kind: path.length >= 3 ? "table" : "dataset" }, ...m.favorites],
+            : [{ path: key, kind: path.length >= tablePathParts ? "table" : "dataset" }, ...m.favorites],
         },
       );
       try {
@@ -285,7 +292,7 @@ export default function Explorer({
       }
       loadMine();
     },
-    [connectionId, prefs, loadMine, caseSensitive],
+    [connectionId, prefs, loadMine, caseSensitive, tablePathParts],
   );
 
   const datasetRank = useCallback(
@@ -352,10 +359,16 @@ export default function Explorer({
         setFocusColumn(column ?? null);
         const conn = connections.find((c) => c.id === connectionId);
         onScopeChange({ connectionId, connectionName: conn?.name ?? connectionId, path: s.path });
-        const names = s.columns.map((c) => c.name).filter((n) => conn?.kind === "snowflake" || !n.includes("."));
+        const names = s.columns.map((c) => c.name).filter((n) => ["snowflake", "mysql", "oracle"].includes(conn?.kind ?? "") || !n.includes("."));
         const picked = column && names.includes(column) ? [column, ...names.filter((n) => n !== column)] : names;
-        if (conn?.kind === "snowflake") {
+        if (conn?.kind === "oracle") {
           const quote = (part: string) => `"${part.replaceAll('"', '""')}"`;
+          setSql(`SELECT ${picked.slice(0, 5).map(quote).join(", ")}\nFROM ${path.map(quote).join(".")}\nFETCH FIRST 100 ROWS ONLY`);
+        } else if (conn?.kind === "snowflake") {
+          const quote = (part: string) => `"${part.replaceAll('"', '""')}"`;
+          setSql(`SELECT ${picked.slice(0, 5).map(quote).join(", ")}\nFROM ${path.map(quote).join(".")}\nLIMIT 100`);
+        } else if (conn?.kind === "mysql") {
+          const quote = (part: string) => `\`${part.replaceAll("`", "``")}\``;
           setSql(`SELECT ${picked.slice(0, 5).map(quote).join(", ")}\nFROM ${path.map(quote).join(".")}\nLIMIT 100`);
         } else {
           setSql(`SELECT ${picked.slice(0, 5).join(", ")}\nFROM \`${path.join(".")}\`\nLIMIT 100`);

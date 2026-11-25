@@ -1,23 +1,33 @@
 # Snowflake and MySQL connections: research and implementation plan
 
-Status: Snowflake implementation in progress; MySQL remains proposed. Snowflake live-account verification is pending.
+Status (2026-11-24): Snowflake is implemented, deployed, and user-verified end to end on production. MySQL is implemented locally and verified against disposable MySQL 8.0 and 8.4 servers; it is not deployed to production. See [Snowflake verification](snowflake.md#delivery-and-verification-status) and [MySQL verification](mysql.md#delivery-and-verification-status) for exact checks and limitations.
 
 ## Goal and scope
 
 Add **Snowflake** and **MySQL** data connections alongside the existing BigQuery and PostgreSQL connections. Users should be able to configure and test a connection, browse permitted tables and views, inspect columns, preview and query data, and use the same connection in chat and the workspace.
 
-Here, "dataset" means an externally hosted collection of tables exposed through a connection, not an imported copy. Snowflake supports multiple databases per connection; one MySQL database per connection remains a proposal. Both personal and organization-shared profiles are in scope. BigQuery and PostgreSQL behavior and existing profiles must remain unchanged.
+Here, "dataset" means an externally hosted collection of tables exposed through a connection, not an imported copy. Snowflake and MySQL support multiple databases per connection, with a default namespace for unqualified SQL. Both personal and organization-shared profiles are in scope. BigQuery and PostgreSQL behavior and existing profiles must remain unchanged.
 
-The choices below are recommendations, not completed functionality. Confirm the deployment and authentication choices in [Open decisions](#open-decisions) before implementation.
+Delivered behavior is documented in [Snowflake connections](snowflake.md) and [MySQL connections](mysql.md). Confirmed deployment/authentication choices are recorded below; deployment-specific acceptance remains necessary.
 
 ## Current repository baseline
 
-- The [connector SPI](../../backend/src/odn/platform/connectors/base.py) provides connection tests, catalog and column discovery, schema inspection, cost estimates, paged Arrow results and cancellation. [BigQuery](../../backend/src/odn/platform/connectors/bigquery.py) and [PostgreSQL](../../backend/src/odn/platform/connectors/postgres.py) already implement it.
+- The [connector SPI](../../backend/src/odn/platform/connectors/base.py) provides connection tests, catalog and column discovery, schema inspection, cost estimates, paged Arrow results and cancellation. [BigQuery](../../backend/src/odn/platform/connectors/bigquery.py), [PostgreSQL](../../backend/src/odn/platform/connectors/postgres.py), [Snowflake](../../backend/src/odn/platform/connectors/snowflake.py), and [MySQL](../../backend/src/odn/platform/connectors/mysql.py) implement it; Snowflake/MySQL explicitly report cancellation unsupported and provide no cost estimate.
 - [Connection profiles](../../backend/src/odn/platform/connections/service.py) support personal and tenant-shared credentials, encrypted secret storage, allowlists, and an unsaved test flow. Platform connections are separately managed, visible across tenants and read-only to tenant users; do not make a new global connection automatically. [Tenant transactions](../../backend/src/odn/db/__init__.py) must include the user ID for personal profiles.
-- [SQL policy](../../backend/src/odn/platform/policy/sql_policy.py) uses sqlglot and filters both queries and catalog paths. It currently recognizes only BigQuery, PostgreSQL and DuckDB, and compares identifiers case-insensitively. That comparison is unsafe for the new engines' case-sensitive identifiers.
-- [Query service](../../backend/src/odn/platform/query/service.py) performs policy validation, estimation, result caps and auditing. Its error handling is Google-specific; the [search index](../../backend/src/odn/platform/catalog/search_index.py) likewise catches Google-specific errors. New driver failures need explicit, sanitized handling.
-- The [Explorer](../../frontend/app/components/Explorer.tsx) currently branches between PostgreSQL and a BigQuery default for preview SQL. [Settings](../../frontend/app/components/Settings.tsx) currently treats anything other than PostgreSQL as BigQuery. Both require explicit dialect handling.
-- The [connections table](../../backend/src/odn/db/migrations/0001_core.sql) restricts `kind` to BigQuery and PostgreSQL. Adding either kind requires a forward migration, not editing an applied migration. The existing catalog search expects root containers and their direct table children.
+- [SQL policy](../../backend/src/odn/platform/policy/sql_policy.py) uses sqlglot and filters queries and catalog paths for BigQuery, PostgreSQL, Snowflake, MySQL and DuckDB. Snowflake resolves unquoted names to uppercase and preserves quoted case; MySQL preserves exact catalog spelling. Existing engine matching is unchanged.
+- [Query service](../../backend/src/odn/platform/query/service.py) performs policy validation, estimation, result caps and auditing. It and the [search index](../../backend/src/odn/platform/catalog/search_index.py) handle sanitized `ConnectorError` failures as well as Google errors; MySQL translates its driver failures into this shared contract.
+- [Explorer](../../frontend/app/components/Explorer.tsx) and [Settings](../../frontend/app/components/Settings.tsx) handle Snowflake and MySQL explicitly, including per-component quoted SQL and connection forms.
+- The [Snowflake migration](../../backend/src/odn/db/migrations/0029_snowflake_connections.sql) is applied in production. The new [MySQL migration](../../backend/src/odn/db/migrations/0030_mysql_connections.sql) extends kinds without editing applied migrations and has been exercised locally. The catalog tree remains root containers and direct table children.
+
+## Snowflake completed milestone
+
+- Implemented the connector, encrypted credential/profile flows, multi-database catalog paths, case-aware SQL policy, query integration, and personal/shared settings UI.
+- Added password and key-pair authentication plus local browser TOML paste/upload, including credential retention on same-method edits and required replacement on authentication-method changes.
+- Deployed the Snowflake driver, schema migration and application integration to production.
+- User confirmed all connection checks passed and then confirmed end-to-end operation after the browse/query verification prompt.
+- Added setup, least-privilege, billing, TLS and role-grant troubleshooting guidance. The improved `390186` diagnostic and its test are local follow-up changes, not yet deployed.
+
+The remaining live edge-case checks and unsupported capabilities are listed in [Snowflake delivery and verification](snowflake.md#delivery-and-verification-status). This milestone does not claim that every acceptance case below has been exercised live.
 
 ## Provider research
 
@@ -32,25 +42,25 @@ The choices below are recommendations, not completed functionality. Confirm the 
 ### MySQL
 
 - MySQL exposes [INFORMATION_SCHEMA](https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/information-schema.html) metadata for databases, tables, views and columns, subject to the source account's privileges. Database and schema are synonyms in MySQL; model them as the same namespace.
-- The Python driver must support the deployed server's authentication plugin, verified TLS, bounded timeouts and unbuffered fetching. Evaluate [MySQL Connector/Python](https://docs.oracle.com/cd/E17952_01/connector-python-en/connector-python-connectargs.html) against project dependency and license requirements; its [buffered cursor](https://docs.oracle.com/cd/E17952_01/connector-python-en/connector-python-api-mysqlcursorbuffered.html) loads the entire result set and is unsuitable for large results.
+- The selected driver is MIT-licensed PyMySQL with its RSA extra, explicit verified SSL context and unbuffered cursor. See [driver research and execution design](mysql.md#driver-and-execution-research). Buffered fetching is not used for user query results.
 - Identifier case sensitivity depends on server and `lower_case_table_names` configuration; on many Unix servers `Orders` and `orders` are distinct ([MySQL identifier rules](https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/identifier-case-sensitivity.html)). Never use unconditional case-insensitive allowlist matching.
 - A [read-only transaction](https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/commit.html) adds protection but still permits changes to temporary tables. Use an account with only required read privileges as the primary safeguard, and reject unsafe SQL and functions. TLS must validate the server identity; encryption without verification is not sufficient.
 - [`KILL QUERY`](https://docs.oracle.com/cd/E17952_01/mysql-8.4-en/kill.html) is asynchronous and permissions restrict which sessions may be killed. Cancellation must target only the active query owned by this application, not an arbitrary or stale connection ID.
 
-## Proposed connection contracts
+## Implemented connection contracts
 
 | | Snowflake | MySQL |
 |---|---|---|
 | Profile kind and SQL dialect | `snowflake` | `mysql` |
 | Non-secret configuration | Account identifier, user, warehouse, database, default schema, role; bounded timeout | Host, port (default 3306), database, user, TLS verification settings; bounded timeout |
 | Credential, write-only | Service-user private key and optional passphrase, or password | Database password; certificate/key material only if explicitly supported |
-| Root catalog / table path | Schemas from accessible databases `(database, schema)` / `(database, schema, table)` | Selected database `(database,)` / `(database, table)` |
+| Root catalog / table path | Schemas from accessible databases `(database, schema)` / `(database, schema, table)` | Accessible databases `(database,)` / `(database, table)` |
 | SQL default namespace | `(database, default_schema)` | `(database,)` |
 | Allowlist | `database.schema.table`, with `*` per whole part | `database.table`, with `*` per whole part |
-| Cost estimate | Unavailable initially unless a validated provider-specific estimate is added; no fabricated bytes or credit estimate | Optional `EXPLAIN` row estimate only if safe and supported; otherwise unavailable |
+| Cost estimate | Unavailable; no fabricated bytes or credit estimate | Unavailable; no fabricated bytes or EXPLAIN estimate |
 | Source-side control | Restricted role, warehouse controls and statement timeout | SELECT-only account, read-only transaction and server/client timeouts |
 
-Snowflake lists schemas from multiple databases at the root as `DATABASE.SCHEMA` and their tables below, retaining full three-part table paths and the existing Explorer tree shape. One MySQL database per connection likewise makes the existing two-level catalog shape usable. Both should include permitted views. The source user's permissions remain authoritative; an allowlist is an additional application restriction, not a substitute for source grants. See [Snowflake setup and limitations](snowflake.md).
+Snowflake lists schemas from multiple databases at the root as `DATABASE.SCHEMA` and their tables below, retaining full three-part table paths and the existing Explorer tree shape. MySQL lists databases at the root and their tables below. Both include permitted views. The source user's permissions remain authoritative; an allowlist is an additional application restriction, not a substitute for source grants. See [Snowflake setup and limitations](snowflake.md) and [MySQL design and setup](mysql.md).
 
 ### Identifier and policy requirements
 
@@ -71,8 +81,8 @@ Reject multiple statements, writes, DDL, `CALL`, locking reads, external access,
 
 1. **Agree on deployment assumptions.** Confirm supported Snowflake auth, MySQL versions/networking and one-database scope. Select maintained drivers compatible with Python 3.12 and existing Arrow dependencies; perform dependency/license review. Add drivers to the API extra and update `backend/uv.lock` with `uv lock` when manifests change.
 2. **Foundation and authorization.** Add a forward migration to extend the connection-kind constraint while retaining existing rows and RLS. Add typed profile validation, secrets and explicit connector dispatch; reject unknown kinds. Extend dialect parsing and allowlist semantics as above, including catalog checks. Keep existing BigQuery/Postgres matching behavior unless a separately reviewed migration is needed. Add least-privilege setup guidance for both providers.
-3. **Snowflake connector.** Implement tests, root schema/table/view listing, single-table schema and bulk column discovery scoped to the configured database. Stream bounded Arrow-compatible results, preserve types and nulls, set statement timeout and an appropriate non-sensitive query tag. Map errors to safe actionable diagnostics. Establish active-query lifecycle and cancellation semantics before advertising cancellation; otherwise explicitly report it unsupported.
-4. **MySQL connector.** Implement the same SPI using parameterized metadata queries, a source read-only account, a read-only transaction and nonbuffered fetches. Bound both execution and result retrieval, close resources on failure or early truncation, and handle cancellation safely. Do not copy PostgreSQL's full `fetchall()` behavior for query results. Verify driver/server timeout and cancellation support instead of claiming a universal guarantee.
+3. **Snowflake connector (delivered).** Tests, root schema/table/view listing, single-table schema and bulk column discovery across accessible databases are implemented. Results use Arrow batches with application row/byte limits, statement timeout and a non-sensitive query tag. Driver failures are sanitized; query cancellation is explicitly unsupported.
+4. **MySQL connector (implemented locally).** Uses parameterized, case-sensitive metadata queries, approved/pinned endpoints, verified TLS, read-only transactions, SELECT execution/socket timeouts and nonbuffered Arrow batches. Early truncation disconnects without draining results. Cancellation and cost estimation are explicitly unsupported.
 5. **Application integration.** Add personal and authorized shared create/edit/test forms, field-specific help and clear auth/TLS errors. Integrate catalog filtering, search indexing, schema/dictionary, previews, query/audit and agent dialect instructions. Add explicit provider error handling for metadata and query failures; mark unavailable estimates honestly. Keep a configured warehouse or connection from being silently changed by user SQL.
 6. **Validation and rollout.** Run focused policy, profile, connector, API and frontend tests plus real-provider integration checks below. Deploy migration before creating new profiles; enable each provider only after its acceptance checks pass. Roll back by disabling creation/use of the new kind while preserving records; never drop credentials or rewrite existing profiles as a rollback shortcut.
 
@@ -88,11 +98,17 @@ Reject multiple statements, writes, DDL, `CALL`, locking reads, external access,
 
 Mocked tests alone cannot establish provider IAM, TLS, driver streaming, server-side timeouts or billing behavior. Record any unavailable real-provider checks as release blockers or explicit limitations, not as passed tests.
 
-## Open decisions
+## Confirmed decisions
 
-1. Snowflake decisions: multiple databases, service-user key-pair or password authentication, implement Snowflake first. A real test account will be configured later.
-2. Is one database per MySQL connection sufficient? Which MySQL versions and hosting environments must be supported, and are private networking, SSH tunnels, custom CA or mutual TLS required at launch?
-3. What network egress policy should govern user-configured database hosts? Who approves destinations?
+1. Snowflake decisions are implemented: multiple databases and service-user key-pair or password authentication. A real account has now passed connection checks and user-reported end-to-end use.
+2. Confirmed MySQL scope: multiple databases, MySQL 8.0/8.4 (no MariaDB initially), username/password, mandatory verified TLS with optional custom CA, and direct approved public/private endpoints. SSH tunnels, mutual TLS and cloud IAM are excluded initially.
+3. Confirmed approval model: operator-managed exact endpoint and destination CIDR allowlists, checked on each connection with DNS pinning. See [MySQL approved destinations](mysql.md#approved-destinations).
+
+## MySQL implementation handoff
+
+The implementation, forward migration, encrypted password flow, SQL policy and application/UI integration are complete locally. The local API image is rebuilt and ready; 225 focused backend tests, the frontend build, and disposable verified-TLS MySQL 8.0/8.4 integration checks passed. [MySQL verification](mysql.md#delivery-and-verification-status) distinguishes these checks from customer/production verification.
+
+Next: configure an operator-approved customer/test endpoint and CIDRs, verify its real grants, CA chain and multi-database allowlist, then commit/deploy only with approval. Preserve existing Snowflake, BigQuery and PostgreSQL behavior. No production MySQL rollout has occurred.
 
 ## References
 

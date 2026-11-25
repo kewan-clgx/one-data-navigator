@@ -130,6 +130,61 @@ def test_snowflake_password_storage_and_auth_switch(users) -> None:
     assert resolve_postgres_credentials(saved) == PEM
 
 
+def test_mysql_password_is_encrypted_scoped_and_retained(users) -> None:
+    from odn.api.routes import ConnectionOut
+    from odn.platform.connections.service import (
+        resolve_postgres_credentials,
+        save_connection,
+        unsaved_connector,
+    )
+
+    a, b, other = users
+    data = PersonalConnectionInput(
+        name="mysql", kind="mysql", host="mysql.example.com", database="Sales", user="reader",
+        password="mysql-test-only", allowed_objects=["Sales.*", "Reporting.Orders"],
+    )
+    saved = save_personal_connection(a.tenant_id, a.user_id, data)
+    assert saved.secret_ciphertext and b"mysql-test-only" not in saved.secret_ciphertext
+    assert get_connection(b.tenant_id, b.user_id, saved.id) is None
+    assert get_connection(other.tenant_id, other.user_id, saved.id) is None
+    assert "mysql-test-only" not in ConnectionOut.of(saved).model_dump_json()
+    edited = data.model_copy(update={"password": ""})
+    saved = save_personal_connection(a.tenant_id, a.user_id, edited, saved.id)
+    assert resolve_postgres_credentials(saved) == "mysql-test-only"
+    assert unsaved_connector(edited, saved).dialect == "mysql"
+    for kind in ("postgres", "snowflake", "bigquery"):
+        with pytest.raises(ValueError, match="kind cannot be changed"):
+            unsaved_connector(edited.model_copy(update={"kind": kind}), saved)
+    shared = save_connection(a.tenant_id, a.user_id, data.model_copy(update={"name": "shared-mysql"}), shared=True)
+    assert get_connection(b.tenant_id, b.user_id, shared.id) is not None
+    assert get_connection(other.tenant_id, other.user_id, shared.id) is None
+
+
+def test_oracle_password_encryption_scope_and_edit_retention(users):
+    from odn.api.me_routes import ConnectionOut
+    from odn.platform.connections.service import resolve_postgres_credentials, save_connection, unsaved_connector
+
+    a, b, other = users
+    data = PersonalConnectionInput(
+        name="oracle", kind="oracle", host="oracle.example.com", service_name="reports",
+        schema="HR", user="READER", password="oracle-test-only", allowed_objects=["HR.*"],
+    )
+    saved = save_personal_connection(a.tenant_id, a.user_id, data)
+    assert saved.secret_ciphertext and b"oracle-test-only" not in saved.secret_ciphertext
+    assert get_connection(b.tenant_id, b.user_id, saved.id) is None
+    assert get_connection(other.tenant_id, other.user_id, saved.id) is None
+    assert "oracle-test-only" not in ConnectionOut.of(saved).model_dump_json()
+    edited = data.model_copy(update={"password": ""})
+    saved = save_personal_connection(a.tenant_id, a.user_id, edited, saved.id)
+    assert resolve_postgres_credentials(saved) == "oracle-test-only"
+    assert unsaved_connector(edited, saved).dialect == "oracle"
+    with pytest.raises(ValueError, match="kind cannot be changed"):
+        unsaved_connector(edited.model_copy(update={"kind": "postgres"}), saved)
+    shared = save_connection(a.tenant_id, a.user_id, data.model_copy(update={"name": "shared-oracle"}), shared=True)
+    assert get_connection(b.tenant_id, b.user_id, shared.id) is not None
+    assert get_connection(other.tenant_id, other.user_id, shared.id) is None
+
+
 def test_key_is_encrypted_and_kept_on_update(users) -> None:
     a, b, _ = users
     created = save_personal_connection(

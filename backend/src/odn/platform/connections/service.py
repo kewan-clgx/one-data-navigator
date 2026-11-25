@@ -42,7 +42,7 @@ def _check_name(v: str) -> str:
 
 class ConnectionInput(BaseModel):
     name: str
-    kind: Literal["bigquery", "postgres", "snowflake"]
+    kind: Literal["bigquery", "postgres", "snowflake", "mysql", "oracle"]
     config: dict[str, Any] = Field(default_factory=dict)
     secret_ref: str
     allowed_objects: list[str] = Field(min_length=1)
@@ -65,6 +65,10 @@ class ConnectionInput(BaseModel):
                 raise ValueError("postgres config requires 'user'")
         if self.kind == "snowflake":
             _validate_snowflake_config(self.config)
+        if self.kind == "mysql":
+            _validate_mysql_config(self.config)
+        if self.kind == "oracle":
+            _validate_oracle_config(self.config)
         for pattern in self.allowed_objects:
             SqlPolicy.validate_pattern(self.kind, pattern)
         return self
@@ -154,6 +158,63 @@ def _validate_snowflake_config(config: dict[str, Any]) -> None:
             raise ValueError(f"Snowflake {name} must be an uppercase unquoted identifier")
 
 
+def _validate_mysql_config(config: dict[str, Any]) -> None:
+    from odn.platform.connectors.mysql import tls_context
+    from odn.platform.net import mysql_host
+    from odn.platform.policy.sql_policy import _MYSQL_IDENTIFIER, _MYSQL_SYSTEM_DATABASES
+
+    if set(config) - {"host", "port", "database", "user", "ssl_ca"}:
+        raise ValueError("unsupported MySQL configuration fields; credentials must be supplied separately")
+    host = config.get("host")
+    if not isinstance(host, str) or mysql_host(host) != host:
+        raise ValueError("a normalized MySQL hostname or IP address is required")
+    port = config.get("port", 3306)
+    if type(port) is not int or not 1 <= port <= 65535:
+        raise ValueError("MySQL port must be 1-65535")
+    database = config.get("database")
+    if (
+        not isinstance(database, str) or not _MYSQL_IDENTIFIER.fullmatch(database)
+        or database.lower() in _MYSQL_SYSTEM_DATABASES
+    ):
+        raise ValueError("MySQL default database must be a simple non-system identifier")
+    user = config.get("user")
+    if not isinstance(user, str) or not user or len(user) > 32 or any(ord(c) < 32 for c in user):
+        raise ValueError("a valid MySQL username (at most 32 characters) is required")
+    ca = config.get("ssl_ca")
+    if ca is not None and (not isinstance(ca, str) or len(ca.encode()) > 100_000):
+        raise ValueError("MySQL CA must be a PEM certificate bundle of at most 100,000 bytes")
+    tls_context(ca)
+
+
+def _validate_oracle_config(config: dict[str, Any]) -> None:
+    from odn.platform.connectors.oracle import tls_context
+    from odn.platform.egress import canonical_host
+    from odn.platform.policy.sql_policy import _ORACLE_IDENTIFIER, _ORACLE_SYSTEM_SCHEMAS
+
+    if set(config) - {"host", "port", "service_name", "schema", "user", "ssl_ca"}:
+        raise ValueError("unsupported Oracle configuration fields; credentials must be supplied separately")
+    host = config.get("host")
+    if not isinstance(host, str) or canonical_host(host) != host:
+        raise ValueError("a normalized Oracle hostname or IP address is required")
+    port = config.get("port", 2484)
+    if type(port) is not int or not 1 <= port <= 65535:
+        raise ValueError("Oracle listener port must be 1-65535")
+    service = config.get("service_name")
+    if not isinstance(service, str) or not re.fullmatch(r"[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*", service) or len(service) > 255:
+        raise ValueError("a simple Oracle service name is required; descriptors and SIDs are unsupported")
+    for key in ("schema", "user"):
+        value = config.get(key)
+        if (
+            not isinstance(value, str) or not _ORACLE_IDENTIFIER.fullmatch(value)
+            or value.upper() in _ORACLE_SYSTEM_SCHEMAS
+        ):
+            raise ValueError(f"Oracle {key} must be a simple non-administrative identifier")
+    ca = config.get("ssl_ca")
+    if ca is not None and (not isinstance(ca, str) or len(ca.encode()) > 100_000):
+        raise ValueError("Oracle CA must be a PEM certificate bundle of at most 100,000 bytes")
+    tls_context(ca)
+
+
 def _qualify(entry: str, project: str) -> str:
     """Allowlist shorthand: "dataset" -> project.dataset.*, "dataset.table" -> project.dataset.table."""
     parts = entry.split(".")
@@ -203,10 +264,10 @@ class SSHTunnelInput(BaseModel):
 
 
 class PersonalConnectionInput(BaseModel):
-    """A user's own data connection (BigQuery or Postgres). On update, an omitted key keeps the stored one."""
+    """A user's data connection. On update, omitted credentials keep the stored secret for the same kind."""
 
     name: str
-    kind: Literal["bigquery", "postgres", "snowflake"] = "bigquery"
+    kind: Literal["bigquery", "postgres", "snowflake", "mysql", "oracle"] = "bigquery"
     # BigQuery fields
     project: str | None = None
     location: str | None = None
@@ -229,7 +290,10 @@ class PersonalConnectionInput(BaseModel):
     auth_method: Literal["key_pair", "password"] | None = None
     private_key: str | None = Field(default=None, repr=False)
     private_key_passphrase: str | None = Field(default=None, repr=False)
-    # Both
+    # MySQL: public PEM CA certificates, never client private keys or filesystem paths.
+    ssl_ca: str | None = None
+    service_name: str | None = None
+    # All providers
     allowed_objects: list[str] = Field(default_factory=list, max_length=500)
 
     @field_validator("name")
@@ -263,6 +327,50 @@ class PersonalConnectionInput(BaseModel):
             return self._resolved_bigquery(key, current)
         elif self.kind == "postgres":
             return self._resolved_postgres(current)
+        elif self.kind == "oracle":
+            from odn.platform.egress import canonical_host
+
+            if self.ssh_tunnel is not None or self.ssl_mode not in (None, "verify-full"):
+                raise ValueError("Oracle requires verified TCPS through operator-managed egress")
+            config = {
+                k: getattr(self, k) or (current.config.get(k) if current else None)
+                for k in ("host", "service_name", "schema", "user")
+            }
+            if not isinstance(config["host"], str) or not config["host"]:
+                raise ValueError("Oracle host is required")
+            config["host"] = canonical_host(config["host"])
+            config["port"] = self.port or (current.config.get("port") if current else None) or 2484
+            config["ssl_ca"] = (
+                self.ssl_ca if "ssl_ca" in self.model_fields_set else current.config.get("ssl_ca") if current else None
+            ) or None
+            allowed = [a.strip() for a in self.allowed_objects if a.strip()]
+            if not allowed:
+                raise ValueError("at least one Oracle allowlist entry is required")
+            return ConnectionInput(
+                name=self.name, kind=self.kind, config=config, secret_ref="(personal)", allowed_objects=allowed
+            )
+        elif self.kind == "mysql":
+            from odn.platform.net import mysql_host
+
+            if self.ssh_tunnel is not None or self.ssl_mode not in (None, "verify-full"):
+                raise ValueError("MySQL requires direct verified TLS; tunnels and insecure TLS modes are unsupported")
+            config = {
+                k: getattr(self, k) or (current.config.get(k) if current else None)
+                for k in ("host", "database", "user")
+            }
+            if not isinstance(config["host"], str) or not config["host"]:
+                raise ValueError("MySQL host is required")
+            config["host"] = mysql_host(config["host"])
+            config["port"] = self.port or (current.config.get("port") if current else None) or 3306
+            config["ssl_ca"] = (
+                self.ssl_ca if "ssl_ca" in self.model_fields_set else current.config.get("ssl_ca") if current else None
+            ) or None
+            allowed = [a.strip() for a in self.allowed_objects if a.strip()]
+            if not allowed:
+                raise ValueError("at least one MySQL allowlist entry is required")
+            return ConnectionInput(
+                name=self.name, kind=self.kind, config=config, secret_ref="(personal)", allowed_objects=allowed
+            )
         elif self.kind == "snowflake":
             config = {
                 k: (getattr(self, k) or (current.config.get(k) if current else None))
@@ -423,9 +531,57 @@ def build_connector(profile: ConnectionProfile) -> BaseConnector:
         if not secret:
             raise CredentialError("this connection has no stored Snowflake credentials")
         return snowflake_connector(profile.config, secret)
+    if profile.kind == "mysql":
+        secret = resolve_postgres_credentials(profile)
+        if not secret:
+            raise CredentialError("this connection has no stored MySQL password")
+        return mysql_connector(profile.config, secret)
+    if profile.kind == "oracle":
+        secret = resolve_postgres_credentials(profile)
+        if not secret:
+            raise CredentialError("this connection has no stored Oracle password")
+        return oracle_connector(profile.config, secret)
     if profile.kind == "bigquery":
         return bigquery_connector(profile.config, resolve_credentials(profile))
     raise ValueError(f"unsupported connection kind: {profile.kind}")
+
+
+def mysql_connector(cfg: dict[str, Any], password: str) -> BaseConnector:
+    from odn.platform.connectors.mysql import MySQLConnector
+
+    return MySQLConnector(
+        host=cfg["host"], port=cfg.get("port", 3306), database=cfg["database"],
+        user=cfg["user"], password=password, ssl_ca=cfg.get("ssl_ca"),
+    )
+
+
+def _mysql_secret(data: PersonalConnectionInput, current: ConnectionProfile | None) -> bytes | None:
+    if data.password:
+        if len(data.password.encode()) > 16_384:
+            raise ValueError("MySQL password is too large")
+        return data.password.encode()
+    if current is None:
+        raise ValueError("a MySQL password is required")
+    return None
+
+
+def oracle_connector(cfg: dict[str, Any], password: str) -> BaseConnector:
+    from odn.platform.connectors.oracle import OracleConnector
+
+    return OracleConnector(
+        host=cfg["host"], port=cfg.get("port", 2484), service_name=cfg["service_name"], schema=cfg["schema"],
+        user=cfg["user"], password=password, ssl_ca=cfg.get("ssl_ca"),
+    )
+
+
+def _oracle_secret(data: PersonalConnectionInput, current: ConnectionProfile | None) -> bytes | None:
+    if data.password:
+        if len(data.password.encode()) > 16_384:
+            raise ValueError("Oracle password is too large")
+        return data.password.encode()
+    if current is None:
+        raise ValueError("an Oracle password is required")
+    return None
 
 
 def snowflake_connector(cfg: dict[str, Any], secret: str) -> BaseConnector:
@@ -570,7 +726,9 @@ def save_connection(
         raise LookupError("connection not found")
     if current is not None and current.tenant_id is None:
         raise PermissionError("platform connections are managed by the EasyQuery team and can't be edited here")
-    if current is not None and current.kind != data.kind and "snowflake" in (current.kind, data.kind):
+    if current is not None and current.kind != data.kind and (
+        {"snowflake", "mysql", "oracle"} & {current.kind, data.kind}
+    ):
         raise ValueError("connection kind cannot be changed; create a new connection")
     
     # Validate and extract credentials/secrets based on kind
@@ -590,6 +748,12 @@ def save_connection(
         key = None  # No key dict for Postgres
     elif data.kind == "snowflake":
         secret_to_encrypt = _snowflake_secret(data, current)
+        key = None
+    elif data.kind == "mysql":
+        secret_to_encrypt = _mysql_secret(data, current)
+        key = None
+    elif data.kind == "oracle":
+        secret_to_encrypt = _oracle_secret(data, current)
         key = None
     else:
         raise ValueError(f"unsupported connection kind: {data.kind}")
@@ -659,7 +823,9 @@ def delete_connection(tenant_id: UUID, user_id: UUID, connection_id: UUID, *, sh
 def unsaved_connector(data: PersonalConnectionInput, current: ConnectionProfile | None) -> BaseConnector:
     """Connector for 'Test connection' before saving: the submitted credentials, or the stored ones when editing."""
     spec = None
-    if current is not None and current.kind != data.kind and "snowflake" in (current.kind, data.kind):
+    if current is not None and current.kind != data.kind and (
+        {"snowflake", "mysql", "oracle"} & {current.kind, data.kind}
+    ):
         raise ValueError("connection kind cannot be changed; create a new connection")
     
     if data.kind == "bigquery":
@@ -689,6 +855,18 @@ def unsaved_connector(data: PersonalConnectionInput, current: ConnectionProfile 
         if not value:
             raise ValueError("Snowflake credentials are required")
         return snowflake_connector(data.resolved(None, current).config, value)
+    elif data.kind == "mysql":
+        secret = _mysql_secret(data, current)
+        value = secret.decode() if secret is not None else resolve_postgres_credentials(current) if current else None
+        if not value:
+            raise ValueError("a MySQL password is required")
+        return mysql_connector(data.resolved(None, current).config, value)
+    elif data.kind == "oracle":
+        secret = _oracle_secret(data, current)
+        value = secret.decode() if secret is not None else resolve_postgres_credentials(current) if current else None
+        if not value:
+            raise ValueError("an Oracle password is required")
+        return oracle_connector(data.resolved(None, current).config, value)
     
     else:
         raise ValueError(f"unsupported connection kind: {data.kind}")

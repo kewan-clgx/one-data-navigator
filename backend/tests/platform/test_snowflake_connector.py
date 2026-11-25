@@ -166,6 +166,17 @@ def test_tls_failure_reports_safe_diagnostic(connector: SnowflakeConnector, monk
     assert "sensitive" not in result[0].detail
 
 
+def test_ungranted_role_reports_safe_diagnostic(connector: SnowflakeConnector, monkeypatch) -> None:
+    connect = MagicMock(side_effect=ProgrammingError(msg="sensitive role and user details", errno=390186))
+    monkeypatch.setattr("odn.platform.connectors.snowflake.snowflake.connector.connect", connect)
+    result = connector.test_connection()
+    assert len(result) == 1 and result[0].step == "auth" and not result[0].ok
+    assert "role is not granted" in result[0].detail
+    assert "390186" in result[0].detail
+    assert "clear Role" in result[0].detail
+    assert "sensitive" not in result[0].detail
+
+
 @pytest.mark.parametrize(("error_type", "expected"), [
     (ForbiddenError, "connection was forbidden"),
     (BadGatewayError, "gateway unavailable"),

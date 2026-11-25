@@ -87,6 +87,17 @@ def test_snowflake_favorites_and_usage_preserve_case(users) -> None:
     assert [f.path for f in list_favorites(a, conn_id, policy)] == ["DB.PUBLIC.orders"]
 
 
+@pytest.mark.parametrize("dialect", ["mysql", "oracle"])
+def test_two_part_favorites_preserve_case_and_removal(users, dialect) -> None:
+    a, _, _, conn_id = users
+    policy = SqlPolicy(dialect=dialect, allowed_objects=frozenset({"Sales.Orders", "Sales.orders"}))
+    assert add_favorite(a, conn_id, policy, ["Sales", "Orders"]).kind == "table"
+    add_favorite(a, conn_id, policy, ["Sales", "orders"])
+    assert {f.path for f in list_favorites(a, conn_id, policy)} == {"Sales.Orders", "Sales.orders"}
+    remove_favorite(a, conn_id, ["Sales", "Orders"], preserve_case=True)
+    assert [f.path for f in list_favorites(a, conn_id, policy)] == ["Sales.orders"]
+
+
 def test_usage_counts_and_recency(users) -> None:
     a, b, _, conn_id = users
     record_usage(a, conn_id, ["p.sales.orders", "p.sales.items"])

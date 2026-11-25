@@ -244,7 +244,7 @@ class TestConnectionKindMixing:
         with pytest.raises(ValueError):
             PersonalConnectionInput(
                 name="unsupported",
-                kind="mysql",  # Not yet supported
+                kind="mssql",  # Not yet supported
                 project="p",
             )
 

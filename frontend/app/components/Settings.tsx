@@ -7,6 +7,8 @@ import type { CollibraEnv } from "@/lib/collibra";
 import CollibraSettings from "./CollibraSettings";
 import PostgresConnectionForm, { EMPTY_POSTGRES_DRAFT, draftOfPostgres } from "./PostgresConnectionForm";
 import SnowflakeConnectionForm, { EMPTY_SNOWFLAKE_DRAFT, draftOfSnowflake } from "./SnowflakeConnectionForm";
+import MySQLConnectionForm, { EMPTY_MYSQL_DRAFT, draftOfMySQL } from "./MySQLConnectionForm";
+import OracleConnectionForm, { EMPTY_ORACLE_DRAFT, draftOfOracle } from "./OracleConnectionForm";
 
 // ---------------------------------------------------------------------------------------------
 // AI model (bring your own key)
@@ -394,10 +396,18 @@ function ConnectionForm({
   );
 }
 
+type EditingConnection = (
+  | { kind: "bigquery"; draft: Draft }
+  | { kind: "postgres"; draft: ReturnType<typeof draftOfPostgres> }
+  | { kind: "snowflake"; draft: ReturnType<typeof draftOfSnowflake> }
+  | { kind: "mysql"; draft: ReturnType<typeof draftOfMySQL> }
+  | { kind: "oracle"; draft: ReturnType<typeof draftOfOracle> }
+) & { shared: boolean };
+
 function ConnectionsSection({ canManageShared = false }: { canManageShared?: boolean }) {
   const ids = useId();
   const [connections, setConnections] = useState<Connection[]>([]);
-  const [editing, setEditing] = useState<{ kind: string; draft: any; shared: boolean } | null>(null);
+  const [editing, setEditing] = useState<EditingConnection | null>(null);
   const [showKindPicker, setShowKindPicker] = useState(false);
   const [shareNew, setShareNew] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -427,6 +437,10 @@ function ConnectionsSection({ canManageShared = false }: { canManageShared?: boo
       setEditing({ kind: "postgres", draft: draftOfPostgres(c), shared });
     } else if (c.kind === "snowflake") {
       setEditing({ kind: "snowflake", draft: draftOfSnowflake(c), shared });
+    } else if (c.kind === "mysql") {
+      setEditing({ kind: "mysql", draft: draftOfMySQL(c), shared });
+    } else if (c.kind === "oracle") {
+      setEditing({ kind: "oracle", draft: draftOfOracle(c), shared });
     } else {
       setEditing({ kind: "bigquery", draft: draftOf(c), shared });
     }
@@ -438,6 +452,10 @@ function ConnectionsSection({ canManageShared = false }: { canManageShared?: boo
       setEditing({ kind: "postgres", draft: EMPTY_POSTGRES_DRAFT, shared });
     } else if (kind === "snowflake") {
       setEditing({ kind: "snowflake", draft: EMPTY_SNOWFLAKE_DRAFT, shared });
+    } else if (kind === "mysql") {
+      setEditing({ kind: "mysql", draft: EMPTY_MYSQL_DRAFT, shared });
+    } else if (kind === "oracle") {
+      setEditing({ kind: "oracle", draft: EMPTY_ORACLE_DRAFT, shared });
     } else {
       setEditing({ kind: "bigquery", draft: EMPTY, shared });
     }
@@ -460,15 +478,20 @@ function ConnectionsSection({ canManageShared = false }: { canManageShared?: boo
   const personal = connections.filter((c) => c.scope === "personal");
 
   const connectionDisplay = (c: Connection) => {
-    if (c.kind === "postgres") {
+    if (c.kind === "postgres" || c.kind === "mysql") {
       return (
         <>
-          <strong>{c.name}</strong> <span className="badge">PostgreSQL</span>{" "}
+          <strong>{c.name}</strong> <span className="badge">{c.kind === "mysql" ? "MySQL" : "PostgreSQL"}</span>{" "}
           <span className="muted">
             {c.config.host}:{c.config.port}/{c.config.database} · {c.allowed_objects.length} allowlist entr
             {c.allowed_objects.length === 1 ? "y" : "ies"}
           </span>
         </>
+      );
+    } else if (c.kind === "oracle") {
+      return (
+        <><strong>{c.name}</strong> <span className="badge">Oracle</span>{" "}
+          <span className="muted">{c.config.host}:{c.config.port}/{c.config.service_name} · {c.allowed_objects.length} allowlist entries</span></>
       );
     } else if (c.kind === "snowflake") {
       return (
@@ -489,7 +512,7 @@ function ConnectionsSection({ canManageShared = false }: { canManageShared?: boo
     <section className="settings-card" aria-labelledby={`${ids}-h`}>
       <h2 id={`${ids}-h`}>Data connections</h2>
       <p className="muted">
-        Connect your own BigQuery, PostgreSQL or Snowflake databases. Your connections and keys are visible only to you;
+        Connect your own BigQuery, PostgreSQL, Snowflake, MySQL or Oracle databases. Your connections and keys are visible only to you;
         queries go through read-only checks. Snowflake warehouse charges are managed in Snowflake.
         {canManageShared && " As an admin or data lead you can also share connections with your whole organization."}
       </p>
@@ -538,6 +561,26 @@ function ConnectionsSection({ canManageShared = false }: { canManageShared?: boo
               if (saved) load();
             }}
           />
+        ) : editing.kind === "mysql" ? (
+          <MySQLConnectionForm
+            key={editing.draft.id ?? "new"}
+            base={baseOf(editing.shared)}
+            initial={editing.draft}
+            onDone={(saved) => {
+              setEditing(null);
+              if (saved) load();
+            }}
+          />
+        ) : editing.kind === "oracle" ? (
+          <OracleConnectionForm
+            key={editing.draft.id ?? "new"}
+            base={baseOf(editing.shared)}
+            initial={editing.draft}
+            onDone={(saved) => {
+              setEditing(null);
+              if (saved) load();
+            }}
+          />
         ) : (
           <ConnectionForm
             key={editing.draft.id ?? "new"}
@@ -567,6 +610,12 @@ function ConnectionsSection({ canManageShared = false }: { canManageShared?: boo
             </button>
             <button type="button" onClick={() => startNew("snowflake")}>
               Snowflake
+            </button>
+            <button type="button" onClick={() => startNew("mysql")}>
+              MySQL
+            </button>
+            <button type="button" onClick={() => startNew("oracle")}>
+              Oracle
             </button>
             <button type="button" onClick={() => setShowKindPicker(false)}>
               Cancel

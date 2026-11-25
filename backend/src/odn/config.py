@@ -47,6 +47,12 @@ class Settings(BaseSettings):
     collibra_timeout_s: float = 20.0
     # Local-only credential files for connections with secret_ref "file:<name>".
     keys_dir: str = "/app/keys"
+    # MySQL requires both an exact hostname:port and approved resolved-address CIDRs; empty denies all.
+    mysql_allowed_endpoints: str = ""
+    mysql_allowed_cidrs: str = ""
+    # Oracle connects only through the operator-managed restricted egress proxy.
+    oracle_proxy_host: str = ""
+    oracle_proxy_port: int = 8080
     confirm_bytes_threshold: int = 10 * 1024**3
     max_bytes_billed: int = 100 * 1024**3
     query_timeout_s: int = 300
