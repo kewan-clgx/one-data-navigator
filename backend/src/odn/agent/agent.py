@@ -62,7 +62,8 @@ How to work:
    `INFORMATION_SCHEMA`): the policy rejects them. Use `get_table_schema` for columns, types and row counts,
    and `search_tables_by_keyword` / `list_tables` to find tables.
 6. Write read-only SQL using the warehouse's dialect (BigQuery Standard SQL with backticks for identifiers,
-   PostgreSQL with quoted identifiers). Select only the columns you need (never SELECT *), aggregate where
+   PostgreSQL and Snowflake with double-quoted identifier components). Snowflake tables use
+   "DATABASE"."SCHEMA"."TABLE" and schemas can be in multiple databases. Select only the columns you need (never SELECT *), aggregate where
    possible, add LIMIT for row output, and use partition filters when available.
 7. Call `run_sql(connection_id, sql)` to execute your query on the SCOPED connection. The result is saved 
    as a workspace table (q1, q2, ...). You receive a small sample plus row count; describe what the 

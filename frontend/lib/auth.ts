@@ -80,7 +80,7 @@ export async function freshSession(): Promise<Session | null> {
   const renewed = await refreshTokens(session).catch(() => null);
   if (!renewed) return session.expiresAt > now ? session : null;
   const age = sessionCookieAge(renewed);
-  cookies().set(SESSION_COOKIE, await seal(renewed, age), cookieOptions(age));
+  (await cookies()).set(SESSION_COOKIE, await seal(renewed, age), cookieOptions(age));
   return renewed;
 }
 

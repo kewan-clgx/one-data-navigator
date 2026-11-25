@@ -66,7 +66,7 @@ def list_favorites(ctx: RequestContext, connection_id: UUID, policy: SqlPolicy) 
 
 
 def add_favorite(ctx: RequestContext, connection_id: UUID, policy: SqlPolicy, path: list[str]) -> Favorite:
-    parts = tuple(p.lower() for p in path)
+    parts = tuple(path) if policy.dialect == "snowflake" else tuple(p.lower() for p in path)
     if any(not p or "." in p for p in parts):
         raise NotAllowed(".".join(parts))
     kind = _kind(policy, parts)
@@ -85,11 +85,11 @@ def add_favorite(ctx: RequestContext, connection_id: UUID, policy: SqlPolicy, pa
     return Favorite.model_validate(row)
 
 
-def remove_favorite(ctx: RequestContext, connection_id: UUID, path: list[str]) -> None:
+def remove_favorite(ctx: RequestContext, connection_id: UUID, path: list[str], *, preserve_case: bool = False) -> None:
     with tenant_transaction(ctx.tenant_id) as conn:
         conn.execute(
             "DELETE FROM user_favorites WHERE user_id = %s AND connection_id = %s AND object_path = %s",
-            (ctx.user_id, connection_id, ".".join(p.lower() for p in path)),
+            (ctx.user_id, connection_id, ".".join(path if preserve_case else [p.lower() for p in path])),
         )
 
 
@@ -105,9 +105,9 @@ def recent_tables(
     return [TableUsage.model_validate(r) for r in rows if _visible(policy, r["path"])]
 
 
-def record_usage(ctx: RequestContext, connection_id: UUID, tables: Iterable[str]) -> None:
+def record_usage(ctx: RequestContext, connection_id: UUID, tables: Iterable[str], *, preserve_case: bool = False) -> None:
     """Best effort: a usage-tracking failure never fails the user's query."""
-    paths = sorted({t.lower() for t in tables})
+    paths = sorted({t if preserve_case else t.lower() for t in tables})
     if not paths:
         return
     try:

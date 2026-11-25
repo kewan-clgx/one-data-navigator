@@ -11,32 +11,34 @@ export type MyTables = {
   recent: { path: string; query_count: number; last_used_at: string }[];
 };
 /** Lowercase dotted paths: favorites, and recently queried tables -> recency position (0 = latest). */
-export type Prefs = { favorites: Set<string>; recent: Map<string, number> };
+export type Prefs = { favorites: Set<string>; recent: Map<string, number>; caseSensitive: boolean };
 
-export const NO_PREFS: Prefs = { favorites: new Set(), recent: new Map() };
+export const NO_PREFS: Prefs = { favorites: new Set(), recent: new Map(), caseSensitive: false };
 
-export function prefsOf(mine: MyTables | null): Prefs {
-  if (!mine) return NO_PREFS;
+export function prefsOf(mine: MyTables | null, caseSensitive = false): Prefs {
+  if (!mine) return { ...NO_PREFS, caseSensitive };
   return {
     favorites: new Set(mine.favorites.map((f) => f.path)),
     recent: new Map(mine.recent.map((r, i) => [r.path, i])),
+    caseSensitive,
   };
 }
 
-export const pathKey = (path: string[]) => path.join(".").toLowerCase();
+export const pathKey = (path: string[], caseSensitive = false) =>
+  caseSensitive ? path.join(".") : path.join(".").toLowerCase();
 
 /** Favorite tables, then recently queried (latest first), then tables in a favorite dataset. */
 export function tablePriority(prefs: Prefs, path: string[]): number {
-  const key = pathKey(path);
+  const key = pathKey(path, prefs.caseSensitive);
   if (prefs.favorites.has(key)) return 3000;
   const r = prefs.recent.get(key);
   if (r !== undefined) return 2000 - r;
-  return prefs.favorites.has(pathKey(path.slice(0, -1))) ? 1000 : 0;
+  return prefs.favorites.has(pathKey(path.slice(0, -1), prefs.caseSensitive)) ? 1000 : 0;
 }
 
 export function datasetPriority(prefs: Prefs, path: string[], tablePaths: string[][]): number {
   const best = tablePaths.reduce((m, p) => Math.max(m, tablePriority(prefs, p)), 0);
-  return Math.max(best, prefs.favorites.has(pathKey(path)) ? 3000 : 0);
+  return Math.max(best, prefs.favorites.has(pathKey(path, prefs.caseSensitive)) ? 3000 : 0);
 }
 
 export function StarButton({
@@ -50,7 +52,7 @@ export function StarButton({
   prefs: Prefs;
   onToggle: (path: string[]) => void;
 }) {
-  const on = prefs.favorites.has(pathKey(path));
+  const on = prefs.favorites.has(pathKey(path, prefs.caseSensitive));
   return (
     <button
       type="button"
@@ -213,7 +215,7 @@ export default function CatalogSearchResults({
                         <span className="label">
                           <Highlight text={table.name} terms={terms} />
                         </span>
-                        {prefs.recent.has(pathKey(table.path)) && <span className="badge">recent</span>}
+                        {prefs.recent.has(pathKey(table.path, prefs.caseSensitive)) && <span className="badge">recent</span>}
                         <span className="count">{table.columns.length} cols</span>
                       </button>
                       <StarButton path={table.path} label={table.name} prefs={prefs} onToggle={onToggleFavorite} />

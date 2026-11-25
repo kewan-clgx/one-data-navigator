@@ -6,6 +6,7 @@ import { api, CONNECTIONS_CHANGED, LLM_CHANGED, notify, type Budget, type Connec
 import type { CollibraEnv } from "@/lib/collibra";
 import CollibraSettings from "./CollibraSettings";
 import PostgresConnectionForm, { EMPTY_POSTGRES_DRAFT, draftOfPostgres } from "./PostgresConnectionForm";
+import SnowflakeConnectionForm, { EMPTY_SNOWFLAKE_DRAFT, draftOfSnowflake } from "./SnowflakeConnectionForm";
 
 // ---------------------------------------------------------------------------------------------
 // AI model (bring your own key)
@@ -424,6 +425,8 @@ function ConnectionsSection({ canManageShared = false }: { canManageShared?: boo
     const shared = c.scope === "shared";
     if (c.kind === "postgres") {
       setEditing({ kind: "postgres", draft: draftOfPostgres(c), shared });
+    } else if (c.kind === "snowflake") {
+      setEditing({ kind: "snowflake", draft: draftOfSnowflake(c), shared });
     } else {
       setEditing({ kind: "bigquery", draft: draftOf(c), shared });
     }
@@ -433,6 +436,8 @@ function ConnectionsSection({ canManageShared = false }: { canManageShared?: boo
     const shared = canManageShared && shareNew;
     if (kind === "postgres") {
       setEditing({ kind: "postgres", draft: EMPTY_POSTGRES_DRAFT, shared });
+    } else if (kind === "snowflake") {
+      setEditing({ kind: "snowflake", draft: EMPTY_SNOWFLAKE_DRAFT, shared });
     } else {
       setEditing({ kind: "bigquery", draft: EMPTY, shared });
     }
@@ -465,6 +470,11 @@ function ConnectionsSection({ canManageShared = false }: { canManageShared?: boo
           </span>
         </>
       );
+    } else if (c.kind === "snowflake") {
+      return (
+        <><strong>{c.name}</strong> <span className="badge">Snowflake</span>{" "}
+          <span className="muted">{c.config.account} · {c.allowed_objects.length} allowlist entries</span></>
+      );
     } else {
       return (
         <>
@@ -479,8 +489,8 @@ function ConnectionsSection({ canManageShared = false }: { canManageShared?: boo
     <section className="settings-card" aria-labelledby={`${ids}-h`}>
       <h2 id={`${ids}-h`}>Data connections</h2>
       <p className="muted">
-        Connect your own BigQuery or PostgreSQL databases. Your connections and keys are visible only to you; queries
-        still go through read-only checks and cost limits.
+        Connect your own BigQuery, PostgreSQL or Snowflake databases. Your connections and keys are visible only to you;
+        queries go through read-only checks. Snowflake warehouse charges are managed in Snowflake.
         {canManageShared && " As an admin or data lead you can also share connections with your whole organization."}
       </p>
       {(shared.length > 0 || canManageShared) && (
@@ -518,6 +528,16 @@ function ConnectionsSection({ canManageShared = false }: { canManageShared?: boo
               if (saved) load();
             }}
           />
+        ) : editing.kind === "snowflake" ? (
+          <SnowflakeConnectionForm
+            key={editing.draft.id ?? "new"}
+            base={baseOf(editing.shared)}
+            initial={editing.draft}
+            onDone={(saved) => {
+              setEditing(null);
+              if (saved) load();
+            }}
+          />
         ) : (
           <ConnectionForm
             key={editing.draft.id ?? "new"}
@@ -544,6 +564,9 @@ function ConnectionsSection({ canManageShared = false }: { canManageShared?: boo
             </button>
             <button type="button" onClick={() => startNew("postgres")}>
               PostgreSQL
+            </button>
+            <button type="button" onClick={() => startNew("snowflake")}>
+              Snowflake
             </button>
             <button type="button" onClick={() => setShowKindPicker(false)}>
               Cancel

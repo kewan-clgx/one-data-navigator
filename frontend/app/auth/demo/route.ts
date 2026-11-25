@@ -12,6 +12,6 @@ export async function POST(req: NextRequest) {
   const { name, email } = (await req.json().catch(() => ({}))) as { name?: string; email?: string };
   // The proxy in front of us (Caddy) appends the visitor's address; the API rate-limits check-ins per address.
   const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim().slice(0, 64) || null;
-  const device = cookies().get(DEMO_DEVICE_COOKIE)?.value || null;
+  const device = (await cookies()).get(DEMO_DEVICE_COOKIE)?.value || null;
   return demoSignIn("demo", { name, email, client_ip: clientIp, device_token: device }, { name, email });
 }

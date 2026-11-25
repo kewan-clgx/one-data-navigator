@@ -11,7 +11,7 @@ from uuid import UUID
 from google.api_core import exceptions as gexc
 from pydantic import BaseModel
 
-from odn.platform.connectors.base import BaseConnector, ColumnSchema
+from odn.platform.connectors.base import BaseConnector, ColumnSchema, ConnectorError
 from odn.platform.policy.sql_policy import SqlPolicy
 
 TTL_S = 3600
@@ -82,7 +82,7 @@ def _build(connector: BaseConnector, policy: SqlPolicy) -> SearchIndex:
         for d in datasets:
             try:
                 tables = futures[d.path].result()
-            except (gexc.GoogleAPIError, ValueError):
+            except (gexc.GoogleAPIError, ConnectorError, ValueError):
                 failed.append(".".join(d.path))
                 continue
             out.append(IndexedDataset(path=d.path, name=d.name, tables=tables))

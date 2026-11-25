@@ -162,7 +162,7 @@ def _rank_items(items: list[dict[str, Any]], mine: dict[str, Any]) -> list[dict[
     recent_parents = {p.rsplit(".", 1)[0] for p in recent}
 
     def rank(item: dict[str, Any]) -> tuple[int, int]:
-        path = item["path"].lower()
+        path = item["path"] if mine.get("case_sensitive") else item["path"].lower()
         if path in favorites:
             item["favorite"] = True
         if path in recent:
@@ -184,7 +184,7 @@ async def list_tables(connection_id: str, dataset: str = "") -> dict[str, Any]:
 
     Args:
         connection_id: The connection id from `list_connections`.
-        dataset: Optional "project.dataset". When empty, lists the datasets instead of tables.
+        dataset: Optional "project.dataset" or Snowflake "database.schema". When empty, lists the containers.
 
     Returns:
         A dict with `items`: each has `name`, `kind` and fully qualified `path`.
@@ -206,7 +206,7 @@ async def get_table_schema(connection_id: str, table: str) -> dict[str, Any]:
 
     Args:
         connection_id: The connection id from `list_connections`.
-        table: Fully qualified table name: "project.dataset.table" (BigQuery) or "schema.table" (Postgres).
+        table: Fully qualified name: "project.dataset.table", "database.schema.table" (Snowflake), or "schema.table".
 
     Returns:
         The table schema, or an `error`.
@@ -230,7 +230,7 @@ async def get_table_schema(connection_id: str, table: str) -> dict[str, Any]:
 
 
 async def run_sql(connection_id: str, sql: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Runs one read-only warehouse query (BigQuery Standard SQL) and saves the full result to the workspace.
+    """Runs one read-only query in the connection's SQL dialect and saves the full result to the workspace.
 
     The result becomes a workspace table named q1, q2, ... that `query_workspace` can analyze further
     without scanning the warehouse again. Queries that would scan a lot of data pause for the user's

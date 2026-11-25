@@ -24,6 +24,7 @@ api = [
     "google-cloud-bigquery-storage>=2.27",
     "google-cloud-storage>=2.19",
     "google-cloud-secret-manager>=2.21",
+    "snowflake-connector-python>=4.7.5,<5",
     "pyarrow>=18",
     # XLSX uploads become workspace tables.
     "openpyxl>=3.1",

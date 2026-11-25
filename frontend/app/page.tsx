@@ -18,20 +18,20 @@ export async function generateMetadata(): Promise<Metadata> {
   return (await currentIdentity()).kind === "signed-out" ? SITE_METADATA : {};
 }
 
-export default async function Home({ searchParams }: { searchParams: Record<string, string | undefined> }) {
+export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const identity = await currentIdentity();
   if (identity.kind === "expired") redirect("/auth/refresh");
   // Back to the shared conversation the user opened before signing in (cookie set by /s/[id]; cleared there).
   let returnTo = "";
   try {
-    returnTo = decodeURIComponent(cookies().get("odn_return")?.value ?? "");
+    returnTo = decodeURIComponent((await cookies()).get("odn_return")?.value ?? "");
   } catch {
     // malformed cookie: ignore
   }
   if (identity.kind === "ok" && /^\/s\/[A-Za-z0-9_-]{22}(\?followup=1)?$/.test(returnTo)) redirect(returnTo);
   // Signed out: the marketing landing page (sign-in is at /signin). Old "/?account=personal" links still work.
   if (identity.kind === "signed-out") {
-    if (searchParams.account === "personal") redirect("/signin?account=personal");
+    if ((await searchParams).account === "personal") redirect("/signin?account=personal");
     return <SiteHome />;
   }
 

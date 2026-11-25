@@ -104,8 +104,8 @@ function png(image: ImageResponse, cacheControl: string) {
   return new Response(image.body, { headers: { "Content-Type": "image/png", "Cache-Control": cacheControl } });
 }
 
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
-  const share = await loadPublicShare(params.id);
+export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const share = await loadPublicShare((await params).id);
   // API not reachable (e.g. during a deploy): don't let crawlers cache a placeholder.
   if (share === "unavailable") return new Response("Try again shortly", { status: 503, headers: { "Retry-After": "30" } });
   if (!share) {

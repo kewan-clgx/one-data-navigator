@@ -13,6 +13,10 @@ from pydantic import BaseModel
 from odn.platform.policy.sql_policy import Dialect
 
 
+class ConnectorError(Exception):
+    """A safe, user-facing source connection or query failure."""
+
+
 class CatalogNode(BaseModel):
     kind: Literal["project", "dataset", "schema", "table", "view"]
     path: tuple[str, ...]

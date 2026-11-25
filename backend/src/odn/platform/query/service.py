@@ -12,7 +12,13 @@ from google.api_core import exceptions as gexc
 from odn.config import settings
 from odn.platform.catalog.personal import record_usage
 from odn.platform.connections.service import ConnectionProfile, build_connector, build_policy
-from odn.platform.connectors.base import BaseConnector, ColumnSchema, QueryLimits, QueryResultMeta
+from odn.platform.connectors.base import (
+    BaseConnector,
+    ColumnSchema,
+    ConnectorError,
+    QueryLimits,
+    QueryResultMeta,
+)
 from odn.platform.governance.audit import AuditRecord, Source, write_audit
 from odn.platform.workspace.rows import json_safe
 from odn.tenancy.context import RequestContext
@@ -102,22 +108,28 @@ def run_query(
         rows = arrow_bytes = 0
         truncated = False
         schema: pa.Schema | None = None
-        for batch in execution.batches():
-            schema = schema or batch.schema
-            if rows + batch.num_rows > limits.max_rows:
-                batch = batch.slice(0, limits.max_rows - rows)
-                truncated = True
-            if arrow_bytes + batch.nbytes > limits.max_arrow_bytes:
-                truncated = True
-                break
-            sink.write(batch)
-            rows += batch.num_rows
-            arrow_bytes += batch.nbytes
-            if truncated:
-                break
-        if truncated and execution.job_id:
+        batches = execution.batches()
+        try:
+            for batch in batches:
+                schema = schema or batch.schema
+                if rows + batch.num_rows > limits.max_rows:
+                    batch = batch.slice(0, limits.max_rows - rows)
+                    truncated = True
+                if arrow_bytes + batch.nbytes > limits.max_arrow_bytes:
+                    truncated = True
+                    break
+                sink.write(batch)
+                rows += batch.num_rows
+                arrow_bytes += batch.nbytes
+                if truncated:
+                    break
+        finally:
+            close = getattr(batches, "close", None)
+            if close is not None:
+                close()
+        if truncated and execution.job_id and connector.supports_cancel:
             _cancel_quietly(connector, execution.job_id)
-    except gexc.GoogleAPIError as exc:
+    except (gexc.GoogleAPIError, ConnectorError) as exc:
         audit.decision = "failed"
         audit.reason = _error_message(exc)
         audit.duration_ms = _ms(start)
@@ -129,7 +141,10 @@ def run_query(
     audit.rows_returned = rows
     audit.duration_ms = _ms(start)
     write_audit(audit)
-    record_usage(ctx, profile.id, decision.tables)
+    if connector.dialect == "snowflake":
+        record_usage(ctx, profile.id, decision.tables, preserve_case=True)
+    else:
+        record_usage(ctx, profile.id, decision.tables)
     return QueryOutcome(
         meta=QueryResultMeta(
             job_id=execution.job_id,
@@ -152,7 +167,9 @@ def _cancel_quietly(connector: BaseConnector, job_id: str) -> None:
         pass  # the job usually finished already; the result stream is what we stopped
 
 
-def _error_message(exc: gexc.GoogleAPIError) -> str:
+def _error_message(exc: gexc.GoogleAPIError | ConnectorError) -> str:
+    if isinstance(exc, ConnectorError):
+        return str(exc)[:500]
     message = getattr(exc, "message", None) or type(exc).__name__
     return str(message)[:500]
 

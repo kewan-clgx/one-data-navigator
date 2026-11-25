@@ -55,14 +55,17 @@ const PREVIEW_COLUMNS = 10;
 const PREVIEW_SAMPLE_MIN_BYTES = 1024 ** 3;
 
 function previewSql(s: TableSchema, focus: string | null, connectionKind: string = "bigquery"): string {
-  const names = s.columns.map((c) => c.name).filter((n) => !n.includes("."));
+  const names = s.columns.map((c) => c.name).filter((n) => connectionKind === "snowflake" || !n.includes("."));
   const cols = (focus && names.includes(focus) ? [focus, ...names.filter((n) => n !== focus)] : names).slice(
     0,
     PREVIEW_COLUMNS,
   );
   
   // Dialect-specific SQL generation
-  if (connectionKind === "postgres") {
+  if (connectionKind === "snowflake") {
+    const quote = (part: string) => `"${part.replaceAll('"', '""')}"`;
+    return `SELECT ${cols.map(quote).join(", ")}\nFROM ${s.path.map(quote).join(".")}\nLIMIT ${PREVIEW_ROWS}`;
+  } else if (connectionKind === "postgres") {
     // PostgreSQL: use quoted identifiers and LIMIT (no TABLESAMPLE)
     const tablePath = s.path.map(p => `"${p}"`).join(".");
     return `SELECT ${cols.join(", ")}\nFROM ${tablePath}\nLIMIT ${PREVIEW_ROWS}`;
@@ -244,23 +247,24 @@ export default function Explorer({
     };
   }, [connectionId, loadMine, onScopeChange]);
 
-  const prefs = useMemo(() => prefsOf(mine), [mine]);
+  const caseSensitive = connections.find((c) => c.id === connectionId)?.kind === "snowflake";
+  const prefs = useMemo(() => prefsOf(mine, caseSensitive), [mine, caseSensitive]);
 
   // Stored paths are lowercase (matching is case-insensitive); map back to the catalog's spelling.
   const realPaths = useMemo(() => {
     const m = new Map<string, string[]>();
-    datasets.forEach((d) => m.set(pathKey(d.path), d.path));
+    datasets.forEach((d) => m.set(pathKey(d.path, caseSensitive), d.path));
     index?.datasets.forEach((d) => {
-      m.set(pathKey(d.path), d.path);
-      d.tables.forEach((t) => m.set(pathKey(t.path), t.path));
+      m.set(pathKey(d.path, caseSensitive), d.path);
+      d.tables.forEach((t) => m.set(pathKey(t.path, caseSensitive), t.path));
     });
     return m;
-  }, [datasets, index]);
+  }, [datasets, index, caseSensitive]);
   const resolvePath = useCallback((key: string) => realPaths.get(key) ?? key.split("."), [realPaths]);
 
   const toggleFavorite = useCallback(
     async (path: string[]) => {
-      const key = pathKey(path);
+      const key = pathKey(path, caseSensitive);
       const on = prefs.favorites.has(key);
       setMine((m) =>
         m && {
@@ -281,17 +285,17 @@ export default function Explorer({
       }
       loadMine();
     },
-    [connectionId, prefs, loadMine],
+    [connectionId, prefs, loadMine, caseSensitive],
   );
 
   const datasetRank = useCallback(
     (ds: CatalogNode) => {
-      const key = pathKey(ds.path);
+      const key = pathKey(ds.path, caseSensitive);
       const inside = (k: string) => k.startsWith(`${key}.`);
       if (prefs.favorites.has(key) || [...prefs.favorites].some(inside)) return 2;
       return [...prefs.recent.keys()].some(inside) ? 1 : 0;
     },
-    [prefs],
+    [prefs, caseSensitive],
   );
   const sortedDatasets = useMemo(
     () => [...datasets].sort((a, b) => datasetRank(b) - datasetRank(a)),
@@ -348,9 +352,14 @@ export default function Explorer({
         setFocusColumn(column ?? null);
         const conn = connections.find((c) => c.id === connectionId);
         onScopeChange({ connectionId, connectionName: conn?.name ?? connectionId, path: s.path });
-        const names = s.columns.map((c) => c.name).filter((n) => !n.includes("."));
-        const picked = column && !column.includes(".") ? [column, ...names.filter((n) => n !== column)] : names;
-        setSql(`SELECT ${picked.slice(0, 5).join(", ")}\nFROM \`${path.join(".")}\`\nLIMIT 100`);
+        const names = s.columns.map((c) => c.name).filter((n) => conn?.kind === "snowflake" || !n.includes("."));
+        const picked = column && names.includes(column) ? [column, ...names.filter((n) => n !== column)] : names;
+        if (conn?.kind === "snowflake") {
+          const quote = (part: string) => `"${part.replaceAll('"', '""')}"`;
+          setSql(`SELECT ${picked.slice(0, 5).map(quote).join(", ")}\nFROM ${path.map(quote).join(".")}\nLIMIT 100`);
+        } else {
+          setSql(`SELECT ${picked.slice(0, 5).join(", ")}\nFROM \`${path.join(".")}\`\nLIMIT 100`);
+        }
         setOutcome(null);
       } catch (e) {
         setError((e as Error).message);

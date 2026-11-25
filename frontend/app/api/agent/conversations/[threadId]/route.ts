@@ -4,6 +4,6 @@ import { proxyToAgent } from "@/lib/agent-proxy";
 
 export const dynamic = "force-dynamic";
 
-export function DELETE(req: NextRequest, { params }: { params: { threadId: string } }) {
-  return proxyToAgent(req, `/conversations/${encodeURIComponent(params.threadId)}`);
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ threadId: string }> }) {
+  return proxyToAgent(req, `/conversations/${encodeURIComponent((await params).threadId)}`);
 }

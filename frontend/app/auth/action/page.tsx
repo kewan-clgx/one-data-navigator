@@ -5,9 +5,9 @@ import { currentTheme } from "../../themes/server";
 export const dynamic = "force-dynamic";
 
 /** Target of invite, personal sign-up and password-reset emails (Identity Platform action links). */
-export default function AuthAction({ searchParams }: { searchParams: Record<string, string | undefined> }) {
+export default async function AuthAction({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const theme = currentTheme();
-  const { mode, oobCode, tenantId } = searchParams;
+  const { mode, oobCode, tenantId } = await searchParams;
   const usable = mode === "resetPassword" && oobCode && tenantId;
   return (
     <div className="odn-app">

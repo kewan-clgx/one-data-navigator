@@ -5,6 +5,7 @@ Defense in depth: connectors must also use least-privilege, read-only credential
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -13,12 +14,13 @@ from sqlglot import exp
 from sqlglot.errors import SqlglotError
 from sqlglot.optimizer.scope import Scope, traverse_scope
 
-Dialect = Literal["bigquery", "postgres", "duckdb"]
+Dialect = Literal["bigquery", "postgres", "snowflake", "duckdb"]
 
 MAX_SQL_LENGTH = 100_000
 
 # Number of name parts in a fully qualified table for each dialect.
-_QUALIFIED_PARTS: dict[str, int] = {"bigquery": 3, "postgres": 2, "duckdb": 1}
+_QUALIFIED_PARTS: dict[str, int] = {"bigquery": 3, "postgres": 2, "snowflake": 3, "duckdb": 1}
+_SNOWFLAKE_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_$]{0,254}")
 
 _FORBIDDEN_NODES: tuple[type[exp.Expression], ...] = (
     exp.Insert,
@@ -139,7 +141,7 @@ class SqlPolicy:
     `allowed_objects` entries are dotted, fully qualified patterns with the dialect's part
     count; each part is an exact name or `*`. Examples: `proj.sales.*`, `sales.orders`.
     `default_namespace` fills missing leading parts (e.g. `("proj", "sales")` or `("public",)`).
-    Matching is case-insensitive.
+    Matching is case-insensitive except for Snowflake, whose patterns use exact catalog spelling.
     """
 
     dialect: Dialect
@@ -179,6 +181,10 @@ class SqlPolicy:
                 name = self._function_name(node)
                 if name in _FORBIDDEN_FUNCTIONS or name.startswith(_FORBIDDEN_FUNCTION_PREFIXES):
                     raise PolicyViolation(f"forbidden function: {name}")
+                if self.dialect == "snowflake" and (
+                    isinstance(node, exp.Anonymous) or isinstance(node.parent, exp.Dot)
+                ):
+                    raise PolicyViolation(f"forbidden Snowflake function: {name}")
 
         cte_refs = self._cte_reference_ids(root)
         referenced: list[str] = []
@@ -207,10 +213,18 @@ class SqlPolicy:
     def _check_table(self, table: exp.Table) -> str:
         if not isinstance(table.this, exp.Identifier):
             raise PolicyViolation("table functions are not allowed")
-        parts = [str(p.name).lower() for p in table.parts]
+        if self.dialect == "snowflake":
+            parts = [
+                str(p.name) if p.args.get("quoted") else str(p.name).upper()
+                for p in table.parts
+            ]
+            if any(not _SNOWFLAKE_IDENTIFIER.fullmatch(p) for p in parts):
+                raise PolicyViolation("unsupported Snowflake identifier")
+        else:
+            parts = [str(p.name).lower() for p in table.parts]
         if any(not p for p in parts):
             raise PolicyViolation("empty table identifier")
-        if any(schema in p for p in parts for schema in _SYSTEM_SCHEMAS):
+        if any(schema in p.lower() for p in parts for schema in _SYSTEM_SCHEMAS):
             raise PolicyViolation("system catalog access is not allowed")
         if self.dialect == "postgres" and parts[-1].startswith("pg_"):
             raise PolicyViolation("system catalog access is not allowed")
@@ -222,7 +236,9 @@ class SqlPolicy:
             raise PolicyViolation(f"table reference has too many parts: {'.'.join(parts)}")
         missing = expected - len(parts)
         if missing:
-            defaults = [p.lower() for p in self.default_namespace]
+            defaults = list(self.default_namespace) if self.dialect == "snowflake" else [
+                p.lower() for p in self.default_namespace
+            ]
             if len(defaults) < missing:
                 raise PolicyViolation(f"table reference is not fully qualified: {'.'.join(parts)}")
             parts = defaults[:missing] + parts
@@ -231,21 +247,30 @@ class SqlPolicy:
             raise PolicyViolation(f"object not in allowlist: {'.'.join(parts)}")
         return ".".join(parts)
 
-    @staticmethod
-    def _matches(pattern: str, parts: list[str]) -> bool:
-        pattern_parts = pattern.lower().split(".")
+    def _matches(self, pattern: str, parts: list[str]) -> bool:
+        pattern_parts = (pattern if self.dialect == "snowflake" else pattern.lower()).split(".")
         if len(pattern_parts) != len(parts):
             return False
         return all(pp == "*" or pp == p for pp, p in zip(pattern_parts, parts, strict=True))
 
     def allows_object(self, path: tuple[str, ...]) -> bool:
         """Whether a fully qualified object (e.g. a catalog table) is in the allowlist."""
-        parts = [p.lower() for p in path]
+        if self.dialect == "snowflake" and any(
+            not _SNOWFLAKE_IDENTIFIER.fullmatch(p) or any(s in p.lower() for s in _SYSTEM_SCHEMAS)
+            for p in path
+        ):
+            return False
+        parts = list(path) if self.dialect == "snowflake" else [p.lower() for p in path]
         return any(self._matches(pattern, parts) for pattern in self.allowed_objects)
 
     def allows_container(self, prefix: tuple[str, ...]) -> bool:
         """Whether any allowlisted object can live under this prefix (e.g. a dataset)."""
-        parts = [p.lower() for p in prefix]
+        if self.dialect == "snowflake" and any(
+            not _SNOWFLAKE_IDENTIFIER.fullmatch(p) or any(s in p.lower() for s in _SYSTEM_SCHEMAS)
+            for p in prefix
+        ):
+            return False
+        parts = list(prefix) if self.dialect == "snowflake" else [p.lower() for p in prefix]
         return any(self._matches(".".join(pattern.split(".")[: len(parts)]), parts) for pattern in self.allowed_objects)
 
     @staticmethod
@@ -253,3 +278,7 @@ class SqlPolicy:
         parts = pattern.split(".")
         if len(parts) != _QUALIFIED_PARTS[dialect] or any(not p or p.strip() != p for p in parts):
             raise ValueError(f"allowlist pattern must have {_QUALIFIED_PARTS[dialect]} dotted parts: {pattern!r}")
+        if dialect == "snowflake" and any(
+            p != "*" and not _SNOWFLAKE_IDENTIFIER.fullmatch(p) for p in parts
+        ):
+            raise ValueError("Snowflake allowlist parts must be simple identifiers or *")

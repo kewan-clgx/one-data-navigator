@@ -12,15 +12,15 @@ import { demoTenant } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
 
-export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
-  const entry = await fetchEntry(params.slug);
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const entry = await fetchEntry((await params).slug);
   const product = currentTheme().product;
   return entry ? { title: `Sign in to ${entry.organization} | ${product}`, robots: { index: false, follow: false } } : {};
 }
 
 /** An organization's own sign-in link, e.g. easyquery.ai/indulge (docs/config/plan_to_easyquery.md §9.1). */
-export default async function OrganizationEntry({ params }: { params: { slug: string } }) {
-  const entry = await fetchEntry(params.slug);
+export default async function OrganizationEntry({ params }: { params: Promise<{ slug: string }> }) {
+  const entry = await fetchEntry((await params).slug);
   if (!entry) notFound();
   if (entry.personal) redirect("/signin?account=personal");
   const identity = await currentIdentity();

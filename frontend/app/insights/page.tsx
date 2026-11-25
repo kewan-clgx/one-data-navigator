@@ -22,7 +22,7 @@ export const metadata: Metadata = {
  * The Insight Wall. Signed in: the organization's wall and the public one (votes, search, paging in the browser).
  * Signed out (and on the insights host, which never has the app's session): the public wall, rendered here.
  */
-export default async function InsightsPage({ searchParams }: { searchParams: Record<string, string | undefined> }) {
+export default async function InsightsPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const identity = await currentIdentity();
   if (identity.kind === "expired") redirect("/auth/refresh");
   const appUrl = config.publicUrl.replace(/\/$/, "");
@@ -38,9 +38,10 @@ export default async function InsightsPage({ searchParams }: { searchParams: Rec
       </div>
     );
   }
-  const sort = isSort(searchParams.sort) ? searchParams.sort : "hot";
-  const q = (searchParams.q ?? "").trim().slice(0, 100);
-  const offset = Math.max(0, Number.parseInt(searchParams.offset ?? "0", 10) || 0);
+  const query = await searchParams;
+  const sort = isSort(query.sort) ? query.sort : "hot";
+  const q = (query.q ?? "").trim().slice(0, 100);
+  const offset = Math.max(0, Number.parseInt(query.offset ?? "0", 10) || 0);
   const items = await fetchPublicWall(sort, q, offset);
   return (
     <div className="odn-app odn-app--page">

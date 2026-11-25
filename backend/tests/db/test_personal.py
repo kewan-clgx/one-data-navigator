@@ -75,6 +75,18 @@ def test_favorites_must_be_in_allowlist(users) -> None:
     assert list_favorites(a, conn_id, narrower) == []
 
 
+def test_snowflake_favorites_and_usage_preserve_case(users) -> None:
+    a, _, _, conn_id = users
+    policy = SqlPolicy(dialect="snowflake", allowed_objects=frozenset({"DB.PUBLIC.ORDERS", "DB.PUBLIC.orders"}))
+    add_favorite(a, conn_id, policy, ["DB", "PUBLIC", "ORDERS"])
+    add_favorite(a, conn_id, policy, ["DB", "PUBLIC", "orders"])
+    assert {f.path for f in list_favorites(a, conn_id, policy)} == {"DB.PUBLIC.ORDERS", "DB.PUBLIC.orders"}
+    record_usage(a, conn_id, ["DB.PUBLIC.ORDERS", "DB.PUBLIC.orders"], preserve_case=True)
+    assert {r.path for r in recent_tables(a, conn_id, policy)} == {"DB.PUBLIC.ORDERS", "DB.PUBLIC.orders"}
+    remove_favorite(a, conn_id, ["DB", "PUBLIC", "ORDERS"], preserve_case=True)
+    assert [f.path for f in list_favorites(a, conn_id, policy)] == ["DB.PUBLIC.orders"]
+
+
 def test_usage_counts_and_recency(users) -> None:
     a, b, _, conn_id = users
     record_usage(a, conn_id, ["p.sales.orders", "p.sales.items"])

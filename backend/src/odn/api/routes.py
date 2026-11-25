@@ -45,11 +45,13 @@ from odn.platform.connectors.base import (
     BaseConnector,
     CatalogNode,
     ConnectionTestStep,
+    ConnectorError,
     QueryLimits,
     QueryResultMeta,
     TableSchema,
 )
 from odn.platform.governance.audit import Source
+from odn.platform.policy.sql_policy import SqlPolicy
 from odn.platform.query.service import (
     ConfirmationRequired,
     PreviewSink,
@@ -64,7 +66,7 @@ router = APIRouter(prefix="/v1")
 EXPLORER_MAX_ROWS = 1000
 
 
-_SECRET_KEYS = {"password", "ssh_private_key", "private_key", "credentials_json", "api_key"}
+_SECRET_KEYS = {"password", "ssh_private_key", "private_key", "private_key_passphrase", "credentials_json", "api_key"}
 
 
 def _public_config(value: Any) -> Any:
@@ -172,6 +174,8 @@ def catalog(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
     except gexc.GoogleAPIError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, type(exc).__name__) from None
+    except ConnectorError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from None
     # Explorer metadata is limited to the same allowlist as queries.
     return [
         n
@@ -192,6 +196,8 @@ def schema(connection_id: UUID, ctx: Context, path: Annotated[list[str], Query()
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
     except gexc.NotFound:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "table not found") from None
+    except ConnectorError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from None
 
 
 @router.get("/connections/{connection_id}/search-index")
@@ -205,6 +211,8 @@ def search_index(connection_id: UUID, ctx: Context, refresh: bool = False) -> Se
         )
     except gexc.GoogleAPIError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, type(exc).__name__) from None
+    except ConnectorError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from None
 
 
 @router.get("/connections/{connection_id}/dictionary")
@@ -218,11 +226,21 @@ def dictionary(connection_id: UUID, ctx: Context, path: Annotated[list[str], Que
         raise HTTPException(status.HTTP_403_FORBIDDEN, "object not in allowlist") from None
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    except ConnectorError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from None
 
 
 @router.get("/connections/{connection_id}/definitions")
 def definitions(connection_id: UUID, ctx: Context) -> list[dict[str, str]]:
-    return all_definitions(ctx, _profile(ctx, connection_id).id)
+    profile = _profile(ctx, connection_id)
+    rows = all_definitions(ctx, profile.id)
+    if profile.kind != "snowflake":
+        return rows
+    policy = SqlPolicy(dialect="snowflake", allowed_objects=frozenset(profile.allowed_objects))
+    return [
+        row for row in rows
+        if policy.allows_object(tuple(row["table_path"].split(".")))
+    ]
 
 
 @router.put("/connections/{connection_id}/definitions")
@@ -244,6 +262,7 @@ class FavoriteInput(BaseModel):
 class MyTables(BaseModel):
     favorites: list[Favorite]
     recent: list[TableUsage]
+    case_sensitive: bool = False
 
 
 @router.get("/connections/{connection_id}/my-tables")
@@ -252,7 +271,8 @@ def my_tables(connection_id: UUID, ctx: Context) -> MyTables:
     profile = _profile(ctx, connection_id)
     policy = build_policy(profile, _connector(profile))
     return MyTables(
-        favorites=list_favorites(ctx, profile.id, policy), recent=recent_tables(ctx, profile.id, policy)
+        favorites=list_favorites(ctx, profile.id, policy), recent=recent_tables(ctx, profile.id, policy),
+        case_sensitive=policy.dialect == "snowflake",
     )
 
 
@@ -267,7 +287,8 @@ def put_favorite(connection_id: UUID, data: FavoriteInput, ctx: Context) -> Favo
 
 @router.delete("/connections/{connection_id}/favorites", status_code=status.HTTP_204_NO_CONTENT)
 def delete_favorite(connection_id: UUID, ctx: Context, path: Annotated[list[str], Query()]) -> None:
-    remove_favorite(ctx, _profile(ctx, connection_id).id, path)
+    profile = _profile(ctx, connection_id)
+    remove_favorite(ctx, profile.id, path, preserve_case=profile.kind == "snowflake")
 
 
 @router.post("/connections/{connection_id}/query")

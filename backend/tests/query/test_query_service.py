@@ -11,6 +11,7 @@ from odn.platform.connectors.base import (
     CatalogNode,
     ColumnSchema,
     ConnectionTestStep,
+    ConnectorError,
     CostEstimate,
     QueryExecution,
     QueryLimits,
@@ -163,6 +164,41 @@ def test_row_cap_truncates_and_cancels(audits: list[AuditRecord]) -> None:
                     limits=QueryLimits(max_rows=150), connector=conn)
     assert out.meta.truncated and out.meta.rows == 150 and len(sink.rows) == 150
     assert conn.cancelled == ["job_1"]
+
+
+def test_connector_failure_is_audited(audits: list[AuditRecord]) -> None:
+    class FailedConnector(FakeConnector):
+        def execute_paged(self, sql: str, limits: QueryLimits) -> QueryExecution:
+            raise ConnectorError("Snowflake request failed (error 123)")
+
+    with pytest.raises(service.QueryFailed, match="error 123"):
+        run_query(CTX, PROFILE, "SELECT id FROM orders", source="chat", sink=PreviewSink(),
+                  limits=QueryLimits(), connector=FailedConnector())
+    assert audits[0].decision == "failed"
+    assert audits[0].reason == "Snowflake request failed (error 123)"
+
+
+def test_truncated_result_closes_stream_without_unsupported_cancel(audits: list[AuditRecord]) -> None:
+    closed: list[bool] = []
+
+    class Execution(_Execution):
+        def batches(self) -> Iterator[pa.RecordBatch]:
+            try:
+                yield from super().batches()
+            finally:
+                closed.append(True)
+
+    class Connector(FakeConnector):
+        supports_cancel = False
+
+        def execute_paged(self, sql: str, limits: QueryLimits) -> QueryExecution:
+            return Execution(1000)
+
+    conn = Connector()
+    result = run_query(CTX, PROFILE, "SELECT id FROM orders", source="chat", sink=PreviewSink(),
+                       limits=QueryLimits(max_rows=50), connector=conn)
+    assert result.meta.truncated and result.meta.rows == 50
+    assert closed == [True] and not conn.cancelled
 
 
 def test_preview_sink_makes_binary_json_safe() -> None:

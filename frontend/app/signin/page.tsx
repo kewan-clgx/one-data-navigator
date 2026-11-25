@@ -17,11 +17,12 @@ export function generateMetadata(): Metadata {
 }
 
 /** The sign-in page (organization + work email, or a personal account). Signed-in visitors go to the app. */
-export default async function SignIn({ searchParams }: { searchParams: Record<string, string | undefined> }) {
+export default async function SignIn({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const identity = await currentIdentity();
   if (identity.kind === "expired") redirect("/auth/refresh");
   if (identity.kind !== "signed-out") redirect("/");
   const theme = currentTheme();
+  const query = await searchParams;
   return (
     <div className="odn-app eq-signin">
       <BrandBar theme={theme} />
@@ -33,11 +34,11 @@ export default async function SignIn({ searchParams }: { searchParams: Record<st
           <div className="odn-signin-card">
             <h1>Welcome to {theme.product}</h1>
             <SignInForm
-              defaultOrganization={cookies().get(ORG_COOKIE)?.value}
-              defaultAccountType={searchParams.account === "personal" ? "personal" : "enterprise"}
+              defaultOrganization={(await cookies()).get(ORG_COOKIE)?.value}
+              defaultAccountType={query.account === "personal" ? "personal" : "enterprise"}
               personalPrefill={
-                searchParams.create === "1"
-                  ? { name: searchParams.name?.slice(0, 200) ?? "", email: searchParams.email?.slice(0, 320) ?? "" }
+                query.create === "1"
+                  ? { name: query.name?.slice(0, 200) ?? "", email: query.email?.slice(0, 320) ?? "" }
                   : undefined
               }
             />

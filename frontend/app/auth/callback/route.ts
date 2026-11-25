@@ -19,7 +19,7 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const tx = await unseal<AuthTransaction>(cookies().get(AUTH_TX_COOKIE)?.value);
+  const tx = await unseal<AuthTransaction>((await cookies()).get(AUTH_TX_COOKIE)?.value);
   if (!tx) return NextResponse.json({ error: "login transaction expired" }, { status: 400 });
 
   // Rebuild from the registered redirect URI so it matches exactly regardless of proxy/Host headers.

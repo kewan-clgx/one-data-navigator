@@ -91,6 +91,45 @@ def test_personal_connection_is_visible_only_to_its_owner(users) -> None:
         save_personal_connection(b.tenant_id, b.user_id, PersonalConnectionInput(name="x"), mine.id)
 
 
+def test_snowflake_key_is_encrypted_and_owner_scoped(users) -> None:
+    from odn.platform.connections.service import resolve_postgres_credentials
+
+    a, b, _ = users
+    data = PersonalConnectionInput(name="snowflake", kind="snowflake", account="org-account",
+                                   user="svc", warehouse="WH", database="DB", schema="PUBLIC",
+                                   allowed_objects=["DB.PUBLIC.*", "OTHER.PUBLIC.*"], private_key=PEM)
+    saved = save_personal_connection(a.tenant_id, a.user_id, data)
+    assert saved.secret_ciphertext and b"BEGIN PRIVATE KEY" not in saved.secret_ciphertext
+    assert get_connection(b.tenant_id, b.user_id, saved.id) is None
+    updated = save_personal_connection(a.tenant_id, a.user_id, data.model_copy(update={"private_key": None}), saved.id)
+    assert resolve_postgres_credentials(updated) == PEM
+    with pytest.raises(ValueError, match="kind cannot be changed"):
+        save_personal_connection(a.tenant_id, a.user_id, PersonalConnectionInput(name="other"), saved.id)
+
+
+def test_snowflake_password_storage_and_auth_switch(users) -> None:
+    from odn.platform.connections.service import resolve_postgres_credentials, unsaved_connector
+
+    a, b, _ = users
+    data = PersonalConnectionInput(name="sf-password", kind="snowflake", account="org-account",
+                                   user="svc", warehouse="WH", database="DB", schema="PUBLIC",
+                                   allowed_objects=["DB.*.*"], auth_method="password", password="test-secret")
+    saved = save_personal_connection(a.tenant_id, a.user_id, data)
+    assert saved.secret_ciphertext and b"test-secret" not in saved.secret_ciphertext
+    assert saved.config["auth_method"] == "password"
+    assert get_connection(b.tenant_id, b.user_id, saved.id) is None
+    edited = data.model_copy(update={"password": None})
+    saved = save_personal_connection(a.tenant_id, a.user_id, edited, saved.id)
+    assert resolve_postgres_credentials(saved) == "test-secret"
+    assert unsaved_connector(edited, saved).dialect == "snowflake"
+    switching = edited.model_copy(update={"auth_method": "key_pair"})
+    with pytest.raises(ValueError, match="private key is required"):
+        save_personal_connection(a.tenant_id, a.user_id, switching, saved.id)
+    saved = save_personal_connection(a.tenant_id, a.user_id, switching.model_copy(update={"private_key": PEM}), saved.id)
+    assert saved.config["auth_method"] == "key_pair"
+    assert resolve_postgres_credentials(saved) == PEM
+
+
 def test_key_is_encrypted_and_kept_on_update(users) -> None:
     a, b, _ = users
     created = save_personal_connection(

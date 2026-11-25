@@ -78,7 +78,7 @@ export async function getSession(): Promise<Session | null> {
 
 /** The stored session even if its token has expired (it may still be refreshable). */
 export async function readSession(): Promise<Session | null> {
-  return unseal<Session>(cookies().get(SESSION_COOKIE)?.value);
+  return unseal<Session>((await cookies()).get(SESSION_COOKIE)?.value);
 }
 
 /** Seconds the session cookie should live: to the sign-in cap if refreshable, else to token expiry. */

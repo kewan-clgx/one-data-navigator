@@ -13,10 +13,10 @@ export function generateMetadata(): Metadata {
 }
 
 /** Target of the "reopen your demo chats" email. */
-export default function DemoContinuePage({ searchParams }: { searchParams: Record<string, string | undefined> }) {
+export default async function DemoContinuePage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   if (!demoTenant()) notFound();
   const theme = currentTheme();
-  const token = searchParams.token ?? "";
+  const token = (await searchParams).token ?? "";
   return (
     <div className="odn-app">
       <BrandBar theme={theme} />

@@ -113,6 +113,11 @@ deploy/deploy.sh provision budget datahop 500000   # per-tenant daily LLM token 
 Settings changes: edit `deploy/.env.prod`, then run `deploy/deploy.sh env deploy/.env.prod` and
 `deploy/deploy.sh up`.
 
+The frontend image uses Node 22. Before deployment, run the frontend production build, `npm audit --omit=dev`
+from `frontend`, and the relevant application smoke tests. Review unresolved findings rather than forcing
+incompatible major upgrades. The frontend package overrides pin compatible older Google Vertex and GraphQL
+scalar versions to avoid vulnerable transitive versions; revisit them when upstream fixes are available.
+
 Layout on the VM: `/opt/odn/releases/<sha>` (code), `/opt/odn/current` (symlink to the running
 release), `/opt/odn/shared/.env` (settings, mode 600). Data lives in Docker volumes (`postgres_data`,
 `caddy_data`) on the boot disk, which is snapshotted daily.

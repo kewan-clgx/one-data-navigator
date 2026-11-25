@@ -5,10 +5,11 @@ import { freshSession } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: { path: string[] } };
+type Params = { params: Promise<{ path: string[] }> };
 
 /** BFF proxy: browser -> /api/odn/<path> -> API /v1/<path> with the session's bearer token. */
 async function proxy(req: NextRequest, { params }: Params) {
+  const { path } = await params;
   const session = await freshSession();
   if (!session) return NextResponse.json({ detail: "not signed in" }, { status: 401 });
 
@@ -16,12 +17,12 @@ async function proxy(req: NextRequest, { params }: Params) {
     return NextResponse.json({ detail: "bad origin" }, { status: 403 });
   }
   // Sign-in endpoints are server-to-server only (the BFF's /auth/* routes call them directly).
-  if (params.path[0] === "auth") return NextResponse.json({ detail: "not found" }, { status: 404 });
-  if (params.path.some((s) => s === "." || s === ".." || /[\\/]/.test(s))) {
+  if (path[0] === "auth") return NextResponse.json({ detail: "not found" }, { status: 404 });
+  if (path.some((s) => s === "." || s === ".." || /[\\/]/.test(s))) {
     return NextResponse.json({ detail: "bad path" }, { status: 400 });
   }
 
-  const target = new URL(`/v1/${params.path.map(encodeURIComponent).join("/")}`, config.apiUrl);
+  const target = new URL(`/v1/${path.map(encodeURIComponent).join("/")}`, config.apiUrl);
   target.search = req.nextUrl.search;
   const upstream = await fetch(target, {
     method: req.method,

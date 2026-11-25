@@ -14,6 +14,8 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from google.auth.credentials import Credentials
 from google.oauth2 import service_account
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -40,7 +42,7 @@ def _check_name(v: str) -> str:
 
 class ConnectionInput(BaseModel):
     name: str
-    kind: Literal["bigquery", "postgres"]
+    kind: Literal["bigquery", "postgres", "snowflake"]
     config: dict[str, Any] = Field(default_factory=dict)
     secret_ref: str
     allowed_objects: list[str] = Field(min_length=1)
@@ -61,6 +63,8 @@ class ConnectionInput(BaseModel):
                 raise ValueError("postgres config requires 'database'")
             if "user" not in self.config or not isinstance(self.config.get("user"), str):
                 raise ValueError("postgres config requires 'user'")
+        if self.kind == "snowflake":
+            _validate_snowflake_config(self.config)
         for pattern in self.allowed_objects:
             SqlPolicy.validate_pattern(self.kind, pattern)
         return self
@@ -119,6 +123,37 @@ def parse_service_account_key(raw: str) -> dict[str, Any]:
     return info
 
 
+def parse_snowflake_key(raw: str, passphrase: str | None = None) -> bytes:
+    if len(raw.encode()) > 20_000:
+        raise ValueError("the Snowflake private key is too large")
+    try:
+        key = serialization.load_pem_private_key(raw.encode(), password=passphrase.encode() if passphrase else None)
+    except (ValueError, TypeError):
+        raise ValueError("invalid private key or passphrase") from None
+    if not isinstance(key, rsa.RSAPrivateKey) or key.key_size < 2048:
+        raise ValueError("Snowflake requires an RSA private key of at least 2048 bits")
+    return key.private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
+    )
+
+
+def _validate_snowflake_config(config: dict[str, Any]) -> None:
+    if config.get("auth_method", "key_pair") not in ("key_pair", "password"):
+        raise ValueError("invalid Snowflake authentication method")
+    account = config.get("account")
+    if not isinstance(account, str) or not re.fullmatch(r"[A-Za-z0-9_-]+(?:[.-][A-Za-z0-9_-]+)*", account):
+        raise ValueError("a valid Snowflake account identifier is required")
+    user = config.get("user")
+    if not isinstance(user, str) or not user.strip() or len(user) > 255 or any(ord(c) < 32 for c in user):
+        raise ValueError("a valid Snowflake login name is required")
+    for name in ("warehouse", "database", "schema", "role"):
+        value = config.get(name)
+        if name == "role" and value is None:
+            continue
+        if not isinstance(value, str) or not re.fullmatch(r"[A-Z_][A-Z0-9_$]{0,254}", value):
+            raise ValueError(f"Snowflake {name} must be an uppercase unquoted identifier")
+
+
 def _qualify(entry: str, project: str) -> str:
     """Allowlist shorthand: "dataset" -> project.dataset.*, "dataset.table" -> project.dataset.table."""
     parts = entry.split(".")
@@ -171,7 +206,7 @@ class PersonalConnectionInput(BaseModel):
     """A user's own data connection (BigQuery or Postgres). On update, an omitted key keeps the stored one."""
 
     name: str
-    kind: Literal["bigquery", "postgres"] = "bigquery"
+    kind: Literal["bigquery", "postgres", "snowflake"] = "bigquery"
     # BigQuery fields
     project: str | None = None
     location: str | None = None
@@ -187,6 +222,13 @@ class PersonalConnectionInput(BaseModel):
     ssl_mode: str | None = None
     schema: str | None = None
     ssh_tunnel: SSHTunnelInput | None = None
+    # Snowflake fields
+    account: str | None = None
+    warehouse: str | None = None
+    role: str | None = None
+    auth_method: Literal["key_pair", "password"] | None = None
+    private_key: str | None = Field(default=None, repr=False)
+    private_key_passphrase: str | None = Field(default=None, repr=False)
     # Both
     allowed_objects: list[str] = Field(default_factory=list, max_length=500)
 
@@ -221,6 +263,22 @@ class PersonalConnectionInput(BaseModel):
             return self._resolved_bigquery(key, current)
         elif self.kind == "postgres":
             return self._resolved_postgres(current)
+        elif self.kind == "snowflake":
+            config = {
+                k: (getattr(self, k) or (current.config.get(k) if current else None))
+                for k in ("account", "user", "warehouse", "database", "schema")
+            }
+            config["role"] = self.role
+            config["auth_method"] = self.auth_method or (
+                current.config.get("auth_method", "key_pair") if current else "key_pair"
+            )
+            _validate_snowflake_config(config)
+            allowed = [a.strip() for a in self.allowed_objects if a.strip()]
+            if not allowed:
+                raise ValueError("at least one Snowflake allowlist entry is required")
+            return ConnectionInput(
+                name=self.name, kind=self.kind, config=config, secret_ref="(personal)", allowed_objects=allowed
+            )
         raise ValueError(f"unknown connection kind: {self.kind}")
 
     def _resolved_bigquery(self, key: dict[str, Any] | None, current: ConnectionProfile | None = None) -> ConnectionInput:
@@ -360,8 +418,51 @@ def resolve_postgres_credentials(profile: ConnectionProfile) -> str | None:
 def build_connector(profile: ConnectionProfile) -> BaseConnector:
     if profile.kind == "postgres":
         return postgres_connector(profile.config, resolve_postgres_credentials(profile), resolve_ssh_key(profile))
-    else:
+    if profile.kind == "snowflake":
+        secret = resolve_postgres_credentials(profile)
+        if not secret:
+            raise CredentialError("this connection has no stored Snowflake credentials")
+        return snowflake_connector(profile.config, secret)
+    if profile.kind == "bigquery":
         return bigquery_connector(profile.config, resolve_credentials(profile))
+    raise ValueError(f"unsupported connection kind: {profile.kind}")
+
+
+def snowflake_connector(cfg: dict[str, Any], secret: str) -> BaseConnector:
+    from odn.platform.connectors.snowflake import SnowflakeConnector
+
+    try:
+        auth_method = cfg.get("auth_method", "key_pair")
+        if auth_method not in ("key_pair", "password"):
+            raise ValueError("invalid authentication method")
+        return SnowflakeConnector(
+            account=cfg["account"], user=cfg["user"], warehouse=cfg["warehouse"],
+            database=cfg["database"], schema=cfg["schema"], role=cfg.get("role"),
+            private_key=secret if auth_method == "key_pair" else None,
+            password=secret if auth_method == "password" else None,
+        )
+    except (ValueError, TypeError):
+        raise CredentialError("the stored Snowflake credentials are invalid") from None
+
+
+def _snowflake_secret(data: PersonalConnectionInput, current: ConnectionProfile | None) -> bytes | None:
+    method = data.auth_method or (current.config.get("auth_method", "key_pair") if current else "key_pair")
+    previous = current.config.get("auth_method", "key_pair") if current else None
+    if method == "password":
+        if data.private_key or data.private_key_passphrase:
+            raise ValueError("private keys cannot be used with password authentication")
+        secret = data.password.encode() if data.password else None
+        label = "password"
+    else:
+        if data.password:
+            raise ValueError("a password cannot be used with key-pair authentication")
+        if data.private_key_passphrase and not data.private_key:
+            raise ValueError("supply a private key when changing its passphrase")
+        secret = parse_snowflake_key(data.private_key, data.private_key_passphrase) if data.private_key else None
+        label = "private key"
+    if secret is None and (current is None or method != previous):
+        raise ValueError(f"a Snowflake {label} is required")
+    return secret
 
 
 def bigquery_connector(cfg: dict[str, Any], credentials: Credentials) -> BaseConnector:
@@ -469,6 +570,8 @@ def save_connection(
         raise LookupError("connection not found")
     if current is not None and current.tenant_id is None:
         raise PermissionError("platform connections are managed by the EasyQuery team and can't be edited here")
+    if current is not None and current.kind != data.kind and "snowflake" in (current.kind, data.kind):
+        raise ValueError("connection kind cannot be changed; create a new connection")
     
     # Validate and extract credentials/secrets based on kind
     if data.kind == "bigquery":
@@ -485,6 +588,9 @@ def save_connection(
             # Password is optional for some Postgres auth methods
             pass
         key = None  # No key dict for Postgres
+    elif data.kind == "snowflake":
+        secret_to_encrypt = _snowflake_secret(data, current)
+        key = None
     else:
         raise ValueError(f"unsupported connection kind: {data.kind}")
     
@@ -553,6 +659,8 @@ def delete_connection(tenant_id: UUID, user_id: UUID, connection_id: UUID, *, sh
 def unsaved_connector(data: PersonalConnectionInput, current: ConnectionProfile | None) -> BaseConnector:
     """Connector for 'Test connection' before saving: the submitted credentials, or the stored ones when editing."""
     spec = None
+    if current is not None and current.kind != data.kind and "snowflake" in (current.kind, data.kind):
+        raise ValueError("connection kind cannot be changed; create a new connection")
     
     if data.kind == "bigquery":
         key = parse_service_account_key(data.credentials_json) if data.credentials_json else None
@@ -575,6 +683,12 @@ def unsaved_connector(data: PersonalConnectionInput, current: ConnectionProfile 
         if data.ssh_tunnel is not None:
             ssh_key = data.ssh_tunnel.ssh_private_key or (resolve_ssh_key(current) if current is not None else None)
         return postgres_connector(spec.config, password, ssh_key)
+    elif data.kind == "snowflake":
+        secret = _snowflake_secret(data, current)
+        value = secret.decode() if secret is not None else resolve_postgres_credentials(current) if current else None
+        if not value:
+            raise ValueError("Snowflake credentials are required")
+        return snowflake_connector(data.resolved(None, current).config, value)
     
     else:
         raise ValueError(f"unsupported connection kind: {data.kind}")

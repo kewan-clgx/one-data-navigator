@@ -21,8 +21,8 @@ const PRIVATE: Metadata = {
 
 // Teams/Slack fetch the link without signing in to build a preview. Only "anyone with the link" shares (allowed by
 // the organization's admin) describe their content; everything else stays generic.
-export async function generateMetadata({ params }: { params: { id: string } }): Promise<Metadata> {
-  const share = await fetchPublicShare(params.id);
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const share = await fetchPublicShare((await params).id);
   if (!share) return PRIVATE;
   const title = share.title;
   const answer = [...share.messages].reverse().find((m) => m.role === "assistant")?.content ?? "";
@@ -39,9 +39,10 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
   };
 }
 
-export default async function SharedPage({ params }: { params: { id: string } }) {
-  if (!SHARE_ID.test(params.id)) notFound();
-  const [identity, rawShare] = await Promise.all([currentIdentity(), fetchPublicShare(params.id)]);
+export default async function SharedPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  if (!SHARE_ID.test(id)) notFound();
+  const [identity, rawShare] = await Promise.all([currentIdentity(), fetchPublicShare(id)]);
   const publicShare = rawShare && forReport(rawShare);
   if (identity.kind === "expired") redirect("/auth/refresh");
   if (identity.kind !== "ok") {
@@ -52,7 +53,7 @@ export default async function SharedPage({ params }: { params: { id: string } })
         {publicShare ? (
           <main className="shared-main"><PublicShareView share={publicShare} signedIn={false} /></main>
         ) : (
-          <SignInToView path={`/s/${params.id}`} refused={identity.kind === "refused" ? identity.detail : null} />
+          <SignInToView path={`/s/${id}`} refused={identity.kind === "refused" ? identity.detail : null} />
         )}
       </div>
     );
@@ -62,7 +63,7 @@ export default async function SharedPage({ params }: { params: { id: string } })
     <div className="odn-app odn-app--page">
       <BrandBar theme={theme} company={identity.me.tenant.name ?? undefined} user={identity.displayName} />
       <main className="shared-main">
-        <SharedConversation shareId={params.id} fallback={publicShare} />
+        <SharedConversation shareId={id} fallback={publicShare} />
       </main>
     </div>
   );
