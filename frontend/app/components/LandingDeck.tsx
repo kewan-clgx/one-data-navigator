@@ -167,14 +167,17 @@ export default function LandingDeck({ links }: { links: Links }) {
     const observer = new IntersectionObserver(
       (entries) => {
         for (const e of entries) {
-          if (!e.isIntersecting) continue;
+          // Most of the slide is visible, or (for slides taller than the screen, e.g. on phones) it fills
+          // most of the screen. A ratio threshold alone never fires for a slide over ~2x the viewport height.
+          const viewport = e.rootBounds?.height ?? window.innerHeight;
+          if (!e.isIntersecting || (e.intersectionRatio < 0.55 && e.intersectionRect.height < viewport * 0.5)) continue;
           const i = refs.current.indexOf(e.target as HTMLElement);
           if (i < 0) continue;
           setCurrent(i);
           setSeen((s) => (s.has(i) ? s : new Set(s).add(i)));
         }
       },
-      { threshold: 0.55 },
+      { threshold: Array.from({ length: 21 }, (_, k) => k / 20) },
     );
     refs.current.forEach((el) => el && observer.observe(el));
     return () => observer.disconnect();
