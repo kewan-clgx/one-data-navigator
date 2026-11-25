@@ -1,6 +1,6 @@
 # Snowflake and MySQL connections: research and implementation plan
 
-Status (2026-11-24): Snowflake is implemented, deployed, and user-verified end to end on production. MySQL is implemented locally and verified against disposable MySQL 8.0 and 8.4 servers; it is not deployed to production. See [Snowflake verification](snowflake.md#delivery-and-verification-status) and [MySQL verification](mysql.md#delivery-and-verification-status) for exact checks and limitations.
+Status (2026-11-25): Snowflake is implemented, deployed, and user-verified end to end on production. MySQL is deployed in release `4f18039` and verified against disposable MySQL 8.0 and 8.4 servers; a customer-hosted MySQL test remains pending. The same release adds [Oracle](oracle.md), live-tested on Database Free but not yet on Oracle 19c. See [Snowflake verification](snowflake.md#delivery-and-verification-status) and [MySQL verification](mysql.md#delivery-and-verification-status) for exact checks and limitations.
 
 ## Goal and scope
 
@@ -17,7 +17,7 @@ Delivered behavior is documented in [Snowflake connections](snowflake.md) and [M
 - [SQL policy](../../backend/src/odn/platform/policy/sql_policy.py) uses sqlglot and filters queries and catalog paths for BigQuery, PostgreSQL, Snowflake, MySQL and DuckDB. Snowflake resolves unquoted names to uppercase and preserves quoted case; MySQL preserves exact catalog spelling. Existing engine matching is unchanged.
 - [Query service](../../backend/src/odn/platform/query/service.py) performs policy validation, estimation, result caps and auditing. It and the [search index](../../backend/src/odn/platform/catalog/search_index.py) handle sanitized `ConnectorError` failures as well as Google errors; MySQL translates its driver failures into this shared contract.
 - [Explorer](../../frontend/app/components/Explorer.tsx) and [Settings](../../frontend/app/components/Settings.tsx) handle Snowflake and MySQL explicitly, including per-component quoted SQL and connection forms.
-- The [Snowflake migration](../../backend/src/odn/db/migrations/0029_snowflake_connections.sql) is applied in production. The new [MySQL migration](../../backend/src/odn/db/migrations/0030_mysql_connections.sql) extends kinds without editing applied migrations and has been exercised locally. The catalog tree remains root containers and direct table children.
+- The [Snowflake migration](../../backend/src/odn/db/migrations/0029_snowflake_connections.sql), [MySQL migration](../../backend/src/odn/db/migrations/0030_mysql_connections.sql) and [Oracle migration](../../backend/src/odn/db/migrations/0031_oracle_connections.sql) are applied in production. Forward migrations extend kinds without editing applied migrations. The catalog tree remains root containers and direct table children.
 
 ## Snowflake completed milestone
 
@@ -25,7 +25,7 @@ Delivered behavior is documented in [Snowflake connections](snowflake.md) and [M
 - Added password and key-pair authentication plus local browser TOML paste/upload, including credential retention on same-method edits and required replacement on authentication-method changes.
 - Deployed the Snowflake driver, schema migration and application integration to production.
 - User confirmed all connection checks passed and then confirmed end-to-end operation after the browse/query verification prompt.
-- Added setup, least-privilege, billing, TLS and role-grant troubleshooting guidance. The improved `390186` diagnostic and its test are local follow-up changes, not yet deployed.
+- Added setup, least-privilege, billing, TLS and role-grant troubleshooting guidance. The improved `390186` diagnostic is deployed in release `4f18039`.
 
 The remaining live edge-case checks and unsupported capabilities are listed in [Snowflake delivery and verification](snowflake.md#delivery-and-verification-status). This milestone does not claim that every acceptance case below has been exercised live.
 
@@ -82,7 +82,7 @@ Reject multiple statements, writes, DDL, `CALL`, locking reads, external access,
 1. **Agree on deployment assumptions.** Confirm supported Snowflake auth, MySQL versions/networking and one-database scope. Select maintained drivers compatible with Python 3.12 and existing Arrow dependencies; perform dependency/license review. Add drivers to the API extra and update `backend/uv.lock` with `uv lock` when manifests change.
 2. **Foundation and authorization.** Add a forward migration to extend the connection-kind constraint while retaining existing rows and RLS. Add typed profile validation, secrets and explicit connector dispatch; reject unknown kinds. Extend dialect parsing and allowlist semantics as above, including catalog checks. Keep existing BigQuery/Postgres matching behavior unless a separately reviewed migration is needed. Add least-privilege setup guidance for both providers.
 3. **Snowflake connector (delivered).** Tests, root schema/table/view listing, single-table schema and bulk column discovery across accessible databases are implemented. Results use Arrow batches with application row/byte limits, statement timeout and a non-sensitive query tag. Driver failures are sanitized; query cancellation is explicitly unsupported.
-4. **MySQL connector (implemented locally).** Uses parameterized, case-sensitive metadata queries, approved/pinned endpoints, verified TLS, read-only transactions, SELECT execution/socket timeouts and nonbuffered Arrow batches. Early truncation disconnects without draining results. Cancellation and cost estimation are explicitly unsupported.
+4. **MySQL connector (deployed).** Uses parameterized, case-sensitive metadata queries, approved/pinned endpoints, verified TLS, read-only transactions, SELECT execution/socket timeouts and nonbuffered Arrow batches. Early truncation disconnects without draining results. Cancellation and cost estimation are explicitly unsupported.
 5. **Application integration.** Add personal and authorized shared create/edit/test forms, field-specific help and clear auth/TLS errors. Integrate catalog filtering, search indexing, schema/dictionary, previews, query/audit and agent dialect instructions. Add explicit provider error handling for metadata and query failures; mark unavailable estimates honestly. Keep a configured warehouse or connection from being silently changed by user SQL.
 6. **Validation and rollout.** Run focused policy, profile, connector, API and frontend tests plus real-provider integration checks below. Deploy migration before creating new profiles; enable each provider only after its acceptance checks pass. Roll back by disabling creation/use of the new kind while preserving records; never drop credentials or rewrite existing profiles as a rollback shortcut.
 
@@ -106,9 +106,9 @@ Mocked tests alone cannot establish provider IAM, TLS, driver streaming, server-
 
 ## MySQL implementation handoff
 
-The implementation, forward migration, encrypted password flow, SQL policy and application/UI integration are complete locally. The local API image is rebuilt and ready; 225 focused backend tests, the frontend build, and disposable verified-TLS MySQL 8.0/8.4 integration checks passed. [MySQL verification](mysql.md#delivery-and-verification-status) distinguishes these checks from customer/production verification.
+The implementation, forward migration, encrypted password flow, SQL policy and application/UI integration are deployed in release `4f18039`. The combined release passed 255 focused backend tests and the frontend build; disposable verified-TLS MySQL 8.0/8.4 integration checks passed earlier. [MySQL verification](mysql.md#delivery-and-verification-status) distinguishes these checks from customer-hosted verification.
 
-Next: configure an operator-approved customer/test endpoint and CIDRs, verify its real grants, CA chain and multi-database allowlist, then commit/deploy only with approval. Preserve existing Snowflake, BigQuery and PostgreSQL behavior. No production MySQL rollout has occurred.
+Next: configure an operator-approved customer/test endpoint and CIDRs, and verify its real grants, CA chain and multi-database allowlist. The production feature is installed, but no customer MySQL connection has been configured. Preserve existing Snowflake, BigQuery and PostgreSQL behavior.
 
 ## References
 

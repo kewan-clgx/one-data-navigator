@@ -11,7 +11,7 @@ Snowflake support is implemented and deployed. On 2026-11-24, the user confirmed
 
 Delivered functionality includes encrypted write-only password/key-pair credentials, personal and organization-shared profiles, browser-side TOML paste/upload, multi-database catalog discovery, Snowflake identifier-aware allowlists, and read-only query integration.
 
-The clearer diagnostic for an ungranted role (`390186`) is implemented locally but not yet deployed. Its regression test and the existing Snowflake connector suite pass (14 tests), with targeted Ruff checks passing.
+The clearer diagnostic for an ungranted role (`390186`) was deployed on 2026-11-25 in release `4f18039`; its sanitized message was checked in the production API image. Its regression test and the existing Snowflake connector suite pass (14 tests), with targeted Ruff checks passing.
 
 Live key-pair authentication/rotation, multi-database and quoted-name edge cases, denied objects, timeout behavior, large-result limits, and warehouse-credit impact have not been independently verified in this live session. Query cancellation, interactive MFA/SSO, and Snowflake credit estimation remain unsupported.
 

@@ -2,7 +2,7 @@
 
 ## Delivery and verification status
 
-Implemented locally; not deployed to production. The API image has been rebuilt and the local migration applied. Settings offers MySQL for personal and organization-shared connections, with catalog/search/schema/dictionary integration, exact-case favorites/recent tables, separately backticked Explorer SQL, and chat dialect guidance.
+Implemented and deployed to production (`easyquery.ai`) on 2026-11-25 in release `4f18039`. The API image includes PyMySQL 1.2.4 and migration `0030_mysql_connections` is applied. Settings offers MySQL for personal and organization-shared connections, with catalog/search/schema/dictionary integration, exact-case favorites/recent tables, separately backticked Explorer SQL, and chat dialect guidance.
 
 Verification on 2026-11-24:
 
@@ -11,7 +11,7 @@ Verification on 2026-11-24:
 - Both server versions rejected an untrusted CA, wrong certificate hostname, wrong password and source writes. Expensive queries timed out, and a million-row unbuffered result closed after one batch without draining the remainder.
 - Frontend production build/type-check and new MySQL form lint passed; the form was checked in the local browser. New backend connector/network code passes targeted mypy and Ruff. Existing shared-file lint/type-check issues remain outside this change.
 
-These are disposable-server integration checks, not verification of a customer-hosted database or every case mode/authentication plugin. Production still requires the new image/migration and operator destination approval. No customer MySQL credentials have been configured.
+These are disposable-server integration checks, not verification of a customer-hosted database or every case mode/authentication plugin. The combined release regression suite passed 255 tests; production API readiness and public homepage/sign-in passed after deployment. Operator endpoint/CIDR approval and a customer-hosted database test remain required. No customer MySQL credentials have been configured.
 
 ## Confirmed scope and design
 

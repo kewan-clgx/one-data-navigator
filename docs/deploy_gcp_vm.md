@@ -124,15 +124,20 @@ release), `/opt/odn/shared/.env` (settings, mode 600). Data lives in Docker volu
 
 ## 3. User settings: own LLM keys and data connections
 
-Signed-in users manage these themselves in the app's **Settings** tab; no operator step is needed.
+Signed-in users manage these themselves in the app's **Settings** tab. MySQL and Oracle additionally require
+operator-approved endpoints/IP ranges; Oracle uses the restricted internal egress proxy.
 
 - **AI model**: users add their own Gemini, OpenAI, Anthropic or OpenAI-compatible key, and the chat then runs
   on it at their own cost. Users without a key get a daily trial on the platform key
   (`ODN_LLM_TRIAL_USER_DAILY_TOKENS` per user, inside the tenant's `ODN_LLM_DAILY_TOKEN_BUDGET`). When the trial
   runs out, the chat asks them to add their own key.
-- **Data connections**: users add BigQuery connections with a service-account JSON key. These personal
-  connections are visible only to their owner. Shared connections created with `deploy.sh provision
-  connection` stay visible to the whole tenant.
+- **Data connections**: users add BigQuery, PostgreSQL, Snowflake, MySQL or Oracle profiles. Personal
+  connections are visible only to their owner; organization-shared profiles require the appropriate role.
+  For MySQL set `ODN_MYSQL_ALLOWED_ENDPOINTS` and `ODN_MYSQL_ALLOWED_CIDRS`. For Oracle set
+  `ODN_ORACLE_ALLOWED_ENDPOINTS` and `ODN_ORACLE_ALLOWED_CIDRS`, and run the `oracle-egress` service
+  (Compose wires the API's internal proxy settings). Empty approval lists deny access; never publish the proxy
+  port. See [MySQL setup](connections/mysql.md) and [Oracle setup](connections/oracle.md) for source grants,
+  verified TLS and acceptance checks.
 - Both kinds of key are encrypted in Postgres with `ODN_SECRETS_KEY` (AES-256-GCM, bound to the owner). **Back
   up this value outside the VM.** If it is lost or changed, every saved user key becomes unreadable and users
   must enter their keys again.

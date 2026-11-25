@@ -1,6 +1,6 @@
 # Oracle connections: research and implementation plan
 
-Status: implemented locally, not committed or deployed to production. Research/design was written and scope confirmed before implementation. Existing Snowflake and MySQL changes remain intact.
+Status: committed and deployed to production (`easyquery.ai`) on 2026-11-25 in release `4f18039`. Research/design was written and scope confirmed before implementation. Oracle Database Free passed live integration checks; Oracle 19c remains live-unverified.
 
 ## Confirmed initial scope
 
@@ -89,7 +89,7 @@ docker compose build api oracle-egress
 docker compose up -d --no-deps api oracle-egress
 ```
 
-Production uses the existing production overlay/deployment process; no production deployment occurred in this task. Recreate `oracle-egress` after changing its approval environment.
+Production uses the existing production overlay/deployment process. Recreate `oracle-egress` after changing its approval environment. The feature release is deployed; operators still need to approve real database endpoints and CIDRs before users can connect.
 
 In Settings choose Oracle, enter host/TCPS port, service name, default schema, non-administrative username/password, optional public PEM CA and exact-case `schema.table` patterns. Blank edit passwords keep the encrypted stored secret; clearing the CA restores system trust. Secrets never enter public config/API responses. Personal/shared tenant boundaries reuse existing encrypted credential and RLS mechanisms.
 
@@ -124,5 +124,6 @@ In Settings choose Oracle, enter host/TCPS port, service name, default schema, n
 - Disposable Oracle Database Free `23.26.4.0.0` passed all four checks, two-schema tables/views/case distinctions, comments, exact decimal/unconstrained NUMBER handling, DATE/timestamp, Unicode, RAW/BLOB/CLOB, empty/null-leading results, rejected writes/synonyms/database links, wrong CA/hostname/password rejection, early close of a million-row stream, expensive-query timeout, and rejection of unsupported nanosecond precision.
 - Synthetic listener redirect reached the proxy and its unapproved destination was denied.
 - Stopping the isolated proxy made connection checks fail closed. Final local API readiness and the Compose proxy's empty-approval denial were verified.
+- Production release `4f18039`: migrations `0030`/`0031` applied, Oracle driver 26.2.0 and MySQL driver 1.2.4 installed, API Postgres/GCS readiness passed, public homepage/sign-in returned HTTP 200, and the restricted egress service answered with default-deny. The database was backed up before migration, and the previous release was retained.
 
-Oracle 19c remains **live-unverified**; Database Free testing does not replace a customer 19c check. No real customer Oracle connection has been configured, and no Oracle changes have been committed or deployed to production. RAC/SCAN, wallet/mTLS, Native Network Encryption, external authentication and asynchronous job cancellation remain outside this release.
+Oracle 19c remains **live-unverified**; Database Free testing does not replace a customer 19c check. The user approved deploying first but has not provided a real Oracle 19c endpoint. No customer Oracle connection has been configured. Provide the non-secret hostname, actual TCPS port, service/PDB and approved CIDRs; enter the read-only username/password and optional CA only in Settings, then verify all four checks, catalog access and a bounded query. RAC/SCAN, wallet/mTLS, Native Network Encryption, external authentication and asynchronous job cancellation remain outside this release.
