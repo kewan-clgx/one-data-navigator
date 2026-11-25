@@ -47,7 +47,7 @@ docker-compose exec -T postgres psql -U odn_app -d odn < sqls/20261122_create_pl
    - `name = 'bigquery-public-data'`
    - `config` with `project: bigquery-public-data`, `location: US`
    - `secret_ref` pointing to Secret Manager (or update `secret_ciphertext` if storing encrypted locally)
-   - `allowed_objects` whitelist: `samples`, `usa_names`, `austin_bikeshare`, `austin_311`, `austin_crime`
+   - `allowed_objects` whitelist: `samples`, `usa_names`, `austin_bikeshare`, `austin_311`, `austin_crime`, `thelook_ecommerce`
 3. **Verifies** the connection is accessible via RLS policy.
 
 ### Credentials: Secret Manager vs. Encrypted Storage

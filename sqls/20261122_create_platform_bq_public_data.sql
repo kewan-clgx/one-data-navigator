@@ -68,7 +68,8 @@ INSERT INTO connections (
     'bigquery-public-data.usa_names.*',
     'bigquery-public-data.austin_bikeshare.*',
     'bigquery-public-data.austin_311.*',
-    'bigquery-public-data.austin_crime.*'
+    'bigquery-public-data.austin_crime.*',
+    'bigquery-public-data.thelook_ecommerce.*'
   ],
   NULL,  -- Shared: not owned by any user
   now(),

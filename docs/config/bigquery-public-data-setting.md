@@ -150,6 +150,7 @@ Popular `bigquery-public-data` datasets include:
 - **`samples`**: Tutorial tables (Shakespeare, USA names).
 - **`github_repos`**: Public GitHub repositories (very large).
 - **`austin_311`, `austin_bikeshare`, `austin_crime`**: Austin city data.
+- **`thelook_ecommerce`**: Fictional e-commerce store (orders, order_items, products, users, events).
 - **`wikipedia`**: Wikipedia page views and metadata.
 - **`covid19_open_data`**: COVID-19 cases, deaths, vaccinations.
 - **`wikipedia_trends`**: Trending Wikipedia pages.

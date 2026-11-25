@@ -30,7 +30,7 @@ This document summarizes the changes to make bigquery-public-data globally acces
   - `name = 'bigquery-public-data'`
   - `config: { project: "bigquery-public-data", location: "US" }`
   - `secret_ref = "connection:platform:shared:bq-public-data"` (Secret Manager reference)
-  - `allowed_objects`: `samples`, `usa_names`, `austin_bikeshare`, `austin_311`, `austin_crime`
+  - `allowed_objects`: `samples`, `usa_names`, `austin_bikeshare`, `austin_311`, `austin_crime`, `thelook_ecommerce`
 
 **How to run (after migration 0023 is applied):**
 

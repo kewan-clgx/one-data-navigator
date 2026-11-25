@@ -40,7 +40,7 @@ P7, P8, P9, P10). Design notes: [Tenant_Isolation_User_system.md §4.3b](../Tena
 | T4 | Set a **demo LLM budget** | `demo` uses the defaults: 2M tokens/day for the whole tenant, plus a 200k/day trial per visitor. Set explicitly: `deploy/deploy.sh provision budget demo <tokens>`. |
 | T5 | Mention demo check-in data in **/privacy** | We store name + email (unverified) to follow up and email new visitors to support; the check-in page says so, the privacy page should too. |
 | T6 | Fix the **local** demo setup | Local `bigquery-public-data` platform row points at `file:datahop-514819-d24f3a966b27.json` (`navigator-bff-sa`), which lacks `bigquery.jobs.create`; the local Demo store connection doesn't exist (its key is only in Secret Manager). Use a key with BigQuery Job User (see [bigquery-public-data-setting.md](bigquery-public-data-setting.md)). |
-| T7 | Review the datasets visitors see | Demo store is the main demo data. The platform connection allows only `samples`, `usa_names`, `austin_bikeshare`, `austin_311`, `austin_crime` and is shared by every organization; the Demo admin can share more demo-only connections in Settings. |
+| T7 | Review the datasets visitors see | Demo store is the main demo data. The platform connection allows only `samples`, `usa_names`, `austin_bikeshare`, `austin_311`, `austin_crime`, `thelook_ecommerce` (theLook e-commerce: orders, order_items, products, users) and is shared by every organization; the Demo admin can share more demo-only connections in Settings. |
 | T8 | Refresh the Demo store snapshot occasionally | Dates are frozen at 2026-11-24; a starter prompt says "last 12 months". Re-run `deploy/demo/easyquery_demo.sql`. |
 
 ### Proposed (optimizations)
