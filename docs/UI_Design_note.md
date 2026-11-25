@@ -54,7 +54,7 @@ These are the decisions the current UI is built on. Keep them unless there is a 
 | **About** | Product pitch carousel (3 slides from the theme). Also shown on the sign-in screen. | Dark, with brand decoration |
 | **Chats** | List of the user's conversations (title from first question, time). Open, start new, delete with inline confirm. | Dark list |
 | **Explorer** | Connection picker, keyword search over datasets/tables/fields, favorites and recent tables, dataset tree, hide-snapshots switch. Selecting a table scopes the chat; the footer offers **Details & SQL**. | Dark |
-| **Results** | Latest chart and latest result of the current conversation: explanation, lineage, collapsed SQL, paged/sortable grid, CSV download. | Light sheet inside the dark panel |
+| **Results** | Latest chart and latest result of the current conversation, with **‹ q11 · 12 of 12 · q13 ›** to step back through its earlier results: explanation, lineage, collapsed SQL, sortable grid (row paging only past 100 rows), CSV download. | Light sheet inside the dark panel |
 | **Artifacts** | Everything the user produced or uploaded, across conversations: tables, charts, files. Filters, "This conversation only", preview, downloads, link back to the source conversation, **Upload files**. | Dark list, light previews |
 | **Settings** | Own AI model key, personal data connections. | Light sheet |
 
@@ -168,7 +168,7 @@ Reload reopens the last conversation with its messages, step cards and latest re
 
 | Area | Limitation |
 |---|---|
-| Results tab | Shows only the *latest* result/chart of the conversation; earlier ones are in Artifacts. |
+| Results tab | Earlier *results* are one click back, but only the latest chart is shown; earlier charts are in Artifacts. |
 | Auto-open Results | Can pull the user away from Explorer/Chats mid-task (by design, except in Settings). |
 | Tabs | Six tabs fit at the default width; at the 360 px minimum the tab bar scrolls horizontally. |
 | Attachments | Removing a chip does not delete the uploaded file. CopilotKit labels sent attachments generically (e.g. "TXT · text/csv") instead of the file name. The agent cannot see images. |
@@ -186,7 +186,7 @@ Reload reopens the last conversation with its messages, step cards and latest re
 Ordered roughly by user value vs. effort. ★ = recommended next.
 
 ### Near term (polish what exists)
-1. ★ **Results history in the Results tab.** A small "q1 · q2 · c1 …" strip (or dropdown) for the current conversation, so users can go back to an earlier result without leaving the panel. The data already exists (`GET /v1/workspace/{session}/artifacts`).
+1. ~~**Results history in the Results tab.**~~ Done (2026-11-25): previous/next result navigation from `GET /v1/workspace/{session}/artifacts`. Charts are not included yet.
 2. ★ **Inline result cards in the chat.** A compact card under the agent's message (name, rows, mini-preview, "Open in Results") so the answer and its evidence stay together when scrolling back through a conversation.
 3. ★ **Accessibility pass + tests.** Keyboard walk-through of every tab, return focus after the workbench closes, axe checks in CI, contrast check of all token pairs per theme.
 4. **Artifacts management.** Search box, rename/pin, delete individual items (needs the retention decision in the dev plan), pagination.

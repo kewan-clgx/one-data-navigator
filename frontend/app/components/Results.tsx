@@ -1,7 +1,9 @@
 "use client";
 
 import { useCoAgent } from "@copilotkit/react-core";
+import { useContext, useEffect, useState } from "react";
 
+import { ChatSessionContext } from "./AgentSteps";
 import Chart, { type ChartData } from "./Chart";
 import ResultsGrid from "./ResultsGrid";
 
@@ -34,9 +36,73 @@ function cell(v: unknown): string {
   return typeof v === "object" ? JSON.stringify(v) : String(v);
 }
 
-/** The latest chart and query result the agent produced in this conversation. */
+type Artifact = {
+  id: string;
+  name: string;
+  kind: string;
+  parent_ids: string[];
+  sql_text: string;
+  source_tables: string[];
+  row_count: number;
+  truncated: boolean;
+  columns: { name: string }[];
+  explanation: string;
+};
+
+function asResult(a: Artifact, all: Artifact[], sessionId: string): LastResult {
+  return {
+    session_id: sessionId,
+    name: a.name,
+    kind: a.kind === "workspace" ? "workspace" : "warehouse",
+    sql: a.sql_text,
+    explanation: a.explanation,
+    derived_from: a.parent_ids.map((id) => all.find((p) => p.id === id)?.name ?? "").filter(Boolean),
+    source_tables: a.source_tables,
+    columns: a.columns.map((c) => c.name),
+    rows: [],
+    row_count: a.row_count,
+    truncated: a.truncated,
+    bytes_processed: null,
+  };
+}
+
+/** The conversation's query results (q1, q2, ...), oldest first, refreshed when a new result arrives. */
+function useResultHistory(sessionId: string, latestName: string | undefined): Artifact[] {
+  const [loaded, setLoaded] = useState<{ sessionId: string; items: Artifact[] }>({ sessionId: "", items: [] });
+  useEffect(() => {
+    if (!sessionId) return;
+    let cancelled = false;
+    fetch(`/api/odn/workspace/${encodeURIComponent(sessionId)}/artifacts`, { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list: Artifact[]) => {
+        if (cancelled || !Array.isArray(list)) return;
+        setLoaded({ sessionId, items: list.filter((a) => a.kind === "warehouse" || a.kind === "workspace") });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, latestName]);
+  return loaded.sessionId === sessionId ? loaded.items : [];
+}
+
+/** The latest chart and query result the agent produced in this conversation, with earlier results one click back. */
 export default function ResultsPanel() {
-  const { last_result: result, last_chart: chart } = useAgentState();
+  const { last_result: latest, last_chart: chart } = useAgentState();
+  const chatSession = useContext(ChatSessionContext);
+  const sessionId = latest?.session_id ?? chatSession;
+  const history = useResultHistory(sessionId, latest?.name);
+  // No pick follows the latest result; a pick pins an earlier one until a new result (or conversation) arrives.
+  const followKey = `${sessionId}/${latest?.name ?? ""}`;
+  const [pick, setPick] = useState<{ key: string; name: string } | null>(null);
+  const picked = pick?.key === followKey ? pick.name : null;
+
+  const latestIndex = latest?.name ? history.findIndex((a) => a.name === latest.name) : history.length - 1;
+  const index = picked ? history.findIndex((a) => a.name === picked) : latestIndex;
+  const pickedArtifact = picked && index >= 0 ? history[index] : null;
+  const result = pickedArtifact ? asResult(pickedArtifact, history, sessionId) : latest ?? (history.length ? asResult(history[history.length - 1], history, sessionId) : undefined);
+  const isLatest = !pickedArtifact || index === history.length - 1;
+  const go = (i: number) => setPick(i === latestIndex ? null : { key: followKey, name: history[i].name });
 
   if (!result && !chart) {
     return (
@@ -51,7 +117,22 @@ export default function ResultsPanel() {
       {chart && <Chart data={chart} />}
       {result && (
         <>
-          <h2>Latest result</h2>
+          <div className="result-nav">
+            <h2>{isLatest ? "Latest result" : "Earlier result"}</h2>
+            {history.length > 1 && index >= 0 && (
+              <nav className="pager" aria-label="Results in this conversation">
+                <button type="button" className="odn-btn odn-btn--outline odn-btn--small" onClick={() => go(index - 1)} disabled={index <= 0} aria-label="Previous result">
+                  ‹ {index > 0 ? history[index - 1].name : "Prev"}
+                </button>
+                <span className="muted" aria-live="polite">
+                  {index + 1} of {history.length}
+                </span>
+                <button type="button" className="odn-btn odn-btn--outline odn-btn--small" onClick={() => go(index + 1)} disabled={index >= history.length - 1} aria-label="Next result">
+                  {index < history.length - 1 ? history[index + 1].name : "Next"} ›
+                </button>
+              </nav>
+            )}
+          </div>
           {result.name && (
             <h3 className="artifact-title">
               <code>{result.name}</code>{" "}
@@ -83,6 +164,7 @@ export default function ResultsPanel() {
               name={result.name}
               columns={result.columns}
               initialRows={result.rows}
+              key={result.name}
             />
           ) : (
             <div className="results">

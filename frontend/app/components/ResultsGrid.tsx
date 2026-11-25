@@ -76,19 +76,22 @@ export default function ResultsGrid({
             ? loading ? "Loading…" : ""
             : total === 0
               ? "No rows"
-              : `Rows ${offset + 1}–${Math.min(offset + PAGE, total)} of ${total.toLocaleString()}`}
+              : total <= PAGE
+                ? "" // the row count is already shown above the grid
+                : `Rows ${offset + 1}–${Math.min(offset + PAGE, total)} of ${total.toLocaleString()}`}
         </span>
         <span className="pager">
-          <button type="button" onClick={() => setOffset((o) => Math.max(0, o - PAGE))} disabled={offset === 0 || loading}>
-            ‹ Prev
-          </button>
-          <button
-            type="button"
-            onClick={() => setOffset((o) => o + PAGE)}
-            disabled={total === undefined || offset + PAGE >= total || loading}
-          >
-            Next ›
-          </button>
+          {/* Row pages only exist past PAGE rows; disabled buttons on a one-page result look broken. */}
+          {total !== undefined && total > PAGE && (
+            <>
+              <button type="button" onClick={() => setOffset((o) => Math.max(0, o - PAGE))} disabled={offset === 0 || loading}>
+                ‹ Prev {PAGE}
+              </button>
+              <button type="button" onClick={() => setOffset((o) => o + PAGE)} disabled={offset + PAGE >= total || loading}>
+                Next {PAGE} ›
+              </button>
+            </>
+          )}
           {!rowsBase && (
             <a className="download" href={`${base}/csv`} download={`${name}.csv`}>
               Download CSV
