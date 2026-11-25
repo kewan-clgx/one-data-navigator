@@ -547,6 +547,36 @@ body.resizing iframe { pointer-events: none; }
   background: transparent; border: none; cursor: pointer; color: var(--fg);
   font-size: 0.8rem; padding: 0 0.3rem; line-height: 1;
 }
+.odn-scope-chip { flex-wrap: wrap; }
+
+/* SQL in chat answers: folded by default, with a hand-off to the workbench. */
+.eq-sql {
+  margin: 0.5rem 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-alt);
+  overflow: hidden;
+}
+.eq-sql-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;
+  padding: 0.3rem 0.4rem 0.3rem 0.2rem;
+}
+.eq-sql-toggle {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  background: transparent; border: none; cursor: pointer;
+  color: var(--fg); font: inherit; font-size: 0.78rem; font-weight: 600;
+  padding: 0.25rem 0.4rem; border-radius: var(--radius);
+}
+.eq-sql-toggle:hover { color: var(--primary); }
+.eq-sql-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.eq-sql-chevron { width: 0.8rem; color: var(--fg-muted); }
+.eq-sql-meta { font-weight: 400; color: var(--fg-muted); }
+.eq-sql > pre { margin: 0; border-top: 1px solid var(--border); }
+.eq-wb-note { margin: 0.15rem 0 0.4rem; font-size: 0.75rem; }
+.odn-linklike {
+  background: none; border: none; padding: 0; cursor: pointer;
+  color: var(--primary); font: inherit; text-decoration: underline;
+}
 .odn-chat-body { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .odn-chat-body > .odn-chat-messages { flex: 1; min-height: 0; }
 

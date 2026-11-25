@@ -95,6 +95,9 @@ gcloud iam service-accounts create sa-bq-public-reader --project <project>
 gcloud projects add-iam-policy-binding <project> \
   --member serviceAccount:sa-bq-public-reader@<project>.iam.gserviceaccount.com \
   --role roles/bigquery.jobUser
+gcloud projects add-iam-policy-binding <project> \
+  --member serviceAccount:sa-bq-public-reader@<project>.iam.gserviceaccount.com \
+  --role roles/bigquery.readSessionUser
 gcloud iam service-accounts keys create key.json \
   --iam-account sa-bq-public-reader@<project>.iam.gserviceaccount.com --project <project>
 ```

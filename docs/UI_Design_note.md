@@ -76,6 +76,13 @@ The approval card shows the agent's hint (scan size and SQL) with **Run query** 
 ### 3.3 Explore a table manually
 Explorer → search or browse → click a table (chat becomes scoped) → **Details & SQL** opens the workbench with the data dictionary, a prefilled `SELECT … LIMIT 100`, **Run** and **Preview data** (sampled). Esc or **Back to chat** closes it; Explorer keeps its state.
 
+### 3.3a SQL in chat answers
+Most readers are managers, so SQL blocks in answers start **folded** ("▸ Show SQL · N lines"); expanding shows the code with copy and download. Each block also has **Open in SQL workbench** ([`FoldableSql.tsx`](../frontend/app/components/FoldableSql.tsx)):
+
+- The tables it reads (FROM/JOIN, CTEs and subqueries skipped) pick the connection whose allowlist covers them ([`sqlRefs.ts`](../frontend/lib/sqlRefs.ts)); the chat is scoped to all of them and the first table's dictionary opens. The SQL is kept as written.
+- SQL that only reads the conversation's results (`q1`, `q2`, …) runs on the workspace (DuckDB, no warehouse scan) and saves a new `qN`.
+- Workbench runs call the query APIs directly and never the agent, so they use no AI tokens; the workbench says so under the editor.
+
 ### 3.4 Attach a file
 Paperclip in the chat input (or drag a file onto the chat, or **Upload files** in Artifacts).
 - The file is uploaded to the Artifacts store immediately and shows as a chip in the input.

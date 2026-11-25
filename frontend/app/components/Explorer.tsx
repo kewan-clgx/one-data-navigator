@@ -15,11 +15,21 @@ import CatalogSearchResults, {
   type SearchIndex,
 } from "./CatalogSearch";
 import { CONNECTIONS_CHANGED } from "@/lib/client-api";
+import { connectionFor, isWorkspaceSql, tablesIn } from "@/lib/sqlRefs";
 
 import DictionaryPanel from "./DictionaryPanel";
 
-/** The table the user picked; the chat is scoped to it. */
-export type TableScope = { connectionId: string; connectionName: string; path: string[] };
+/** The table the user picked (or every table of SQL opened from the chat); the chat is scoped to it. */
+export type TableScope = { connectionId: string; connectionName: string; path: string[]; others?: string[][] };
+
+/** SQL sent from a chat answer to the workbench; `nonce` makes repeated clicks reopen it. */
+export type SqlRequest = { sql: string; nonce: number };
+
+type WorkspaceArtifact = {
+  artifact: { name: string; row_count: number; truncated: boolean; columns: { name: string; type: string; nullable: boolean }[] };
+  preview: Record<string, unknown>[];
+  duration_ms: number;
+};
 
 /** The connection shown in Explorer; `chosen` is false while it is only the default (first) connection. */
 export type ActiveConnection = { id: string; name: string; kind: string; chosen: boolean };
@@ -90,7 +100,7 @@ type QueryMeta = { rows: number; bytes_processed: number | null; duration_ms: nu
 type QueryResult = { meta: QueryMeta; tables: string[]; bytes_estimated: number | null; rows: Record<string, unknown>[] };
 
 type Outcome =
-  | { kind: "result"; result: QueryResult }
+  | { kind: "result"; result: QueryResult & { savedAs?: string } }
   | { kind: "confirm"; bytes: number }
   | { kind: "error"; message: string };
 
@@ -140,6 +150,8 @@ export default function Explorer({
   workbenchHost,
   workbenchOpen,
   onWorkbenchOpenChange,
+  sqlRequest,
+  sessionId,
 }: {
   scope: TableScope | null;
   onScopeChange: (scope: TableScope | null) => void;
@@ -148,6 +160,9 @@ export default function Explorer({
   workbenchHost: HTMLElement | null;
   workbenchOpen: boolean;
   onWorkbenchOpenChange: (open: boolean) => void;
+  sqlRequest?: SqlRequest | null;
+  /** The conversation's workspace, for SQL over its results (q1, q2, ...). */
+  sessionId?: string;
 }) {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [connectionId, setConnectionId] = useState<string>("");
@@ -163,6 +178,9 @@ export default function Explorer({
   const [focusColumn, setFocusColumn] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [sql, setSql] = useState("");
+  // "workspace": the SQL reads this conversation's results (DuckDB), not the connection's warehouse.
+  const [target, setTarget] = useState<"connection" | "workspace">("connection");
+  const [pending, setPending] = useState<{ sql: string; tables: string[][]; connectionId: string } | null>(null);
   const [running, setRunning] = useState(false);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -352,13 +370,18 @@ export default function Explorer({
   );
 
   const openTable = useCallback(
-    async (path: string[], column?: string) => {
+    async (path: string[], column?: string, fromSql?: { others: string[][] }) => {
       try {
         const s = await api<TableSchema>(`connections/${connectionId}/schema?${query({ path })}`);
         setSchema(s);
         setFocusColumn(column ?? null);
         const conn = connections.find((c) => c.id === connectionId);
-        onScopeChange({ connectionId, connectionName: conn?.name ?? connectionId, path: s.path });
+        onScopeChange({
+          connectionId, connectionName: conn?.name ?? connectionId, path: s.path,
+          ...(fromSql?.others.length ? { others: fromSql.others } : {}),
+        });
+        if (fromSql) return; // keep the SQL that was opened from the chat
+        setTarget("connection");
         const names = s.columns.map((c) => c.name).filter((n) => ["snowflake", "mysql", "oracle"].includes(conn?.kind ?? "") || !n.includes("."));
         const picked = column && names.includes(column) ? [column, ...names.filter((n) => n !== column)] : names;
         if (conn?.kind === "oracle") {
@@ -399,6 +422,25 @@ export default function Explorer({
       setRunning(true);
       setOutcome(null);
       try {
+        if (target === "workspace") {
+          // DuckDB over this conversation's saved results: no warehouse scan, and like every workbench run, no AI.
+          const out = await api<WorkspaceArtifact>(`workspace/${encodeURIComponent(sessionId ?? "")}/query`, {
+            method: "POST",
+            body: JSON.stringify({ sql: sqlText }),
+          });
+          setOutcome({
+            kind: "result",
+            result: {
+              meta: {
+                rows: out.artifact.row_count, bytes_processed: null, duration_ms: out.duration_ms,
+                truncated: out.artifact.truncated, columns: out.artifact.columns,
+              },
+              tables: [], bytes_estimated: null, rows: out.preview,
+              savedAs: out.artifact.name,
+            },
+          });
+          return;
+        }
         const result = await api<QueryResult>(`connections/${connectionId}/query`, {
           method: "POST",
           body: JSON.stringify({ sql: sqlText, confirmed, source: "explorer", max_rows: 1000 }),
@@ -410,6 +452,13 @@ export default function Explorer({
         const detail = err.detail as Record<string, unknown> | string;
         if (err.status === 409 && typeof detail === "object" && detail.confirmation_required) {
           setOutcome({ kind: "confirm", bytes: Number(detail.bytes_estimated) });
+        } else if (target === "workspace" && typeof detail === "object" && /not in allowlist/.test(String(detail.rejected))) {
+          setOutcome({
+            kind: "error",
+            message:
+              "This conversation's result tables (q1, q2, …) are no longer available; they're kept for a limited time. " +
+              "Ask the question again in the chat, or rewrite the SQL against the warehouse tables.",
+          });
         } else if (typeof detail === "object" && (detail.rejected || detail.failed)) {
           setOutcome({ kind: "error", message: String(detail.rejected ?? detail.failed) });
         } else {
@@ -419,7 +468,7 @@ export default function Explorer({
         setRunning(false);
       }
     },
-    [connectionId, sql, loadMine],
+    [connectionId, sql, loadMine, target, sessionId],
   );
 
   const tableHitCount = results?.reduce((n, d) => n + d.hits.length, 0) ?? 0;
@@ -600,6 +649,42 @@ export default function Explorer({
       </aside>
   );
 
+  // SQL from a chat answer: pick the connection whose allowlist covers its tables. The switch resets the
+  // explorer (effect above), so the SQL is applied in the next effect, after that reset.
+  const lastRequest = useRef<number | null>(null);
+  useEffect(() => {
+    if (!sqlRequest || sqlRequest.nonce === lastRequest.current || !connections.length) return;
+    lastRequest.current = sqlRequest.nonce;
+    const tables = tablesIn(sqlRequest.sql);
+    onWorkbenchOpenChange(true);
+    if (isWorkspaceSql(tables)) {
+      setPending(null);
+      setTarget("workspace");
+      setSql(sqlRequest.sql);
+      setOutcome(null);
+      return;
+    }
+    const id = connectionFor(tables, connections, connectionId);
+    if (id !== connectionId) chooseConnection(id);
+    setPending({ sql: sqlRequest.sql, tables, connectionId: id });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sqlRequest, connections]);
+
+  useEffect(() => {
+    if (!pending || pending.connectionId !== connectionId) return;
+    setPending(null);
+    setTarget("connection");
+    setSql(pending.sql);
+    setOutcome(null);
+    const [first, ...others] = pending.tables;
+    if (first) void openTable(first, undefined, { others });
+  }, [pending, connectionId, openTable]);
+
+  const runsOn =
+    target === "workspace"
+      ? "Runs on this conversation's result tables (q1, q2, …), no warehouse scan."
+      : `Runs on ${connections.find((c) => c.id === connectionId)?.name ?? "the selected connection"}, read-only and checked against its allowlist.`;
+
   const workbenchBody = (
       <>
         {schema && (
@@ -614,9 +699,24 @@ export default function Explorer({
         )}
 
         <section aria-label="SQL">
-          <label htmlFor="sql">SQL (read-only, checked against this connection&apos;s allowlist)</label>
-          <textarea id="sql" value={sql} onChange={(e) => setSql(e.target.value)} rows={8} spellCheck={false} />
-          <button type="button" onClick={() => run(false)} disabled={!sql.trim() || running || !connectionId}>
+          <label htmlFor="sql">SQL</label>
+          <p className="muted eq-wb-note" id="sql-note">
+            {runsOn} Running here doesn&apos;t use the AI or any tokens.
+            {target === "workspace" && (
+              <>
+                {" "}
+                <button type="button" className="odn-linklike" onClick={() => setTarget("connection")}>
+                  Run on the warehouse instead
+                </button>
+              </>
+            )}
+          </p>
+          <textarea id="sql" aria-describedby="sql-note" value={sql} onChange={(e) => setSql(e.target.value)} rows={8} spellCheck={false} />
+          <button
+            type="button"
+            onClick={() => run(false)}
+            disabled={!sql.trim() || running || (target === "workspace" ? !sessionId : !connectionId)}
+          >
             {running ? "Running…" : "Run"}
           </button>{" "}
           {schema && (
@@ -660,8 +760,10 @@ export default function Explorer({
         {outcome?.kind === "result" && (
           <section aria-label="Results">
             <p className="muted">
-              {outcome.result.meta.rows.toLocaleString()} {outcome.result.meta.rows === 1 ? "row" : "rows"} · scanned{" "}
-              {formatBytes(outcome.result.meta.bytes_processed)} ·{" "}
+              {outcome.result.meta.rows.toLocaleString()} {outcome.result.meta.rows === 1 ? "row" : "rows"} ·{" "}
+              {outcome.result.savedAs
+                ? <>saved as <code>{outcome.result.savedAs}</code></>
+                : <>scanned {formatBytes(outcome.result.meta.bytes_processed)}</>} ·{" "}
               {outcome.result.meta.duration_ms} ms
               {outcome.result.meta.truncated && <strong> · partial result (row limit reached)</strong>}
             </p>

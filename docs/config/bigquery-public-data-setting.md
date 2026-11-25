@@ -51,7 +51,7 @@ Then skip to [Add Connection in QueryMuse](#add-connection-in-querymuse).
    - Click **Grant Access**.
    - In the sidebar, search for the service account and add:
      - `roles/bigquery.jobUser` (required: submit jobs in your project)
-     - `roles/bigquery.readSessionUser` (optional but recommended: fast Storage API reads)
+     - `roles/bigquery.readSessionUser` (required: query results are read through the BigQuery Storage Read API)
 
 3. **Create a JSON key:**
    - On the service account detail page, click the **Keys** tab.
@@ -167,6 +167,8 @@ Browse all datasets [here](https://console.cloud.google.com/bigquery?project=big
 | Test connection fails at **Auth** | Key is invalid, deleted, or rotated. | Re-download the key from the Google Cloud Console. |
 | Test connection fails at **Metadata** | Service account has wrong roles. | Re-check the IAM policy. Add `roles/bigquery.jobUser` and `roles/bigquery.readSessionUser`. |
 | Test connection fails at **Read** | Billing project is wrong or key is missing `bigquery.jobUser`. | Verify the billing project ID and re-check roles. |
+| `User does not have bigquery.jobs.create permission in project <billing project>` | The key's service account can't run jobs in the billing project (a connection's own key is always used, never the platform identity). | Grant `roles/bigquery.jobUser` on the billing project to that service account. No restart needed. |
+| `the user does not have 'bigquery.readsessions.create' permission for 'projects/<billing project>'` | Jobs run, but results are read through the Storage Read API, which needs its own role. | Grant `roles/bigquery.readSessionUser` on the billing project to that service account. |
 | Query hangs or times out | Dataset is very large or query is inefficient. | Reduce the allowlist or add `LIMIT 10000` to queries. |
 | High costs | Too many large datasets in the allowlist. | Update the allowlist to include only needed datasets. Use `INFORMATION_SCHEMA` to explore before large queries. |
 

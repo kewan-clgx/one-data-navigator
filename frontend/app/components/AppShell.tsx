@@ -17,7 +17,8 @@ import CollibraPanel from "./CollibraPanel";
 import { useCollibraBridge, useCollibraEnvironments } from "@/lib/collibra";
 import ArtifactsPanel from "./ArtifactsPanel";
 import ChatsPanel, { useConversations } from "./Conversations";
-import Explorer, { type ActiveConnection, type TableScope } from "./Explorer";
+import Explorer, { type ActiveConnection, type SqlRequest, type TableScope } from "./Explorer";
+import FoldableSql, { OpenSqlContext } from "./FoldableSql";
 import ResultsPanel, { AGENT_ID, type AgentState } from "./Results";
 import { DEMO_PLACEHOLDER, DEMO_SUGGESTIONS, DemoImportBanner, DemoUpgradeBanner, type DemoVisitor } from "./DemoBanners";
 import ShareDialog from "./ShareDialog";
@@ -162,8 +163,11 @@ function ScopeContext({ scope, connection }: { scope: TableScope | null; connect
   let value: string;
   if (scope) {
     value =
-      `Scoped to table ${scope.path.join(".")} in connection "${scope.connectionName}" (connection_id ${scope.connectionId}). ` +
-      "Answer about this table unless the user clearly asks about something else; no need to list other tables first.";
+      (scope.others?.length
+        ? `Scoped to tables ${[scope.path, ...scope.others].map((p) => p.join(".")).join(", ")}`
+        : `Scoped to table ${scope.path.join(".")}`) +
+      ` in connection "${scope.connectionName}" (connection_id ${scope.connectionId}). ` +
+      "Answer about these tables unless the user clearly asks about something else; no need to list other tables first.";
   } else if (connection?.chosen) {
     value =
       `Active connection "${connection.name}" (${connection.kind}, connection_id ${connection.id}), chosen by the user; ` +
@@ -222,6 +226,8 @@ export default function AppShell({
   const [scope, setScope] = useState<TableScope | null>(null);
   const [connection, setConnection] = useState<ActiveConnection | null>(null);
   const [workbenchOpen, setWorkbenchOpen] = useState(false);
+  const [sqlRequest, setSqlRequest] = useState<SqlRequest | null>(null);
+  const openSqlInWorkbench = useCallback((sql: string) => setSqlRequest({ sql, nonce: Date.now() }), []);
   const [shareOpen, setShareOpen] = useState(false);
   const [workbenchHost, setWorkbenchHost] = useState<HTMLDivElement | null>(null);
   const tabRefs = useRef<Partial<Record<TabId, HTMLButtonElement | null>>>({});
@@ -360,6 +366,8 @@ export default function AppShell({
       </div>
       <div role="tabpanel" id="tabpanel-explorer" aria-labelledby="tab-explorer" hidden={tab !== "explorer"} className="odn-tabpanel">
         <Explorer
+          sqlRequest={sqlRequest}
+          sessionId={sessionId}
           scope={scope}
           onScopeChange={setScope}
           onConnectionChange={setConnection}
@@ -453,6 +461,9 @@ export default function AppShell({
       {scope && (
         <div className="odn-scope-chip">
           Scoped to <code>{scope.path.join(".")}</code>
+          {scope.others?.map((p) => (
+            <code key={p.join(".")}>{p.join(".")}</code>
+          ))}
           <button type="button" aria-label="Clear table scope" onClick={() => setScope(null)}>
             ✕
           </button>
@@ -460,7 +471,9 @@ export default function AppShell({
       )}
       <div className="odn-chat-body">
         <div className="odn-chat-messages" aria-live="polite" aria-atomic="false">
+          <OpenSqlContext.Provider value={openSqlInWorkbench}>
           <CopilotChat
+            markdownTagRenderers={{ pre: FoldableSql }}
             attachments={{
               enabled: Boolean(sessionId),
               accept: CHAT_ATTACH_ACCEPT,
@@ -483,6 +496,7 @@ export default function AppShell({
             }}
             {...(demo ? { suggestions: DEMO_SUGGESTIONS } : {})}
           />
+          </OpenSqlContext.Provider>
         </div>
         <div ref={setWorkbenchHost} className="odn-workbench-host" />
       </div>
