@@ -1,12 +1,15 @@
 import type { Metadata, Viewport } from "next";
+import Script from "next/script";
 import type { ReactNode } from "react";
 
 import "@copilotkit/react-ui/styles.css";
 import "./themes/cotality.css";
+import "./themes/appearance.css";
 import "./themes/code.css";
 import "./globals.css";
 import { brandCompanyLabel } from "./themes";
 import { brandCompany, tenantTheme } from "./themes/server";
+import { HTML_PREFS_SCRIPT } from "@/lib/htmlPrefs";
 
 export async function generateMetadata(): Promise<Metadata> {
   const [theme, tenantName] = await Promise.all([tenantTheme(), brandCompany()]);
@@ -24,8 +27,14 @@ export async function generateViewport(): Promise<Viewport> {
 export default async function RootLayout({ children }: { children: ReactNode }) {
   const theme = await tenantTheme();
   return (
-    <html lang="en" data-theme={theme.id}>
-      <body>{children}</body>
+    // The pre-paint script adds data-appearance / data-code-theme before hydration, hence suppressHydrationWarning.
+    <html lang="en" data-theme={theme.id} suppressHydrationWarning>
+      <body>
+        <Script id="odn-html-prefs" strategy="beforeInteractive">
+          {HTML_PREFS_SCRIPT}
+        </Script>
+        {children}
+      </body>
     </html>
   );
 }

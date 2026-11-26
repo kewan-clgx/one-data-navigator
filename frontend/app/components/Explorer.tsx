@@ -784,7 +784,7 @@ export default function Explorer({
                 value={codeTheme}
                 onChange={(e) => setCodeTheme(e.target.value as CodeThemeId)}
                 aria-label="Editor style"
-                title="Editor style (also used for SQL in chat)"
+                title="SQL code style (also used for SQL in chat; Match app follows Settings → Appearance)"
               >
                 {CODE_THEMES.map((t) => (
                   <option key={t.id} value={t.id}>

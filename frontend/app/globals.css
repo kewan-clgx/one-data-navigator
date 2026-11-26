@@ -10,6 +10,8 @@
   --copilot-kit-secondary-contrast-color: var(--fg);
   --copilot-kit-separator-color: var(--border);
   --copilot-kit-muted-color: var(--fg-muted);
+  /* Chat input and inline `code` chips. */
+  --copilot-kit-input-background-color: var(--surface-alt);
 }
 
 * { box-sizing: border-box; }
@@ -88,7 +90,7 @@ code, pre, textarea.mono { font-family: var(--font-mono); }
   border-radius: var(--radius);
 }
 .odn-tag--muted { background: var(--accent-2); }
-.odn-tag--danger { background: var(--danger); color: #fff; }
+.odn-tag--danger { background: var(--danger); color: var(--surface); }
 
 /* Flat button (theme radius). */
 .odn-btn,
@@ -940,6 +942,41 @@ table.grid.dictionary td.def-cell { min-width: 260px; }
 .settings-danger { color: var(--danger); border-color: var(--danger); }
 .settings-danger:hover:not(:disabled) { background: var(--danger); color: var(--surface); }
 .settings-empty { padding: 0.7rem; border: 1px dashed var(--border); border-radius: var(--radius); font-size: 0.8rem; }
+
+/* Settings → Appearance: preview cards drawn with each appearance's own tokens ([data-appearance-preview]). */
+.appearance-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr)); gap: 0.75rem; margin-top: 0.4rem; }
+.appearance-card {
+  display: flex; flex-direction: column; gap: 0.3rem; padding: 0.5rem; cursor: pointer;
+  border: 1px solid var(--border); border-radius: calc(var(--radius) + 2px);
+}
+.appearance-card:hover { background: var(--surface-alt); }
+.appearance-card:has(input:checked) { border-color: var(--accent-strong); box-shadow: 0 0 0 1px var(--accent-strong); }
+.appearance-card:has(input:focus-visible) { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+.appearance-preview {
+  display: flex; flex-direction: column; height: 5.6rem; overflow: hidden; color: var(--fg);
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--app-bg); font-family: var(--font);
+}
+.ap-chrome { display: flex; align-items: center; gap: 0.3rem; height: 0.95rem; padding: 0 0.35rem; background: var(--chrome-bg); border-bottom: 1px solid var(--chrome-border); }
+.ap-mark { width: 0.35rem; height: 0.35rem; border-radius: 50%; background: var(--accent); }
+.ap-line { display: block; height: 0.22rem; border-radius: 2px; }
+.ap-line--chrome { width: 40%; background: var(--chrome-fg); opacity: 0.6; }
+.ap-body { flex: 1; display: flex; min-height: 0; }
+.ap-panel { display: flex; flex-direction: column; gap: 0.3rem; width: 32%; padding: 0.4rem 0.3rem; background: var(--panel-bg); }
+.ap-line--panel { background: var(--panel-muted); opacity: 0.55; }
+.ap-line--sel { background: var(--panel-selected); opacity: 1; box-shadow: inset 2px 0 0 var(--accent); height: 0.4rem; }
+.ap-main { flex: 1; display: flex; flex-direction: column; gap: 0.3rem; padding: 0.35rem; background: var(--surface); }
+.ap-code {
+  padding: 0.2rem 0.3rem; font-family: var(--font-mono); font-size: 0.55rem; line-height: 1.2; white-space: nowrap;
+  background: var(--code-bg); color: var(--code-fg); border: 1px solid var(--code-border); border-radius: var(--radius);
+}
+.ap-line--main { width: 70%; background: var(--fg-muted); opacity: 0.5; }
+.ap-btn { width: 2rem; height: 0.55rem; margin-top: auto; margin-left: auto; background: var(--primary); border-radius: var(--radius); }
+.appearance-name { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; font-weight: 600; }
+.appearance-check { color: var(--accent-strong); }
+.appearance-hint { font-size: 0.72rem; color: var(--fg-muted); line-height: 1.35; }
+.appearance-code { display: grid; gap: 0.3rem; margin-top: 1rem; font-size: 0.8rem; }
+.appearance-code > span:first-child { font-weight: 600; }
+.appearance-code select { max-width: 14rem; }
 
 .settings-logo {
   flex: none; display: grid; place-items: center; background: #fff;

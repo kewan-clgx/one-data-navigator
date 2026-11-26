@@ -1,6 +1,7 @@
 /* Theme A — Cotality. Sampled from cotality.com: ink/cream flat palette, coral + orange accents,
    square corners. Only sets semantic tokens (see globals.css) plus brand-only decoration. */
-[data-theme="cotality"] {
+[data-theme="cotality"],
+[data-theme="cotality"] [data-appearance-preview="elegant"] {
   --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --radius: 0;
@@ -58,7 +59,13 @@
   --chart-6: #4a6fa5;
   --chart-7: #b8a07a;
   --chart-8: #7d6b5d;
+}
 
+/* SQL code style "Elegant": the default, and also when picked explicitly under another appearance
+   (the second selector outranks :root[data-appearance]). */
+[data-theme="cotality"],
+[data-theme="cotality"] [data-appearance-preview="elegant"],
+:root[data-theme="cotality"][data-code-theme="elegant"] {
   /* Code (SQL workbench editor and the chat's SQL blocks): warm "paper" on the light working surface, so code reads
      as part of the page rather than a dark slab. Cream chrome, coral caret/selection, syntax hues drawn from the
      brand palette; every token colour is >= 4.5:1 on --code-bg and on the active line. */

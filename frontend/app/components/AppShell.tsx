@@ -7,7 +7,6 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "re
 
 import { api, LLM_CHANGED, type Budget } from "@/lib/client-api";
 import { CHAT_ATTACH_ACCEPT, FILES_CHANGED, UPLOAD_MAX_BYTES, uploadChatAttachment } from "@/lib/uploads";
-import { applyCodeTheme } from "@/lib/displayPrefs";
 
 import type { Theme } from "../themes";
 import AboutSlides from "./AboutSlides";
@@ -233,9 +232,6 @@ export default function AppShell({
   const [workbenchHost, setWorkbenchHost] = useState<HTMLDivElement | null>(null);
   const tabRefs = useRef<Partial<Record<TabId, HTMLButtonElement | null>>>({});
   const deepLink = useRef<string | null>(null);
-
-  // The saved SQL code style; applied after hydration since <html> is server-rendered without it.
-  useEffect(() => applyCodeTheme(), []);
 
   useEffect(() => {
     // Links from standalone pages (e.g. the Insight Wall): /?new=1 starts a conversation, /?tab=<id> opens a tab.

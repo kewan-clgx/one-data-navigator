@@ -79,7 +79,7 @@ Explorer → search or browse → click a table (chat becomes scoped) → **Deta
 ### 3.3b SQL editor (workbench)
 One IDE panel ([`SqlEditor.tsx`](../frontend/app/components/SqlEditor.tsx), CodeMirror 6, loaded only when the workbench opens) in the theme's warm **paper** style rather than a dark slab, so code sits inside the light working surface: cream toolbar and status bar, near-white code area with a cream gutter, coral caret/selection/focus ring, syntax hues from the brand palette (all ≥ 4.5:1). One highlighter ([`sqlSyntax.ts`](../frontend/lib/sqlSyntax.ts): tags → `sqlh-*` classes coloured by `--code-*` tokens) serves the editor and chat SQL, so both always match.
 
-- **Style picker** (toolbar, remembered per browser): **EasyQuery** (default, the brand theme's tokens), **VS Code Dark** (Dark+) and **VS Code Light** (softened Light+). Each is a `--code-*` override set in [`themes/code.css`](../frontend/app/themes/code.css) keyed by `<html data-code-theme>` ([`displayPrefs.ts`](../frontend/lib/displayPrefs.ts)); chat SQL follows the same choice.
+- **Code style picker** (toolbar, and Settings → Appearance; remembered per browser): **Match app** (default: follows the app appearance), **Elegant** (the brand theme's paper style), **Code Dark** (Dark+) and **Code Light** (softened Light+). Each explicit choice is a `--code-*` override set keyed by `<html data-code-theme>` ([`themes/code.css`](../frontend/app/themes/code.css); Elegant lives in the brand theme file); chat SQL follows the same choice.
 
 - **Toolbar:** dialect · connection chip (BigQuery, PostgreSQL, Snowflake, MySQL, Oracle; DuckDB for conversation results), **Format** (`sql-formatter`, per dialect), **Wrap** (on by default, remembered), **Copy**, **.sql** download, **Expand**; on the right **Preview data** and **▶ Run ⌘↵**.
 - **Editor:** line numbers, bracket matching/auto-close, folding, ⌘F search & replace, multi-cursor, ⌘/ comment, selection-match highlight. Completion (Ctrl+Space or typing): keywords, tables in scope, and the opened table's columns with types.
@@ -140,6 +140,8 @@ Reload reopens the last conversation with its messages, step cards and latest re
 - [`themes/index.ts`](../frontend/app/themes/index.ts) holds brand copy: company, product name, tag, browser theme colour, About slides.
 - [`themes/cotality.css`](../frontend/app/themes/cotality.css) sets the tokens under `[data-theme="cotality"]` plus brand-only decoration (the coral dot, the triangle motif on About and sign-in).
 - CopilotKit's colours are derived from the same tokens in `globals.css`, so the chat follows the theme.
+- **Appearance** (Settings → Appearance, per browser): **Elegant** (default: the brand theme as designed), **Code Dark** and **Code Light** (VS Code Dark/Light Modern). An appearance re-sets every semantic token, including `--code-*` and charts, under `:root[data-appearance="…"]` in [`themes/appearance.css`](../frontend/app/themes/appearance.css), layered over the brand theme, so it works for any client theme. Brand copy and decoration stay; colours follow the appearance.
+- The choice is applied before first paint by an inline `beforeInteractive` script ([`lib/htmlPrefs.ts`](../frontend/lib/htmlPrefs.ts)), so a dark appearance never flashes light. Settings preview cards render each option with its real tokens via `[data-appearance-preview]` (brand themes add `[data-theme="<id>"] [data-appearance-preview="elegant"]` to their token selectors).
 
 ### Token reference
 
@@ -156,7 +158,7 @@ Reload reopens the last conversation with its messages, step cards and latest re
 
 ### Adding theme B (checklist)
 1. Copy `cotality.css` to `<client>.css`, change the selector to `[data-theme="<client>"]`, set every token. Keep `--accent-strong` at ≥ 3:1 against `--surface` (it is the focus ring).
-2. Add brand decoration only under that theme's selector (or none).
+2. Add brand decoration only under that theme's selector (or none). Include `[data-theme="<client>"] [data-appearance-preview="elegant"]` in the token selector, and `:root[data-theme="<client>"][data-code-theme="elegant"]` in the `--code-*` block, as `cotality.css` does.
 3. Add an entry to `THEMES` in `themes/index.ts` (copy, About slides, `themeColor`).
 4. Import the CSS in `app/layout.tsx`.
 5. Set `ODN_THEME=<client>` for that deployment. No component changes should be needed; if one is, a hard-coded value slipped in, so fix it with a token.

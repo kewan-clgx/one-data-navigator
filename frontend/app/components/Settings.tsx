@@ -4,6 +4,15 @@ import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode
 
 import { api, CONNECTIONS_CHANGED, LLM_CHANGED, notify, type Budget, type Connection } from "@/lib/client-api";
 import type { CollibraEnv } from "@/lib/collibra";
+import {
+  APPEARANCES,
+  CODE_THEMES,
+  setAppearance,
+  setCodeTheme,
+  useAppearance,
+  useCodeTheme,
+  type CodeThemeId,
+} from "@/lib/displayPrefs";
 import CollibraSettings from "./CollibraSettings";
 import PostgresConnectionForm, { EMPTY_POSTGRES_DRAFT, draftOfPostgres } from "./PostgresConnectionForm";
 import SnowflakeConnectionForm, { EMPTY_SNOWFLAKE_DRAFT, draftOfSnowflake } from "./SnowflakeConnectionForm";
@@ -1007,7 +1016,72 @@ function ConnectionsSection({ canManageShared = false, onSummary }: { canManageS
   );
 }
 
-type SectionId = "model" | "sources" | "collibra";
+/** App look (per browser): three preview cards, each rendered with that appearance's real tokens. */
+function AppearanceSection() {
+  const ids = useId();
+  const current = useAppearance();
+  const code = useCodeTheme();
+  return (
+    <section className="settings-card" aria-labelledby={`${ids}-h`}>
+      <header className="settings-head">
+        <h2 id={`${ids}-h`}>Appearance</h2>
+        <p className="muted">How EasyQuery looks in this browser. Your data and chats are unaffected.</p>
+      </header>
+      <div className="appearance-grid" role="radiogroup" aria-labelledby={`${ids}-h`}>
+        {APPEARANCES.map((a) => (
+          <label key={a.id} className="appearance-card">
+            <input
+              type="radio"
+              className="sr-only"
+              name={`${ids}-appearance`}
+              value={a.id}
+              checked={current === a.id}
+              onChange={() => setAppearance(a.id)}
+            />
+            <span className="appearance-preview" data-appearance-preview={a.id} aria-hidden>
+              <span className="ap-chrome">
+                <i className="ap-mark" />
+                <i className="ap-line ap-line--chrome" />
+              </span>
+              <span className="ap-body">
+                <span className="ap-panel">
+                  <i className="ap-line ap-line--panel" />
+                  <i className="ap-line ap-line--panel ap-line--sel" />
+                  <i className="ap-line ap-line--panel" />
+                </span>
+                <span className="ap-main">
+                  <span className="ap-code">
+                    <span className="sqlh-keyword">SELECT</span> <span className="sqlh-function">COUNT</span>(*)
+                  </span>
+                  <i className="ap-line ap-line--main" />
+                  <i className="ap-btn" />
+                </span>
+              </span>
+            </span>
+            <span className="appearance-name">
+              {a.label}
+              {current === a.id && <span className="appearance-check">✓</span>}
+            </span>
+            <span className="appearance-hint">{a.hint}</span>
+          </label>
+        ))}
+      </div>
+      <label className="appearance-code">
+        <span>SQL code style</span>
+        <select value={code} onChange={(e) => setCodeTheme(e.target.value as CodeThemeId)}>
+          {CODE_THEMES.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+        <span className="muted">Workbench editor and SQL in chat. “Match app” follows the appearance above.</span>
+      </label>
+    </section>
+  );
+}
+
+type SectionId = "model" | "sources" | "collibra" | "appearance";
 const SECTION_KEY = "odn.settings.section";
 /** Dispatch with `detail: SectionId` to open Settings on a section (e.g. the trial banner opens "model"). */
 export const SETTINGS_SECTION = "odn:settings-section";
@@ -1016,6 +1090,7 @@ const SECTION_ICONS: Record<SectionId, ReactNode> = {
   model: <path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8zM18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8z" />,
   sources: <path d="M4 6c0-1.7 3.6-3 8-3s8 1.3 8 3-3.6 3-8 3-8-1.3-8-3zM4 6v6c0 1.7 3.6 3 8 3s8-1.3 8-3V6M4 12v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6" />,
   collibra: <path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3zM5 17a3 3 0 0 1 3-3h11M9 8h6" />,
+  appearance: <path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM12 3v18M12 3a9 9 0 0 1 0 18" />,
 };
 
 /**
@@ -1028,9 +1103,10 @@ export default function Settings({ role, collibraEnvs = null }: { role?: string;
   // Settings only renders client-side (AppShell waits for a thread id), so localStorage is available here.
   const [section, setSection] = useState<SectionId>(() => {
     const saved = localStorage.getItem(SECTION_KEY);
-    return saved === "sources" || saved === "collibra" ? saved : "model";
+    return saved === "sources" || saved === "collibra" || saved === "appearance" ? saved : "model";
   });
   const [summary, setSummary] = useState<Record<string, string>>({});
+  const appearance = useAppearance();
   const [modelRefresh, setModelRefresh] = useState(0);
   const onModel = useCallback((v: string) => setSummary((s) => ({ ...s, model: v })), []);
   const onSources = useCallback((v: string) => setSummary((s) => ({ ...s, sources: v })), []);
@@ -1053,6 +1129,7 @@ export default function Settings({ role, collibraEnvs = null }: { role?: string;
     ...(showCollibra
       ? [{ id: "collibra" as const, label: "Collibra", status: collibraEnvs?.length ? `${collibraEnvs.length} connected` : "Not set up" }]
       : []),
+    { id: "appearance", label: "Appearance", status: APPEARANCES.find((a) => a.id === appearance)?.label ?? "" },
   ];
   const active = sections.some((x) => x.id === section) ? section : "model";
 
@@ -1088,6 +1165,9 @@ export default function Settings({ role, collibraEnvs = null }: { role?: string;
           <CollibraSettings envs={collibraEnvs} isAdmin={isAdmin} />
         </div>
       )}
+      <div hidden={active !== "appearance"}>
+        <AppearanceSection />
+      </div>
     </div>
   );
 }

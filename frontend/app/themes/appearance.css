@@ -1,0 +1,165 @@
+/* User-selectable app appearances, layered over the brand theme (<html data-theme>) via <html data-appearance>.
+   "Elegant" (default) is the brand theme itself; Code Dark / Code Light re-skin every semantic token after VS Code's
+   Dark Modern / Light Modern, and carry the matching SQL code style (themes/code.css can still override it).
+   :root raises specificity above [data-theme]. [data-appearance-preview] scopes the same tokens to the
+   Settings preview cards. Text pairs are >= 4.5:1, --accent-strong >= 3:1 on --surface. */
+
+:root[data-appearance="code-dark"],
+[data-appearance-preview="code-dark"] {
+  color-scheme: dark;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", system-ui, Ubuntu, sans-serif;
+  --radius: 4px;
+
+  --app-bg: #1f1f1f;
+  --chrome-bg: #181818;
+  --chrome-fg: #cccccc;
+  --chrome-border: #2b2b2b;
+
+  --panel-bg: #181818;
+  --panel-fg: #cccccc;
+  --panel-muted: #9d9d9d;
+  --panel-border: #2b2b2b;
+  --panel-border-strong: #454545;
+  --panel-hover: rgba(255, 255, 255, 0.05);
+  --panel-selected: rgba(0, 120, 212, 0.3);
+  --panel-input-bg: #313131;
+  --panel-focus: #3794ff;
+
+  --surface: #1f1f1f;
+  --surface-alt: #262626;
+  --fg: #cccccc;
+  --fg-muted: #9d9d9d;
+  --border: #3c3c3c;
+
+  --primary: #0078d4;
+  --primary-fg: #ffffff;
+  --accent: #0078d4;
+  --accent-strong: #3794ff;
+  --accent-2: #0e639c;
+  --on-accent: #ffffff;
+  --mark-bg: #e2c08d;
+  --mark-fg: #1f1f1f;
+
+  --danger: #f48771;
+  --danger-bg: #3a1d1d;
+  --success: #89d185;
+  --success-bg: #1e3a1e;
+  --warning-bg: #352a12;
+  --warning-border: #cca700;
+
+  --chart-1: #3794ff;
+  --chart-2: #f48771;
+  --chart-3: #e2c08d;
+  --chart-4: #89d185;
+  --chart-5: #c586c0;
+  --chart-6: #4ec9b0;
+  --chart-7: #dcdcaa;
+  --chart-8: #9cdcfe;
+
+  --code-scheme: dark;
+  --code-bg: #1f1f1f;
+  --code-fg: #d4d4d4;
+  --code-gutter-bg: #1f1f1f;
+  --code-gutter-fg: #858585;
+  --code-active-line: rgba(255, 255, 255, 0.05);
+  --code-selection: rgba(38, 79, 120, 0.9);
+  --code-match: rgba(173, 214, 255, 0.15);
+  --code-search: rgba(234, 92, 0, 0.33);
+  --code-search-current: rgba(98, 51, 21, 0.9);
+  --code-cursor: #aeafad;
+  --code-keyword: #569cd6;
+  --code-keyword-weight: 400;
+  --code-string: #ce9178;
+  --code-number: #b5cea8;
+  --code-function: #dcdcaa;
+  --code-type: #4ec9b0;
+  --code-comment: #6a9955;
+  --code-operator: #d4d4d4;
+  --code-identifier: #9cdcfe;
+  --code-error: #f48771;
+  --code-toolbar-bg: #181818;
+  --code-toolbar-fg: #cccccc;
+  --code-muted: #9d9d9d;
+  --code-border: #2b2b2b;
+  --code-pressed-bg: #37373d;
+}
+
+:root[data-appearance="code-light"],
+[data-appearance-preview="code-light"] {
+  color-scheme: light;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", system-ui, Ubuntu, sans-serif;
+  --radius: 4px;
+
+  --app-bg: #f8f8f8;
+  --chrome-bg: #f8f8f8;
+  --chrome-fg: #3b3b3b;
+  --chrome-border: #e5e5e5;
+
+  --panel-bg: #f8f8f8;
+  --panel-fg: #3b3b3b;
+  --panel-muted: #616161;
+  --panel-border: #e5e5e5;
+  --panel-border-strong: #cecece;
+  --panel-hover: rgba(0, 0, 0, 0.04);
+  --panel-selected: #dce8f6;
+  --panel-input-bg: #ffffff;
+  --panel-focus: #005fb8;
+
+  --surface: #ffffff;
+  --surface-alt: #f8f8f8;
+  --fg: #3b3b3b;
+  --fg-muted: #616161;
+  --border: #e0e0e0;
+
+  --primary: #005fb8;
+  --primary-fg: #ffffff;
+  --accent: #005fb8;
+  --accent-strong: #005fb8;
+  --accent-2: #0078d4;
+  --on-accent: #ffffff;
+  --mark-bg: #ffe28a;
+  --mark-fg: #1f1f1f;
+
+  --danger: #c72e0f;
+  --danger-bg: #fde7e9;
+  --success: #2e7d32;
+  --success-bg: #e8f5e9;
+  --warning-bg: #fff8e1;
+  --warning-border: #bf8803;
+
+  --chart-1: #005fb8;
+  --chart-2: #c72e0f;
+  --chart-3: #bf8803;
+  --chart-4: #2e7d32;
+  --chart-5: #8f4eb5;
+  --chart-6: #16825d;
+  --chart-7: #795e26;
+  --chart-8: #5f6b7a;
+
+  --code-scheme: light;
+  --code-bg: #ffffff;
+  --code-fg: #1f1f1f;
+  --code-gutter-bg: #ffffff;
+  --code-gutter-fg: #6e7781;
+  --code-active-line: #f5f8fc;
+  --code-selection: #cce3ff;
+  --code-match: rgba(173, 214, 255, 0.5);
+  --code-search: rgba(250, 200, 80, 0.45);
+  --code-search-current: rgba(240, 150, 40, 0.55);
+  --code-cursor: #1f1f1f;
+  --code-keyword: #0b4fd1;
+  --code-keyword-weight: 400;
+  --code-string: #a31515;
+  --code-number: #0b7a50;
+  --code-function: #795e26;
+  --code-type: #1d6f87;
+  --code-comment: #3f7f3f;
+  --code-operator: #3b3b3b;
+  --code-identifier: #00539c;
+  --code-error: #cd3131;
+  --code-toolbar-bg: #f8f8f8;
+  --code-toolbar-fg: #3b3b3b;
+  --code-muted: #57606a;
+  --code-border: #e0e0e0;
+  --code-pressed-bg: #ffffff;
+}

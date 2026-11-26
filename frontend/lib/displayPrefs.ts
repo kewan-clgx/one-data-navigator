@@ -2,7 +2,10 @@
 
 import { useSyncExternalStore } from "react";
 
+import { APPEARANCE_IDS, APPEARANCE_KEY, CODE_THEME_IDS, CODE_THEME_KEY } from "./htmlPrefs";
+
 const STORAGE_KEY = "odn.showAgentSteps";
+
 const listeners = new Set<() => void>();
 
 function read(): boolean {
@@ -34,49 +37,61 @@ export function useShowAgentSteps(): boolean {
   );
 }
 
-/** SQL code style (workbench editor and chat SQL); "easyquery" follows the brand theme's --code-* tokens. */
+/** A persisted choice applied as a `data-*` attribute on <html> (read by themes/*.css). */
+function htmlPref<T extends string>(key: string, attr: "appearance" | "codeTheme", ids: readonly T[], fallback: T) {
+  const listeners = new Set<() => void>();
+  const read = (): T => {
+    try {
+      const stored = localStorage.getItem(key);
+      return ids.includes(stored as T) ? (stored as T) : fallback;
+    } catch {
+      return fallback;
+    }
+  };
+  const apply = (id: T) => {
+    if (id === fallback) delete document.documentElement.dataset[attr];
+    else document.documentElement.dataset[attr] = id;
+  };
+  const set = (id: T) => {
+    try {
+      localStorage.setItem(key, id);
+    } catch {
+      // Storage unavailable; applies for this page only.
+    }
+    apply(id);
+    listeners.forEach((listener) => listener());
+  };
+  const use = (): T =>
+    useSyncExternalStore(
+      (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      read,
+      () => fallback,
+    );
+  return { set, use };
+}
+
+/** App appearance: "elegant" is the brand theme as designed; the others re-skin it (themes/appearance.css). */
+export const APPEARANCES = [
+  { id: "elegant", label: "Elegant", hint: "The brand look: dark ink panel, warm paper surfaces" },
+  { id: "code-dark", label: "Code Dark", hint: "VS Code Dark Modern colours, easy on the eyes" },
+  { id: "code-light", label: "Code Light", hint: "VS Code Light Modern colours, bright and neutral" },
+] as const;
+export type AppearanceId = (typeof APPEARANCES)[number]["id"];
+const appearance = htmlPref<AppearanceId>(APPEARANCE_KEY, "appearance", APPEARANCE_IDS, "elegant");
+export const setAppearance = appearance.set;
+export const useAppearance = appearance.use;
+
+/** SQL code style (workbench editor and chat SQL); "auto" follows the app appearance (themes/code.css). */
 export const CODE_THEMES = [
-  { id: "easyquery", label: "EasyQuery" },
-  { id: "vscode-dark", label: "VS Code Dark" },
-  { id: "vscode-light", label: "VS Code Light" },
+  { id: "auto", label: "Match app" },
+  { id: "elegant", label: "Elegant" },
+  { id: "vscode-dark", label: "Code Dark" },
+  { id: "vscode-light", label: "Code Light" },
 ] as const;
 export type CodeThemeId = (typeof CODE_THEMES)[number]["id"];
-
-const CODE_THEME_KEY = "odn.sql.theme";
-const codeThemeListeners = new Set<() => void>();
-
-function readCodeTheme(): CodeThemeId {
-  try {
-    const stored = localStorage.getItem(CODE_THEME_KEY);
-    return CODE_THEMES.some((t) => t.id === stored) ? (stored as CodeThemeId) : "easyquery";
-  } catch {
-    return "easyquery";
-  }
-}
-
-/** Applies the code style to the page (`data-code-theme` on <html>, read by themes/code.css). */
-export function applyCodeTheme(id: CodeThemeId = readCodeTheme()) {
-  if (id === "easyquery") delete document.documentElement.dataset.codeTheme;
-  else document.documentElement.dataset.codeTheme = id;
-}
-
-export function setCodeTheme(id: CodeThemeId) {
-  try {
-    localStorage.setItem(CODE_THEME_KEY, id);
-  } catch {
-    // Storage unavailable; applies for this page only.
-  }
-  applyCodeTheme(id);
-  codeThemeListeners.forEach((listener) => listener());
-}
-
-export function useCodeTheme(): CodeThemeId {
-  return useSyncExternalStore(
-    (listener) => {
-      codeThemeListeners.add(listener);
-      return () => codeThemeListeners.delete(listener);
-    },
-    readCodeTheme,
-    () => "easyquery",
-  );
-}
+const codeTheme = htmlPref<CodeThemeId>(CODE_THEME_KEY, "codeTheme", CODE_THEME_IDS, "auto");
+export const setCodeTheme = codeTheme.set;
+export const useCodeTheme = codeTheme.use;

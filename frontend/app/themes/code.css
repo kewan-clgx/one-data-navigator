@@ -1,7 +1,8 @@
-/* User-selectable SQL code styles (workbench editor + chat SQL). The default ("EasyQuery") is the brand theme's own
-   --code-* tokens; these override them via <html data-code-theme>. :root raises specificity above [data-theme]. */
+/* User-selectable SQL code styles (workbench editor + chat SQL), via <html data-code-theme>. The default ("Match app")
+   uses whatever the brand theme / appearance set; "Elegant" is declared in the brand theme file. Loaded after
+   appearance.css so an explicit code style wins over the appearance's. */
 
-/* VS Code Dark+ (the original editor look). */
+/* Code Dark: VS Code Dark+ (the original editor look). */
 :root[data-code-theme="vscode-dark"] {
   --code-scheme: dark;
   --code-bg: #1e1e1e;
@@ -31,7 +32,7 @@
   --code-pressed-bg: #37373d;
 }
 
-/* VS Code Light+, softened: off-white chrome, slightly deeper hues than stock (all >= 4.5:1). */
+/* Code Light: VS Code Light+, softened: off-white chrome, slightly deeper hues than stock (all >= 4.5:1). */
 :root[data-code-theme="vscode-light"] {
   --code-scheme: light;
   --code-bg: #ffffff;
