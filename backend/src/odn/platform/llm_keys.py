@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 import httpx
@@ -75,6 +75,11 @@ class LlmKeyTest(BaseModel):
     error: str | None = None
     models: list[str] = Field(default_factory=list)
     model_found: bool | None = None
+    # GitHub Copilot only: prices and cost grouping per model, the user's allowance, today's EasyQuery usage.
+    model_info: list[dict[str, Any]] = Field(default_factory=list)
+    recommended: str | None = None
+    quota: dict[str, Any] | None = None
+    usage_today: list[dict[str, Any]] = Field(default_factory=list)
 
 
 def _aad(ctx: RequestContext) -> str:
@@ -154,6 +159,20 @@ def resolve_llm_config(ctx: RequestContext) -> dict[str, Any] | None:
     }
 
 
+def own_key_usage_today(ctx: RequestContext) -> list[dict[str, Any]]:
+    """Today's (UTC) model usage on the user's own key, per model."""
+    with tenant_transaction(ctx.tenant_id, ctx.user_id) as conn:
+        rows = conn.execute(
+            """
+            SELECT model, requests, prompt_tokens, completion_tokens, cached_tokens FROM llm_usage
+             WHERE user_id = %s AND key_source = 'user' AND usage_date = %s
+             ORDER BY prompt_tokens DESC
+            """,
+            (ctx.user_id, datetime.now(UTC).date()),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def check_llm_key(ctx: RequestContext, data: LlmKeyInput) -> LlmKeyTest:
     """Check the key by listing the provider's models (no tokens are spent)."""
     try:
@@ -171,12 +190,21 @@ def check_llm_key(ctx: RequestContext, data: LlmKeyInput) -> LlmKeyTest:
         from odn.platform import github_copilot
 
         try:
-            models = github_copilot.list_models(api_key)
+            found = github_copilot.overview(api_key)
         except Exception as exc:  # noqa: BLE001 - any SDK/runtime failure means the seat can't be used
             log.info("Copilot model listing failed: %s", type(exc).__name__)
             return LlmKeyTest(ok=False, error="this GitHub account has no usable GitHub Copilot access; sign in again")
+        models = [m.id for m in found.models]
         wanted = data.normalized_model()
-        return LlmKeyTest(ok=True, models=models, model_found=wanted in models if models and wanted else None)
+        return LlmKeyTest(
+            ok=True,
+            models=models,
+            model_found=wanted in models if models and wanted else None,
+            model_info=[m.model_dump() for m in found.models],
+            recommended=github_copilot.recommended_model(found.models),
+            quota=found.quota.model_dump() if found.quota else None,
+            usage_today=own_key_usage_today(ctx),
+        )
 
     if data.provider == "gemini":
         url, headers = (

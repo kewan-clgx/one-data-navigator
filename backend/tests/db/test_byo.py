@@ -26,6 +26,7 @@ from odn.platform.llm_keys import (
     LlmKeyTestInput,
     check_llm_key,
     get_llm_key,
+    own_key_usage_today,
     resolve_llm_config,
     save_llm_key,
 )
@@ -169,7 +170,11 @@ def test_mysql_password_is_encrypted_scoped_and_retained(users) -> None:
 
 def test_oracle_password_encryption_scope_and_edit_retention(users):
     from odn.api.me_routes import ConnectionOut
-    from odn.platform.connections.service import resolve_postgres_credentials, save_connection, unsaved_connector
+    from odn.platform.connections.service import (
+        resolve_postgres_credentials,
+        save_connection,
+        unsaved_connector,
+    )
 
     a, b, other = users
     data = PersonalConnectionInput(
@@ -299,5 +304,8 @@ def test_trial_budget_is_per_user_and_own_key_is_unmetered(users, monkeypatch: p
 
     save_llm_key(other, LlmKeyInput(provider="gemini", model="gemini-x", api_key="AIza-test-key-1"))
     status = record_llm_usage(other, "gemini-x", 5000, 0, key_source="user")
+    record_llm_usage(other, "gemini-x", 3000, 10, key_source="user", cached_tokens=2500)
+    [today] = own_key_usage_today(other)
+    assert (today["requests"], today["prompt_tokens"], today["cached_tokens"]) == (2, 8000, 2500)
     assert (status.key_source, status.exceeded, status.tokens_used_today) == ("user", False, 110)
     assert budget_status(b.tenant_id, b.user_id).user_tokens_used_today == 0

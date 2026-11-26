@@ -75,12 +75,29 @@ def test_long_tool_results_are_clipped() -> None:
 
 
 def test_tool_calls_are_handed_back_to_adk_as_function_calls() -> None:
-    resp = copilot_llm.response_from([("run_sql", {"sql": "SELECT 2"})], None, "claude-x", {"input": 7, "output": 3})
+    resp = copilot_llm.response_from(
+        [("run_sql", {"sql": "SELECT 2"})], None, "claude-x", {"input": 7, "output": 3, "cache_read": 5}
+    )
     [part] = resp.content.parts
     assert (part.function_call.name, part.function_call.args) == ("run_sql", {"sql": "SELECT 2"})
     assert part.function_call.id.startswith("copilot-")
-    assert (resp.usage_metadata.prompt_token_count, resp.usage_metadata.candidates_token_count) == (7, 3)
+    usage = resp.usage_metadata
+    assert (usage.prompt_token_count, usage.candidates_token_count, usage.cached_content_token_count) == (7, 3, 5)
     assert resp.model_version == "claude-x"
 
     answer = copilot_llm.response_from([], "CA leads.", "claude-x", {})
     assert [p.text for p in answer.content.parts] == ["CA leads."]
+
+
+def test_only_the_latest_tool_results_are_resent_in_full() -> None:
+    big = {"rows": "x" * 5_000}
+
+    def result(name: str) -> types.Content:
+        return types.Content(
+            role="user", parts=[types.Part(function_response=types.FunctionResponse(name=name, response=big))]
+        )
+
+    text = copilot_llm.transcript([result("list_tables"), result("run_sql")])
+    older, latest = text.split("\n\n")
+    assert older.startswith("[Tool result: list_tables]") and "more characters omitted" in older
+    assert latest.startswith("[Tool result: run_sql]") and "omitted" not in latest

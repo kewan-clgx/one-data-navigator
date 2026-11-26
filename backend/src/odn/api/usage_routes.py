@@ -33,6 +33,8 @@ class LlmUsageInput(BaseModel):
     model: str = Field(min_length=1, max_length=200)
     prompt_tokens: int = Field(ge=0, le=MAX_TOKENS_PER_CALL)
     completion_tokens: int = Field(ge=0, le=MAX_TOKENS_PER_CALL)
+    # Part of prompt_tokens served from the provider's prompt cache.
+    cached_tokens: int = Field(default=0, ge=0, le=MAX_TOKENS_PER_CALL)
     key_source: KeySource = "platform"
 
 
@@ -47,7 +49,10 @@ def llm_usage(
 ) -> BudgetStatus:
     # Only the agent runtime reports usage (the user's bearer token identifies whose usage it is).
     require_agent(x_odn_agent_token)
-    return record_llm_usage(ctx, data.model, data.prompt_tokens, data.completion_tokens, data.key_source)
+    return record_llm_usage(
+        ctx, data.model, data.prompt_tokens, data.completion_tokens, data.key_source,
+        cached_tokens=min(data.cached_tokens, data.prompt_tokens),
+    )
 
 
 @router.get("/telemetry")

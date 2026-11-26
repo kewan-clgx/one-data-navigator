@@ -33,12 +33,132 @@ const PROVIDERS: { id: Provider; label: string; keyHelp: string; modelHint: stri
 const NON_CHAT_MODEL = /(embed|tts|whisper|dall-e|moderation|davinci|babbage|image|imagen|audio|realtime|transcri|search|computer-use|aqa|veo|lyria|banana|robotics)/i;
 const OTHER_MODEL = "__other__";
 
-type ModelList = { key: string; state: "loading" | "ready" | "error"; models: string[]; error?: string | null };
+type CopilotModel = {
+  id: string;
+  price_category: string | null;
+  input_price: number | null;
+  output_price: number | null;
+  cache_read_price?: number | null;
+  batch_size: number | null;
+};
+type CopilotQuota = {
+  used: number | null;
+  entitlement: number | null;
+  remaining_percentage: number | null;
+  unlimited: boolean;
+  overage_allowed: boolean;
+  reset_date: string | null;
+};
+type UsageToday = { model: string; requests: number; prompt_tokens: number; completion_tokens: number; cached_tokens?: number };
+// GitHub Copilot extras from the provider: prices per model, the user's monthly allowance, today's usage here.
+type CopilotExtras = { info: CopilotModel[]; recommended: string | null; quota: CopilotQuota | null; usage: UsageToday[] };
+type ModelList = { key: string; state: "loading" | "ready" | "error"; models: string[]; error?: string | null; copilot?: CopilotExtras };
 
 type LlmKey = { provider: Provider; model: string; api_base: string | null; key_hint: string; updated_at: string };
-type LlmTest = { ok: boolean; error: string | null; models: string[]; model_found: boolean | null };
+type LlmTest = {
+  ok: boolean;
+  error: string | null;
+  models: string[];
+  model_found: boolean | null;
+  model_info?: CopilotModel[];
+  recommended?: string | null;
+  quota?: CopilotQuota | null;
+  usage_today?: UsageToday[];
+};
 
-function ModelStatus({ budget, current, onRemove, busy }: { budget: Budget | null; current: LlmKey | null; onRemove: () => void; busy: boolean }) {
+const COST_GROUPS = [
+  { id: "low", label: "Low cost" },
+  { id: "medium", label: "Medium cost" },
+  { id: "high", label: "High cost" },
+];
+
+/** Cost relative to the cheapest model by input price ("1×", "20×"), so the price spread is obvious. */
+function relativeCost(m: CopilotModel, all: CopilotModel[]): string | null {
+  const cheapest = Math.min(...all.map((x) => x.input_price ?? Infinity));
+  if (!m.input_price || !Number.isFinite(cheapest) || cheapest <= 0) return null;
+  return `${Math.max(1, Math.round(m.input_price / cheapest))}×`;
+}
+
+/** Estimated AI credits for today's usage from GitHub's per-model token prices; cached input at the cache price. */
+function estimatedCredits(usage: UsageToday[], info: CopilotModel[]): number | null {
+  let total = 0;
+  let priced = false;
+  for (const u of usage) {
+    const m = info.find((x) => x.id === u.model);
+    if (!m?.input_price || !m.batch_size) continue;
+    priced = true;
+    const cached = Math.min(u.cached_tokens ?? 0, u.prompt_tokens);
+    total +=
+      ((u.prompt_tokens - cached) * m.input_price +
+        cached * (m.cache_read_price ?? m.input_price) +
+        u.completion_tokens * (m.output_price ?? 0)) /
+      m.batch_size;
+  }
+  return priced ? total : null;
+}
+
+/** Copilot models grouped by GitHub's cost category, cheapest first, with the relative cost and a recommendation. */
+function CopilotModelOptions({ extras, ids }: { extras: CopilotExtras; ids: string[] }) {
+  const info = extras.info.filter((m) => ids.includes(m.id));
+  const label = (m: CopilotModel) =>
+    [m.id, relativeCost(m, info) && `${relativeCost(m, info)} cost`, m.id === extras.recommended && "recommended"]
+      .filter(Boolean)
+      .join(" · ");
+  const byPrice = (a: CopilotModel, b: CopilotModel) => (a.input_price ?? 0) - (b.input_price ?? 0) || a.id.localeCompare(b.id);
+  const other = info.filter((m) => !COST_GROUPS.some((g) => g.id === m.price_category));
+  return (
+    <>
+      {COST_GROUPS.map((g) => {
+        const group = info.filter((m) => m.price_category === g.id).sort(byPrice);
+        return group.length ? (
+          <optgroup key={g.id} label={g.label}>
+            {group.map((m) => <option key={m.id} value={m.id}>{label(m)}</option>)}
+          </optgroup>
+        ) : null;
+      })}
+      {other.length > 0 && (
+        <optgroup label="Other">
+          {other.map((m) => <option key={m.id} value={m.id}>{m.id === "auto" ? "auto (GitHub picks the model; cost varies)" : label(m)}</option>)}
+        </optgroup>
+      )}
+    </>
+  );
+}
+
+function CopilotUsage({ extras }: { extras: CopilotExtras }) {
+  const q = extras.quota;
+  const calls = extras.usage.reduce((n, u) => n + u.requests, 0);
+  const tokens = extras.usage.reduce((n, u) => n + u.prompt_tokens + u.completion_tokens, 0);
+  const credits = estimatedCredits(extras.usage, extras.info);
+  const [now] = useState(() => Date.now());
+  const reset = q?.reset_date ? new Date(q.reset_date) : null;
+  const left = q?.remaining_percentage ?? null;
+  return (
+    <div className="copilot-usage">
+      {q && !q.unlimited && left !== null && (
+        <>
+          <div className="settings-meter" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={100 - left} aria-label="Copilot premium allowance used this month">
+            <span style={{ width: `${Math.min(100, Math.max(0, 100 - left))}%` }} />
+          </div>
+          <p className="muted">
+            <strong>{Math.round(left)}% of your monthly Copilot allowance left</strong>
+            {q.used !== null && q.entitlement ? ` (${q.used.toLocaleString()} of ${q.entitlement.toLocaleString()} used, as GitHub reports it)` : ""}
+            {reset && reset.getTime() > now + 86_400_000 ? ` · resets ${reset.toLocaleDateString()}` : ""}
+            {left <= 0 && q.overage_allowed ? " · further use is billed as overage" : ""}.
+          </p>
+        </>
+      )}
+      {q?.unlimited && <p className="muted">Your Copilot plan has no monthly limit on premium requests.</p>}
+      <p className="muted">
+        {calls > 0
+          ? <>Today in EasyQuery: {calls.toLocaleString()} model {calls === 1 ? "call" : "calls"} · {tokens.toLocaleString()} tokens{credits !== null ? <> · ≈ {credits < 10 ? credits.toFixed(1) : Math.round(credits).toLocaleString()} AI credits (estimate)</> : null}.</>
+          : "No Copilot usage in EasyQuery today."}
+      </p>
+    </div>
+  );
+}
+
+function ModelStatus({ budget, current, onRemove, busy, copilot }: { budget: Budget | null; current: LlmKey | null; onRemove: () => void; busy: boolean; copilot?: CopilotExtras }) {
   if (!budget) return null;
   if (budget.key_source === "user" && current) {
     const label = PROVIDERS.find((p) => p.id === current.provider)?.label ?? current.provider;
@@ -52,6 +172,7 @@ function ModelStatus({ budget, current, onRemove, busy }: { budget: Budget | nul
                 Signed in as <strong>{current.key_hint}</strong> · <code>{current.model}</code>. Uses your Copilot seat and your
                 organization&apos;s Copilot plan; no platform limit.
               </p>
+              {copilot && <CopilotUsage extras={copilot} />}
             </>
           ) : (
             <>
@@ -211,7 +332,8 @@ function GitHubSignIn({ signedInAs, onConnected }: { signedInAs: string | null; 
   );
 }
 
-function LlmKeySection({ onSummary }: { onSummary?: (s: string) => void }) {
+/** `refresh` changes when the section is opened again, so quota and today's usage are reloaded. */
+function LlmKeySection({ onSummary, refresh = 0 }: { onSummary?: (s: string) => void; refresh?: number }) {
   const ids = useId();
   const [current, setCurrent] = useState<LlmKey | null>(null);
   const [budget, setBudget] = useState<Budget | null>(null);
@@ -262,7 +384,8 @@ function LlmKeySection({ onSummary }: { onSummary?: (s: string) => void }) {
 
   // The provider lists models only for a valid key: load them as soon as there is one (typed, or already saved).
   const canList = provider !== "openai_compatible" || /^https?:\/\/\S+/.test(apiBase);
-  const listKey = canList && (apiKey.trim().length >= 8 || sameProvider) ? `${provider}|${apiBase}|${apiKey.trim()}` : "";
+  const listKey =
+    canList && (apiKey.trim().length >= 8 || sameProvider) ? `${provider}|${apiBase}|${apiKey.trim()}|${refresh}` : "";
   useEffect(() => {
     if (!listKey) return;
     let cancelled = false;
@@ -276,7 +399,14 @@ function LlmKeySection({ onSummary }: { onSummary?: (s: string) => void }) {
         if (cancelled) return;
         setList(
           r.ok
-            ? { key: listKey, state: "ready", models: r.models.filter((m) => !NON_CHAT_MODEL.test(m)) }
+            ? {
+                key: listKey,
+                state: "ready",
+                models: r.models.filter((m) => !NON_CHAT_MODEL.test(m)),
+                copilot: r.model_info?.length
+                  ? { info: r.model_info, recommended: r.recommended ?? null, quota: r.quota ?? null, usage: r.usage_today ?? [] }
+                  : undefined,
+              }
             : { key: listKey, state: "error", models: [], error: r.error },
         );
       } catch (e) {
@@ -351,7 +481,13 @@ function LlmKeySection({ onSummary }: { onSummary?: (s: string) => void }) {
         <h2 id={`${ids}-h`}>AI model</h2>
         <p className="muted">The model behind the chat assistant.</p>
       </header>
-      <ModelStatus budget={budget} current={current} onRemove={onRemove} busy={busy} />
+      <ModelStatus
+        budget={budget}
+        current={current}
+        onRemove={onRemove}
+        busy={busy}
+        copilot={current?.provider === "github_copilot" && models?.copilot ? models.copilot : undefined}
+      />
       <h3>{current ? "Change model or provider" : "Use your own model"}</h3>
       <p className="muted">
         Sign in with GitHub to use your Copilot seat, or bring an API key. Credentials are encrypted at rest and only used
@@ -411,9 +547,13 @@ function LlmKeySection({ onSummary }: { onSummary?: (s: string) => void }) {
             >
               {!model && <option value="">Choose a model…</option>}
               {model && !models.models.includes(model) && <option value={model}>{model} (not in your key&apos;s list)</option>}
-              {models.models.map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
+              {models.copilot ? (
+                <CopilotModelOptions extras={models.copilot} ids={models.models} />
+              ) : (
+                models.models.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))
+              )}
               <option value={OTHER_MODEL}>Other — type a model name…</option>
             </select>
           ) : manual || models?.state === "error" || (models?.state === "ready" && models.models.length === 0) ? (
@@ -891,11 +1031,13 @@ export default function Settings({ role, collibraEnvs = null }: { role?: string;
     return saved === "sources" || saved === "collibra" ? saved : "model";
   });
   const [summary, setSummary] = useState<Record<string, string>>({});
+  const [modelRefresh, setModelRefresh] = useState(0);
   const onModel = useCallback((v: string) => setSummary((s) => ({ ...s, model: v })), []);
   const onSources = useCallback((v: string) => setSummary((s) => ({ ...s, sources: v })), []);
 
   const choose = useCallback((id: SectionId) => {
     setSection(id);
+    if (id === "model") setModelRefresh((n) => n + 1);
     localStorage.setItem(SECTION_KEY, id);
   }, []);
 
@@ -936,7 +1078,7 @@ export default function Settings({ role, collibraEnvs = null }: { role?: string;
         ))}
       </nav>
       <div hidden={active !== "model"}>
-        <LlmKeySection onSummary={onModel} />
+        <LlmKeySection onSummary={onModel} refresh={modelRefresh} />
       </div>
       <div hidden={active !== "sources"}>
         <ConnectionsSection canManageShared={isAdmin || role === "data_lead"} onSummary={onSources} />

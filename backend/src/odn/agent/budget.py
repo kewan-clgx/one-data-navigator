@@ -158,6 +158,7 @@ async def record_usage(callback_context: CallbackContext, llm_response: LlmRespo
                 "model": llm_response.model_version or os.environ.get("LITELLM_MODEL", "unknown"),
                 "prompt_tokens": usage.prompt_token_count or 0,
                 "completion_tokens": (usage.candidates_token_count or 0) + (usage.thoughts_token_count or 0),
+                "cached_tokens": usage.cached_content_token_count or 0,
                 "key_source": source if source in ("platform", "user") else "platform",
             },
         )

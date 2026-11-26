@@ -75,21 +75,27 @@ def budget_status(tenant_id: UUID, user_id: UUID | None = None) -> BudgetStatus:
 
 
 def record_llm_usage(
-    ctx: RequestContext, model: str, prompt_tokens: int, completion_tokens: int, key_source: KeySource = "platform"
+    ctx: RequestContext,
+    model: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    key_source: KeySource = "platform",
+    cached_tokens: int = 0,
 ) -> BudgetStatus:
     with tenant_transaction(ctx.tenant_id) as conn:
         conn.execute(
             """
             INSERT INTO llm_usage (tenant_id, user_id, usage_date, model, requests, prompt_tokens, completion_tokens,
-                                   key_source)
-            VALUES (%s, %s, %s, %s, 1, %s, %s, %s)
+                                   key_source, cached_tokens)
+            VALUES (%s, %s, %s, %s, 1, %s, %s, %s, %s)
             ON CONFLICT (tenant_id, usage_date, user_id, model, key_source) DO UPDATE
               SET requests = llm_usage.requests + 1,
                   prompt_tokens = llm_usage.prompt_tokens + EXCLUDED.prompt_tokens,
                   completion_tokens = llm_usage.completion_tokens + EXCLUDED.completion_tokens,
+                  cached_tokens = llm_usage.cached_tokens + EXCLUDED.cached_tokens,
                   updated_at = now()
             """,
-            (ctx.tenant_id, ctx.user_id, _today(), model, prompt_tokens, completion_tokens, key_source),
+            (ctx.tenant_id, ctx.user_id, _today(), model, prompt_tokens, completion_tokens, key_source, cached_tokens),
         )
     return budget_status(ctx.tenant_id, ctx.user_id)
 

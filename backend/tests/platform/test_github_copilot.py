@@ -44,3 +44,17 @@ def test_sign_in_is_unavailable_without_a_client_id(monkeypatch: pytest.MonkeyPa
     assert not github_copilot.enabled()
     with pytest.raises(github_copilot.GitHubUnavailable):
         github_copilot.start_device_flow()
+
+
+def test_recommended_model_is_the_strongest_low_cost_one() -> None:
+    m = github_copilot.CopilotModel
+    models = [
+        m(id="auto"),
+        m(id="big", price_category="high", input_price=400),
+        m(id="mid", price_category="medium", input_price=200),
+        m(id="tiny", price_category="low", input_price=10),
+        m(id="able", price_category="low", input_price=100),
+    ]
+    assert github_copilot.recommended_model(models) == "able"
+    assert github_copilot.recommended_model([m(id="mid", price_category="medium", input_price=200)]) == "mid"
+    assert github_copilot.recommended_model([m(id="auto")]) is None

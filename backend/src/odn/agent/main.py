@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 import uuid
 from typing import Any
@@ -15,6 +16,16 @@ from pydantic import BaseModel, Field
 from odn.agent.agent import CONTINUED_STATE_KEY, TITLE_STATE_KEY, build_root_agent, conversation_title
 from odn.agent.identity import BearerAuthMiddleware, bearer_token, user_key
 from odn.config import settings
+
+# Our own operational logs (model routing, Copilot call sizes; never message content) at INFO; libraries keep
+# their defaults. Uvicorn configures only its own loggers.
+_odn_log = logging.getLogger("odn")
+if not _odn_log.handlers:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+    _odn_log.addHandler(_handler)
+    _odn_log.setLevel(logging.INFO)
+    _odn_log.propagate = False
 
 app = FastAPI(title="EasyQuery Agent Runtime")
 app.add_middleware(BearerAuthMiddleware)

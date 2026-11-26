@@ -11,7 +11,7 @@ import asyncio
 import contextlib
 import shutil
 import tempfile
-from typing import Literal
+from typing import Any, Literal
 
 import httpx
 from pydantic import BaseModel
@@ -113,7 +113,58 @@ def github_login(token: str) -> str | None:
     return resp.json().get("login") if resp.status_code == 200 else None
 
 
-async def _list_models_async(token: str) -> list[str]:
+class CopilotModel(BaseModel):
+    id: str
+    name: str | None = None
+    # GitHub's own grouping: "low" | "medium" | "high" (None when not reported, e.g. "auto").
+    price_category: str | None = None
+    # AI credits per `batch_size` tokens, as GitHub reports them (read at runtime; prices change).
+    input_price: float | None = None
+    output_price: float | None = None
+    cache_read_price: float | None = None
+    batch_size: int | None = None
+
+
+class CopilotQuota(BaseModel):
+    """The user's monthly premium allowance ("premium_interactions"), as GitHub reports it."""
+
+    used: float | None = None
+    entitlement: float | None = None
+    remaining_percentage: float | None = None
+    unlimited: bool = False
+    overage_allowed: bool = False
+    reset_date: str | None = None
+
+
+class CopilotOverview(BaseModel):
+    models: list[CopilotModel]
+    quota: CopilotQuota | None = None
+
+
+def _model_info(m: Any) -> CopilotModel:
+    prices = getattr(getattr(m, "billing", None), "token_prices", None)
+    category = getattr(m, "model_picker_price_category", None)
+    return CopilotModel(
+        id=str(getattr(m, "id", None) or getattr(m, "name", m)),
+        name=getattr(m, "name", None),
+        price_category=(getattr(category, "value", None) or str(category)).lower() if category else None,
+        input_price=getattr(prices, "input_price", None),
+        output_price=getattr(prices, "output_price", None),
+        cache_read_price=getattr(prices, "cache_read_price", None),
+        batch_size=getattr(prices, "batch_size", None),
+    )
+
+
+def recommended_model(models: list[CopilotModel]) -> str | None:
+    """The strongest low-cost model: the most capable (priciest) one GitHub lists as "low" cost."""
+    low = [m for m in models if m.price_category == "low" and m.input_price is not None]
+    if low:
+        return max(low, key=lambda m: (m.input_price or 0, m.output_price or 0)).id
+    priced = [m for m in models if m.input_price is not None]
+    return min(priced, key=lambda m: m.input_price or 0).id if priced else None
+
+
+async def _overview_async(token: str, with_quota: bool) -> CopilotOverview:
     from copilot import ClientGitHubOptions, CopilotClient, RuntimeConnection
 
     # A throwaway runtime home: listing models keeps no state, and no other user's data is ever in reach.
@@ -125,14 +176,39 @@ async def _list_models_async(token: str) -> list[str]:
     )
     try:
         await client.start()
-        models = await client.list_models()
-        return sorted(str(getattr(m, "id", None) or getattr(m, "name", m)) for m in models)
+        models = sorted((_model_info(m) for m in await client.list_models()), key=lambda m: m.id)
+        quota = await _quota(client, token) if with_quota else None
+        return CopilotOverview(models=models, quota=quota)
     finally:
         with contextlib.suppress(Exception):
             await client.stop()
         shutil.rmtree(home, ignore_errors=True)
 
 
+async def _quota(client: Any, token: str) -> CopilotQuota | None:
+    from copilot.rpc import AccountGetQuotaRequest
+
+    try:
+        result = await client.rpc.account.get_quota(AccountGetQuotaRequest(git_hub_token=token))
+    except Exception:  # noqa: BLE001 - quota is informational; never block the model list on it
+        return None
+    snap = (getattr(result, "quota_snapshots", None) or {}).get("premium_interactions")
+    if snap is None:
+        return None
+    return CopilotQuota(
+        used=getattr(snap, "used_requests", None),
+        entitlement=getattr(snap, "entitlement_requests", None),
+        remaining_percentage=getattr(snap, "remaining_percentage", None),
+        unlimited=bool(getattr(snap, "is_unlimited_entitlement", False)),
+        overage_allowed=bool(getattr(snap, "overage_allowed_with_exhausted_quota", False)),
+        reset_date=getattr(snap, "reset_date", None),
+    )
+
+
+def overview(token: str, with_quota: bool = True) -> CopilotOverview:
+    """Models (with prices) this user's Copilot seat can use, and their allowance. Raises without Copilot access."""
+    return asyncio.run(asyncio.wait_for(_overview_async(token, with_quota), timeout=45))
+
+
 def list_models(token: str) -> list[str]:
-    """The models this user's Copilot seat can use (raises if the token has no Copilot access)."""
-    return asyncio.run(asyncio.wait_for(_list_models_async(token), timeout=45))
+    return [m.id for m in overview(token, with_quota=False).models]

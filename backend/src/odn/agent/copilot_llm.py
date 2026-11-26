@@ -29,8 +29,11 @@ from google.genai import types
 log = logging.getLogger(__name__)
 
 TURN_TIMEOUT_S = 180.0
-# Tool results can be large (rows, schemas); keep each one bounded in the transcript.
+# Tool results can be large (rows, schemas). Every call resends the whole transcript, so only the latest results
+# (what the model is about to use) go in full; earlier ones were already read and are kept short.
 MAX_TOOL_RESULT_CHARS = 30_000
+MAX_OLDER_TOOL_RESULT_CHARS = 2_000
+SESSION_ATTEMPTS = 2
 HANDED_BACK = "Accepted. The host application runs this tool and continues the conversation with its result."
 
 _client: Any = None
@@ -103,8 +106,11 @@ def _clip(text: str, limit: int = MAX_TOOL_RESULT_CHARS) -> str:
 
 def transcript(contents: list[types.Content]) -> str:
     """The conversation as plain text, oldest first, including earlier tool calls and their results."""
+    latest_results = max(
+        (i for i, c in enumerate(contents) if any(p.function_response is not None for p in c.parts or [])), default=-1
+    )
     blocks: list[str] = []
-    for content in contents:
+    for index, content in enumerate(contents):
         who = "User" if content.role == "user" else "Assistant"
         for part in content.parts or []:
             if part.thought:
@@ -114,7 +120,8 @@ def transcript(contents: list[types.Content]) -> str:
                 blocks.append(f"[Assistant called tool {part.function_call.name}] {args}")
             elif part.function_response is not None:
                 result = json.dumps(part.function_response.response or {}, default=str)
-                blocks.append(f"[Tool result: {part.function_response.name}]\n{_clip(result)}")
+                limit = MAX_TOOL_RESULT_CHARS if index == latest_results else MAX_OLDER_TOOL_RESULT_CHARS
+                blocks.append(f"[Tool result: {part.function_response.name}]\n{_clip(result, limit)}")
             elif part.text:
                 blocks.append(f"[{who}]\n{part.text}")
             elif part.inline_data is not None:
@@ -130,7 +137,7 @@ def prompt(llm_request: LlmRequest) -> str:
     )
 
 
-def response_from(calls: list[tuple[str, Any]], text: str | None, model: str, usage: dict[str, int]) -> LlmResponse:
+def response_from(calls: list[tuple[str, Any]], text: str | None, model: str, usage: dict[str, float]) -> LlmResponse:
     parts: list[types.Part] = []
     if text and text.strip():
         parts.append(types.Part(text=text))
@@ -148,9 +155,10 @@ def response_from(calls: list[tuple[str, Any]], text: str | None, model: str, us
         content=types.Content(role="model", parts=parts),
         model_version=model,
         usage_metadata=types.GenerateContentResponseUsageMetadata(
-            prompt_token_count=usage.get("input", 0),
-            candidates_token_count=usage.get("output", 0),
-            total_token_count=usage.get("input", 0) + usage.get("output", 0),
+            prompt_token_count=int(usage.get("input", 0)),
+            candidates_token_count=int(usage.get("output", 0)),
+            total_token_count=int(usage.get("input", 0) + usage.get("output", 0)),
+            cached_content_token_count=int(usage.get("cache_read", 0)),
         ),
     )
 
@@ -213,32 +221,54 @@ async def _run(llm_request: LlmRequest, model: str, token: str) -> LlmResponse:
         )
         for fd in declarations
     ]
-    usage = {"input": 0, "output": 0}
+    usage: dict[str, float] = {"input": 0, "output": 0, "cache_read": 0, "cost": 0}
+    system = system_instruction(llm_request)
+    text_prompt = prompt(llm_request)
 
     def on_event(event: Any) -> None:
         if str(getattr(event, "type", "")).endswith("ASSISTANT_USAGE"):
             data = getattr(event, "data", None)
             usage["input"] += int(getattr(data, "input_tokens", 0) or 0)
             usage["output"] += int(getattr(data, "output_tokens", 0) or 0)
+            usage["cache_read"] += int(getattr(data, "cache_read_tokens", 0) or 0)
+            usage["cost"] += float(getattr(data, "cost", 0) or 0)
 
     client = await _shared_client()
-    session = await client.create_session(
-        model=model,
-        system_message=SystemMessageReplaceConfig(mode="replace", content=system_instruction(llm_request)),
-        tools=SessionToolOptions(definitions=tools, available_tools=[f"custom:{t.name}" for t in tools]),
-        inference=SessionInferenceOptions(allow_multiple_tool_calls=True),
-        permissions=SessionPermissionOptions(on_request=_deny_everything_else),
-        github=SessionGitHubOptions(token=token, telemetry_enabled=False),
-    )
+    session = None
+    for attempt in range(SESSION_ATTEMPTS):
+        try:
+            session = await client.create_session(
+                model=model,
+                system_message=SystemMessageReplaceConfig(mode="replace", content=system),
+                tools=SessionToolOptions(definitions=tools, available_tools=[f"custom:{t.name}" for t in tools]),
+                inference=SessionInferenceOptions(allow_multiple_tool_calls=True),
+                permissions=SessionPermissionOptions(on_request=_deny_everything_else),
+                github=SessionGitHubOptions(token=token, telemetry_enabled=False),
+            )
+            break
+        except Exception as exc:
+            # Session start makes network calls to GitHub; retry a passing network failure once, not auth errors.
+            if attempt + 1 >= SESSION_ATTEMPTS or _is_auth_error(exc):
+                raise
+            log.info("Copilot session start failed (%s); retrying", type(exc).__name__)
+            await asyncio.sleep(1.0)
+    assert session is not None
     try:
         session.on(on_event)
-        final = await session.send_and_wait(prompt(llm_request), timeout=TURN_TIMEOUT_S)
+        final = await session.send_and_wait(text_prompt, timeout=TURN_TIMEOUT_S)
         text = getattr(getattr(final, "data", None), "content", None) if final is not None else None
     finally:
         with contextlib.suppress(Exception):
             await session.disconnect()
         with contextlib.suppress(Exception):
             await client.delete_session(session.session_id)
+    # Sizes and tokens only, never content: shows where each call's tokens go and whether caching kicks in.
+    log.info(
+        "copilot call model=%s system_chars=%d tool_schema_chars=%d transcript_chars=%d input_tokens=%d "
+        "cache_read_tokens=%d output_tokens=%d premium_cost=%.2f tool_calls=%d",
+        model, len(system), sum(len(json.dumps(t.parameters or {})) + len(t.description) for t in tools),
+        len(text_prompt), int(usage["input"]), int(usage["cache_read"]), int(usage["output"]), usage["cost"], len(calls),
+    )
     return response_from(calls, text if not calls else None, model, usage)
 
 
@@ -251,14 +281,18 @@ def _deny_everything_else(request: Any, invocation: Any) -> Any:
     return PermissionDecisionReject(feedback="Only EasyQuery's own tools are available.")
 
 
+def _is_auth_error(exc: Exception) -> bool:
+    message = str(exc)
+    return "401" in message or "403" in message or "auth" in message.lower()
+
+
 async def generate(llm_request: LlmRequest, model: str, token: str) -> AsyncGenerator[LlmResponse, None]:
     try:
         response = await _run(llm_request, model, token)
     except TimeoutError:
         raise CopilotCallError("GitHub Copilot did not answer in time") from None
     except Exception as exc:  # noqa: BLE001 - any SDK/runtime failure becomes one clear message for the user
-        message = str(exc)
-        if "401" in message or "403" in message or "auth" in message.lower():
+        if _is_auth_error(exc):
             raise CopilotCallError("GitHub rejected the sign-in or Copilot access", status_code=401) from None
         log.warning("Copilot call failed: %s", type(exc).__name__)
         # A broken runtime process is replaced on the next call.

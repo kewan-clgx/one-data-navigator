@@ -135,4 +135,6 @@ async def test_only_final_responses_are_reported_with_agent_token_and_key_source
     )
     [call] = api.calls
     assert call["path"] == "llm-usage" and call["headers"] == {"X-ODN-Agent-Token": "agent-secret"}
-    assert call["json"] == {"model": "m", "prompt_tokens": 12, "completion_tokens": 5, "key_source": "user"}
+    assert call["json"] == {
+        "model": "m", "prompt_tokens": 12, "completion_tokens": 5, "cached_tokens": 0, "key_source": "user"
+    }

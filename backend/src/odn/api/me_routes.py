@@ -168,7 +168,8 @@ def poll_github_sign_in(data: GitHubPollIn, ctx: Context) -> GitHubPollOut:
     if result.status != "connected" or not result.token:
         return GitHubPollOut(status=result.status, interval=result.interval)
     try:
-        models = github_copilot.list_models(result.token)
+        found = github_copilot.overview(result.token, with_quota=False)
+        models = [m.id for m in found.models]
     except Exception:  # noqa: BLE001 - the account signed in but can't use Copilot
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
@@ -176,7 +177,8 @@ def poll_github_sign_in(data: GitHubPollIn, ctx: Context) -> GitHubPollOut:
         ) from None
     current = get_llm_key(ctx)
     keep = current.model if current and current.provider == "github_copilot" and current.model in models else None
-    model = keep or ("auto" if "auto" in models else models[0] if models else "auto")
+    # New sign-ins start on the strongest low-cost model, not "auto" (cost varies ~40x across models).
+    model = keep or github_copilot.recommended_model(found.models) or (models[0] if models else "auto")
     try:
         save_llm_key(
             ctx, LlmKeyInput(provider="github_copilot", model=model, api_key=result.token), hint=f"@{result.login}"

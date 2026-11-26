@@ -133,7 +133,8 @@ operator-approved endpoints/IP ranges; Oracle uses the restricted internal egres
   (no client secret; the callback URL is unused). Users approve a one-time code at github.com/login/device; if
   their GitHub organization restricts OAuth Apps, an org owner must approve the app once. Calls go through the
   official GitHub Copilot SDK (`microsoft-copilot-sdk`, runtime baked into the backend image); usage counts
-  against each user's Copilot plan, and which models they see follows their organization's Copilot policy. Users without a key get a daily trial on the platform key
+  against each user's Copilot plan, and which models they see follows their organization's Copilot policy. Setup and
+  troubleshooting: [Use GitHub Copilot as the AI model](config/connect_github_pilot.md). Users without a key get a daily trial on the platform key
   (`ODN_LLM_TRIAL_USER_DAILY_TOKENS` per user, inside the tenant's `ODN_LLM_DAILY_TOKEN_BUDGET`). When the trial
   runs out, the chat asks them to add their own key.
 - **Data connections**: users add BigQuery, PostgreSQL, Snowflake, MySQL or Oracle profiles. Personal
