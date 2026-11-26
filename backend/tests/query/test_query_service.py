@@ -19,7 +19,7 @@ from odn.platform.connectors.base import (
 )
 from odn.platform.governance.audit import AuditRecord
 from odn.platform.query import service
-from odn.platform.query.service import ConfirmationRequired, PreviewSink, QueryRejected, run_query
+from odn.platform.query.service import ConfirmationRequired, PreviewSink, QueryRejected, run_query, scan_cap
 from odn.tenancy.context import RequestContext
 
 CTX = RequestContext(tenant_id=uuid.uuid4(), user_id=uuid.uuid4(), subject="u", role="member")
@@ -197,10 +197,11 @@ def test_expensive_query_requires_confirmation(audits: list[AuditRecord]) -> Non
 
 def test_over_billing_cap_rejected_even_if_confirmed(audits: list[AuditRecord]) -> None:
     conn = FakeConnector(bytes_estimate=2 * 1024**4)
-    with pytest.raises(QueryRejected):
+    with pytest.raises(QueryRejected, match=r"about 2,199 GB, over the 1,100 GB per-query limit"):
         run_query(CTX, PROFILE, "SELECT id FROM orders", source="chat", sink=PreviewSink(),
                   limits=QueryLimits(max_bytes_billed=1024**4), connector=conn, confirmed=True)
     assert conn.executed == []
+    assert audits[-1].reason == "estimated bytes exceed the maximum billed limit"
 
 
 def test_tenant_scan_cap_lowers_the_limit(audits: list[AuditRecord]) -> None:
@@ -210,6 +211,35 @@ def test_tenant_scan_cap_lowers_the_limit(audits: list[AuditRecord]) -> None:
                   limits=QueryLimits(), connector=FakeConnector(bytes_estimate=30 * 1024**3), confirmed=True)
     run_query(capped, PROFILE, "SELECT id FROM orders", source="chat", sink=PreviewSink(),
               limits=QueryLimits(), connector=FakeConnector(bytes_estimate=20 * 1024**3), confirmed=True)
+
+
+class _FreePreviewConnector(FakeConnector):
+    def free_preview(self, sql: str, limits: QueryLimits) -> QueryExecution | None:
+        execution = _Execution(3)
+        execution.job_id = None
+        return execution
+
+    def estimate_cost(self, sql: str) -> CostEstimate:
+        raise AssertionError("a free preview must not be dry-run against the scan cap")
+
+
+def test_free_preview_skips_the_scan_cap(audits: list[AuditRecord]) -> None:
+    conn = _FreePreviewConnector(bytes_estimate=2 * 1024**4)
+    outcome = run_query(CTX, PROFILE, "SELECT * FROM proj.sales.orders LIMIT 3", source="explorer",
+                        sink=PreviewSink(), limits=QueryLimits(), connector=conn)
+    assert (outcome.meta.rows, conn.executed, audits[-1].decision) == (3, [], "allowed")
+
+
+def test_free_preview_still_enforces_the_policy(audits: list[AuditRecord]) -> None:
+    with pytest.raises(QueryRejected):
+        run_query(CTX, PROFILE, "SELECT * FROM proj.hr.salaries LIMIT 3", source="explorer",
+                  sink=PreviewSink(), limits=QueryLimits(), connector=_FreePreviewConnector())
+
+
+def test_scan_cap_by_role_and_tenant() -> None:
+    admin = dataclasses.replace(CTX, role="admin")
+    assert (scan_cap(CTX), scan_cap(admin)) == (100 * 10**9, 200 * 10**9)
+    assert scan_cap(dataclasses.replace(admin, max_bytes_billed=25 * 1024**3)) == 25 * 1024**3
 
 
 def test_row_cap_truncates_and_cancels(audits: list[AuditRecord]) -> None:

@@ -26,7 +26,7 @@ from odn.platform.connections.service import ConnectionProfile
 from odn.platform.connectors.base import BaseConnector, QueryLimits
 from odn.platform.governance.audit import AuditRecord, Source, write_audit
 from odn.platform.policy.sql_policy import SqlPolicy
-from odn.platform.query.service import QueryFailed, QueryRejected, run_query
+from odn.platform.query.service import QueryFailed, QueryRejected, run_query, scan_cap
 from odn.platform.workspace.explain import explain_artifact, explain_chart
 from odn.platform.workspace.rows import column_info, json_safe
 from odn.platform.workspace.storage import assert_tenant_key, gcs_client, tenant_key
@@ -202,7 +202,7 @@ def run_warehouse_query(
     try:
         outcome = run_query(
             ctx, profile, sql, source=source, sink=sink, confirmed=confirmed, connector=connector,
-            limits=QueryLimits(max_bytes_billed=settings.max_bytes_billed, timeout_s=settings.query_timeout_s),
+            limits=QueryLimits(max_bytes_billed=scan_cap(ctx), timeout_s=settings.query_timeout_s),
         )
         sink.finish(pa.schema([(c.name, pa.string()) for c in outcome.meta.columns]))
         key = _object_key(ctx, session_id, artifact_id)

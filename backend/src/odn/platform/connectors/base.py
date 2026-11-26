@@ -110,5 +110,12 @@ class BaseConnector(ABC):
     @abstractmethod
     def execute_paged(self, sql: str, limits: QueryLimits) -> QueryExecution: ...
 
+    def free_preview(self, sql: str, limits: QueryLimits) -> QueryExecution | None:
+        """Rows for an already policy-approved plain table preview without running (or billing) a query.
+
+        None when the SQL or the object doesn't qualify; the caller then runs it normally.
+        """
+        return None
+
     @abstractmethod
     def cancel_job(self, job_id: str) -> None: ...

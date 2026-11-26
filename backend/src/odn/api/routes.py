@@ -58,6 +58,7 @@ from odn.platform.query.service import (
     QueryFailed,
     QueryRejected,
     run_query,
+    scan_cap,
 )
 from odn.tenancy.context import RequestContext
 
@@ -297,7 +298,7 @@ def query(connection_id: UUID, req: QueryRequest, ctx: Context) -> QueryResponse
     sink = PreviewSink()
     limits = QueryLimits(
         max_rows=req.max_rows,
-        max_bytes_billed=settings.max_bytes_billed,
+        max_bytes_billed=scan_cap(ctx),
         timeout_s=settings.query_timeout_s,
     )
     try:

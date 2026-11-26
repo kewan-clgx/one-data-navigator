@@ -61,6 +61,12 @@ class QueryOutcome:
     bytes_estimated: int | None
 
 
+def scan_cap(ctx: RequestContext) -> int:
+    """Bytes one warehouse query may scan for this caller: by role, never above the tenant's own cap."""
+    cap = settings.admin_max_bytes_billed if ctx.role == "admin" else settings.max_bytes_billed
+    return min(cap, ctx.max_bytes_billed) if ctx.max_bytes_billed is not None else cap
+
+
 def run_query(
     ctx: RequestContext,
     profile: ConnectionProfile,
@@ -94,16 +100,17 @@ def run_query(
 
     start = time.perf_counter()
     try:
-        estimate = connector.estimate_cost(sql)
-        audit.bytes_estimated = estimate.bytes_processed
-        if (estimate.bytes_processed or 0) > limits.max_bytes_billed:
-            audit.reason = "estimated bytes exceed the maximum billed limit"
-            write_audit(audit)
-            raise QueryRejected(audit.reason)
-        if (estimate.bytes_processed or 0) > settings.confirm_bytes_threshold and not confirmed:
-            raise ConfirmationRequired(estimate.bytes_processed or 0)
-
-        execution = connector.execute_paged(sql, limits)
+        execution = connector.free_preview(sql, limits)
+        if execution is None:
+            estimate = connector.estimate_cost(sql)
+            audit.bytes_estimated = estimate.bytes_processed
+            if (estimate.bytes_processed or 0) > limits.max_bytes_billed:
+                audit.reason = "estimated bytes exceed the maximum billed limit"
+                write_audit(audit)
+                raise QueryRejected(_over_cap_message(estimate.bytes_processed or 0, limits.max_bytes_billed))
+            if (estimate.bytes_processed or 0) > settings.confirm_bytes_threshold and not confirmed:
+                raise ConfirmationRequired(estimate.bytes_processed or 0)
+            execution = connector.execute_paged(sql, limits)
         audit.job_id = execution.job_id
         rows = arrow_bytes = 0
         truncated = False
@@ -172,6 +179,20 @@ def _error_message(exc: gexc.GoogleAPIError | ConnectorError) -> str:
         return str(exc)[:500]
     message = getattr(exc, "message", None) or type(exc).__name__
     return str(message)[:500]
+
+
+def _over_cap_message(estimated: int, cap: int) -> str:
+    # Shown to analysts in the workbench and to the agent, which rewrites its query from it.
+    return (
+        f"This query would scan about {_gb(estimated)}, over the {_gb(cap)} per-query limit. "
+        "LIMIT does not reduce the bytes scanned: name only the columns you need instead of SELECT *, "
+        "and filter on the table's partition or clustering columns."
+    )
+
+
+def _gb(n: int) -> str:
+    gb = n / 1e9
+    return f"{gb:,.0f} GB" if gb >= 10 else f"{gb:,.1f} GB"
 
 
 def _ms(start: float) -> int:

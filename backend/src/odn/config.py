@@ -57,7 +57,9 @@ class Settings(BaseSettings):
     oracle_proxy_host: str = ""
     oracle_proxy_port: int = 8080
     confirm_bytes_threshold: int = 10 * 1024**3
-    max_bytes_billed: int = 100 * 1024**3
+    # Per-query scan caps in decimal GB (as BigQuery bills); a lower per-tenant cap (tenants.max_bytes_billed) wins.
+    max_bytes_billed: int = 100 * 10**9
+    admin_max_bytes_billed: int = 200 * 10**9
     query_timeout_s: int = 300
     worker_url: str = "http://worker:8000"
     # Shared secret for API -> worker calls (Cloud Run: replace with IAM-authenticated invocation).

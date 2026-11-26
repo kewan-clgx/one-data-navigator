@@ -6,10 +6,12 @@ import re
 from collections.abc import Iterator
 
 import pyarrow as pa
+import sqlglot
 from google.api_core import exceptions as gexc
 from google.auth import exceptions as auth_exc
 from google.auth.credentials import Credentials
 from google.cloud import bigquery, bigquery_storage
+from sqlglot import exp
 
 from odn.platform.connectors.base import (
     BaseConnector,
@@ -26,6 +28,7 @@ _MAX_LIST = 10_000
 _LABELS = {"app": "one-data-navigator"}
 _PROJECT_RE = re.compile(r"[a-z][a-z0-9-]{4,28}[a-z0-9]")
 _DATASET_RE = re.compile(r"[A-Za-z0-9_]{1,1024}")
+_FREE_PREVIEW_MAX_ROWS = 10_000
 
 
 class BigQueryExecution(QueryExecution):
@@ -41,6 +44,41 @@ class BigQueryExecution(QueryExecution):
         rows = self._job.result(timeout=self._timeout_s)
         self.bytes_processed = self._job.total_bytes_processed
         yield from rows.to_arrow_iterable(bqstorage_client=self._read_client)
+
+
+class BigQueryRowsExecution(QueryExecution):
+    """Rows read with tabledata.list: no query job, nothing billed."""
+
+    job_id = None
+
+    def __init__(self, rows: bigquery.table.RowIterator) -> None:
+        self._rows = rows
+        self.bytes_processed = 0
+
+    def batches(self) -> Iterator[pa.RecordBatch]:
+        yield from self._rows.to_arrow_iterable()
+
+
+def _plain_table_preview(sql: str) -> tuple[str, int] | None:
+    """`SELECT * FROM project.dataset.table [alias] LIMIT n` -> (table id, n); None for anything else."""
+    try:
+        select = sqlglot.parse_one(sql, read="bigquery")
+    except sqlglot.errors.ParseError:
+        return None
+    if not isinstance(select, exp.Select) or {k for k, v in select.args.items() if v} != {"expressions", "from_", "limit"}:
+        return None
+    star = select.expressions[0] if len(select.expressions) == 1 else None
+    if not isinstance(star, exp.Star) or any(star.args.values()):  # EXCEPT/REPLACE change the columns
+        return None
+    table = select.args["from_"].this
+    if not isinstance(table, exp.Table) or {k for k, v in table.args.items() if v} - {"this", "db", "catalog", "alias"}:
+        return None
+    if not (table.catalog and table.db and table.name):
+        return None
+    limit = select.args["limit"].expression
+    if not (isinstance(limit, exp.Literal) and limit.is_int) or not 0 < int(limit.this) <= _FREE_PREVIEW_MAX_ROWS:
+        return None
+    return f"{table.catalog}.{table.db}.{table.name}", int(limit.this)
 
 
 class BigQueryConnector(BaseConnector):
@@ -165,6 +203,20 @@ class BigQueryConnector(BaseConnector):
     def execute_paged(self, sql: str, limits: QueryLimits) -> QueryExecution:
         job = self._client.query(sql, job_config=self._job_config(limits), job_id_prefix="odn_")
         return BigQueryExecution(job, self._read_client, limits.timeout_s)
+
+    def free_preview(self, sql: str, limits: QueryLimits) -> QueryExecution | None:
+        # A query bills every byte of the columns it reads even with LIMIT; listing rows of a stored table is free.
+        target = _plain_table_preview(sql)
+        if target is None:
+            return None
+        table_id, n = target
+        try:
+            table = self._client.get_table(table_id)
+        except gexc.GoogleAPIError:
+            return None  # let the normal path surface the real error
+        if table.table_type != "TABLE":
+            return None  # views, materialized views and external tables have no stored rows to list
+        return BigQueryRowsExecution(self._client.list_rows(table, max_results=min(n, limits.max_rows)))
 
     def cancel_job(self, job_id: str) -> None:
         self._client.cancel_job(job_id, location=self.location)
