@@ -120,12 +120,21 @@
   --fg-muted: #616161;
   --border: #e0e0e0;
 
+  /* Blue is reserved for primary actions and focus, as in VS Code; secondary buttons and chat bubbles are grey. */
   --primary: #005fb8;
   --primary-fg: #ffffff;
-  --accent: #005fb8;
+  --accent: #3a6fa8;
   --accent-strong: #005fb8;
   --accent-2: #0078d4;
   --on-accent: #ffffff;
+  --btn-hover-bg: #0258a8;
+  --btn-hover-fg: #ffffff;
+  --btn-secondary-fg: #3b3b3b;
+  --btn-secondary-border: #c4c4c4;
+  --btn-secondary-hover-bg: #ececec;
+  --btn-secondary-hover-fg: #1f1f1f;
+  --bubble-bg: #efefef;
+  --bubble-fg: #3b3b3b;
   --mark-bg: #ffe28a;
   --mark-fg: #1f1f1f;
 
