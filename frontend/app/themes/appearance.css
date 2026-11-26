@@ -21,9 +21,9 @@
   --panel-border: #2b2b2b;
   --panel-border-strong: #454545;
   --panel-hover: rgba(255, 255, 255, 0.05);
-  --panel-selected: rgba(0, 120, 212, 0.3);
+  --panel-selected: #04395e;
   --panel-input-bg: #313131;
-  --panel-focus: #3794ff;
+  --panel-focus: #4c8fd6;
 
   --surface: #1f1f1f;
   --surface-alt: #262626;
@@ -31,12 +31,21 @@
   --fg-muted: #9d9d9d;
   --border: #3c3c3c;
 
-  --primary: #0078d4;
+  /* Blue is reserved for primary actions and focus, as in VS Code; secondary buttons and chat bubbles are grey. */
+  --primary: #0e639c;
   --primary-fg: #ffffff;
-  --accent: #0078d4;
-  --accent-strong: #3794ff;
+  --accent: #2f6aa3;
+  --accent-strong: #4c8fd6;
   --accent-2: #0e639c;
   --on-accent: #ffffff;
+  --btn-hover-bg: #1177bb;
+  --btn-hover-fg: #ffffff;
+  --btn-secondary-fg: #cccccc;
+  --btn-secondary-border: #5a5a5a;
+  --btn-secondary-hover-bg: #2b2b2b;
+  --btn-secondary-hover-fg: #ffffff;
+  --bubble-bg: #2b2b2b;
+  --bubble-fg: #e0e0e0;
   --mark-bg: #e2c08d;
   --mark-fg: #1f1f1f;
 
@@ -47,7 +56,7 @@
   --warning-bg: #352a12;
   --warning-border: #cca700;
 
-  --chart-1: #3794ff;
+  --chart-1: #4f8fd1;
   --chart-2: #f48771;
   --chart-3: #e2c08d;
   --chart-4: #89d185;

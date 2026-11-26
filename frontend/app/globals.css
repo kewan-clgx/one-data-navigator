@@ -110,16 +110,21 @@ code, pre, textarea.mono { font-family: var(--font-mono); }
   text-decoration: none;
   transition: background-color 0.15s, color 0.15s;
 }
+/* Optional button/bubble tokens (--btn-*, --bubble-*) let an appearance tone colour down; unset = brand behaviour. */
 .odn-btn:hover:not(:disabled),
 :where(.odn-sheet, .odn-workbench, .odn-chat, .odn-signin-card) button:not([class]):hover:not(:disabled) {
-  background: var(--surface);
-  color: var(--primary);
+  background: var(--btn-hover-bg, var(--surface));
+  color: var(--btn-hover-fg, var(--primary));
+  border-color: var(--btn-hover-bg, var(--primary));
 }
 .odn-btn:disabled,
 :where(.odn-sheet, .odn-workbench, .odn-chat) button:not([class]):disabled { opacity: 0.45; cursor: not-allowed; }
 .odn-btn--small { font-size: 0.72rem; padding: 0.3rem 0.65rem; }
-.odn-btn--outline { background: transparent; color: var(--primary); }
-.odn-btn--outline:hover:not(:disabled) { background: var(--primary); color: var(--primary-fg); }
+.odn-btn--outline { background: transparent; color: var(--btn-secondary-fg, var(--primary)); border-color: var(--btn-secondary-border, var(--primary)); }
+.odn-btn--outline:hover:not(:disabled) {
+  background: var(--btn-secondary-hover-bg, var(--primary)); color: var(--btn-secondary-hover-fg, var(--primary-fg));
+  border-color: var(--btn-secondary-border, var(--primary));
+}
 .odn-btn--lg { font-size: 0.9rem; padding: 0.7rem 1.4rem; }
 /* Light button for use on the dark panel. */
 .odn-btn--on-panel { background: var(--panel-fg); color: var(--panel-bg); border-color: var(--panel-fg); }
@@ -1032,7 +1037,7 @@ table.grid.dictionary td.def-cell { min-width: 260px; }
 .copilotKitChat .copilotKitMessages { background: var(--surface); overflow-x: hidden; }
 .copilotKitInputContainer { border-top: 1px solid var(--border) !important; }
 .copilotKitInput { border-radius: var(--radius) !important; border: 1px solid var(--border) !important; font-family: var(--font) !important; }
-.copilotKitMessage.copilotKitUserMessage { background: var(--primary) !important; color: var(--primary-fg) !important; border-radius: var(--radius) !important; }
+.copilotKitMessage.copilotKitUserMessage { background: var(--bubble-bg, var(--primary)) !important; color: var(--bubble-fg, var(--primary-fg)) !important; border-radius: var(--radius) !important; }
 .copilotKitMessage.copilotKitAssistantMessage {
   background: var(--surface-alt) !important; color: var(--fg) !important;
   border-radius: var(--radius) !important; max-width: 100%; min-width: 0;
@@ -1043,6 +1048,7 @@ table.grid.dictionary td.def-cell { min-width: 260px; }
 .copilotKitChat .poweredBy { display: none !important; }
 .copilotKitButton { background: var(--primary) !important; border-radius: var(--radius) !important; }
 .copilotKitActivityDot { background: var(--accent-strong) !important; }
+.copilotKitMessageControlButton { color: var(--btn-secondary-fg, var(--copilot-kit-primary-color)); }
 .copilotKitInputControlButton { border-radius: var(--radius) !important; transition: opacity 0.15s, color 0.15s; }
 .copilotKitInputControlButton:disabled { opacity: 0.35; cursor: not-allowed; }
 .copilotKitInputControlButton:not(:disabled):hover { color: var(--accent) !important; }
@@ -1281,7 +1287,7 @@ textarea.mono {
 }
 .eq-demo-bar { display: flex; gap: 0.35rem; margin-bottom: 0.9rem; }
 .eq-demo-bar span { width: 0.55rem; height: 0.55rem; border-radius: 50%; background: var(--border); }
-.eq-demo-q { margin: 0 0 0.9rem auto; width: fit-content; max-width: 100%; background: var(--primary); color: var(--primary-fg); padding: 0.55rem 0.8rem; border-radius: var(--radius); font-size: 0.95rem; }
+.eq-demo-q { margin: 0 0 0.9rem auto; width: fit-content; max-width: 100%; background: var(--bubble-bg, var(--primary)); color: var(--bubble-fg, var(--primary-fg)); padding: 0.55rem 0.8rem; border-radius: var(--radius); font-size: 0.95rem; }
 .eq-type { display: inline-block; white-space: nowrap; }
 .eq-demo-steps { list-style: none; margin: 0 0 1rem; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.8rem; }
 .eq-demo-steps li { display: flex; align-items: center; gap: 0.5rem; padding: 0.35rem 0.6rem; background: var(--surface-alt); border-radius: var(--radius); }
@@ -1514,7 +1520,7 @@ a.odn-chat-open { text-decoration: none; display: block; }
 .shared-transcript { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.9rem; }
 .shared-msg { display: flex; flex-direction: column; gap: 0.5rem; line-height: 1.55; }
 .shared-msg--user { align-items: flex-end; }
-.shared-user { margin: 0; max-width: 85%; background: var(--primary); color: var(--primary-fg); padding: 0.6rem 0.85rem; border-radius: var(--radius); white-space: pre-wrap; }
+.shared-user { margin: 0; max-width: 85%; background: var(--bubble-bg, var(--primary)); color: var(--bubble-fg, var(--primary-fg)); padding: 0.6rem 0.85rem; border-radius: var(--radius); white-space: pre-wrap; }
 .shared-msg--assistant { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 0.75rem 1rem; }
 .shared-artifacts { display: flex; flex-direction: column; gap: 0.6rem; }
 .shared-artifacts h2 { font-size: 1.05rem; margin: 0.5rem 0 0; }
