@@ -21,6 +21,7 @@ import { connectionFor, isWorkspaceSql, tablesIn } from "@/lib/sqlRefs";
 import DictionaryPanel from "./DictionaryPanel";
 import { DIALECT_LABEL, type EditorStatus, type SqlSchema } from "./SqlEditor";
 import { dialectFor, formatSql } from "@/lib/sqlFormat";
+import { CODE_THEMES, setCodeTheme, useCodeTheme, type CodeThemeId } from "@/lib/displayPrefs";
 
 // The editor (CodeMirror) loads only when the workbench opens, keeping the chat bundle light.
 const SqlEditor = dynamic(() => import("./SqlEditor"), {
@@ -190,6 +191,7 @@ export default function Explorer({
   const [sql, setSql] = useState("");
   const [editorStatus, setEditorStatus] = useState<EditorStatus | null>(null);
   // Wrap is on by default: the workbench is narrow and long `project.dataset.table` paths are common.
+  const codeTheme = useCodeTheme();
   const [wrap, setWrap] = useState(() => typeof window === "undefined" || localStorage.getItem(WRAP_KEY) !== "0");
   const [tall, setTall] = useState(false);
   const [editorNote, setEditorNote] = useState<string | null>(null);
@@ -777,6 +779,19 @@ export default function Explorer({
               <button type="button" className="sqled-btn" aria-pressed={tall} onClick={() => setTall(!tall)} title={tall ? "Smaller editor" : "Taller editor"}>
                 {tall ? "Collapse" : "Expand"}
               </button>
+              <select
+                className="sqled-theme"
+                value={codeTheme}
+                onChange={(e) => setCodeTheme(e.target.value as CodeThemeId)}
+                aria-label="Editor style"
+                title="Editor style (also used for SQL in chat)"
+              >
+                {CODE_THEMES.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
             </span>
             <span className="sqled-run">
               {schema && (

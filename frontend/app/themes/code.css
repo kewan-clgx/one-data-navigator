@@ -1,0 +1,62 @@
+/* User-selectable SQL code styles (workbench editor + chat SQL). The default ("EasyQuery") is the brand theme's own
+   --code-* tokens; these override them via <html data-code-theme>. :root raises specificity above [data-theme]. */
+
+/* VS Code Dark+ (the original editor look). */
+:root[data-code-theme="vscode-dark"] {
+  --code-scheme: dark;
+  --code-bg: #1e1e1e;
+  --code-fg: #d4d4d4;
+  --code-gutter-bg: #1e1e1e;
+  --code-gutter-fg: #858585;
+  --code-active-line: rgba(255, 255, 255, 0.05);
+  --code-selection: rgba(38, 79, 120, 0.9);
+  --code-match: rgba(173, 214, 255, 0.15);
+  --code-search: rgba(234, 92, 0, 0.33);
+  --code-search-current: rgba(98, 51, 21, 0.9);
+  --code-cursor: #aeafad;
+  --code-keyword: #569cd6;
+  --code-keyword-weight: 400;
+  --code-string: #ce9178;
+  --code-number: #b5cea8;
+  --code-function: #dcdcaa;
+  --code-type: #4ec9b0;
+  --code-comment: #6a9955;
+  --code-operator: #d4d4d4;
+  --code-identifier: #9cdcfe;
+  --code-error: #f48771;
+  --code-toolbar-bg: #252526;
+  --code-toolbar-fg: #cccccc;
+  --code-muted: #9d9d9d;
+  --code-border: #3c3c3c;
+  --code-pressed-bg: #37373d;
+}
+
+/* VS Code Light+, softened: off-white chrome, slightly deeper hues than stock (all >= 4.5:1). */
+:root[data-code-theme="vscode-light"] {
+  --code-scheme: light;
+  --code-bg: #ffffff;
+  --code-fg: #1f1f1f;
+  --code-gutter-bg: #ffffff;
+  --code-gutter-fg: #6e7781;
+  --code-active-line: #f5f8fc;
+  --code-selection: #cce3ff;
+  --code-match: rgba(173, 214, 255, 0.5);
+  --code-search: rgba(250, 200, 80, 0.45);
+  --code-search-current: rgba(240, 150, 40, 0.55);
+  --code-cursor: #1f1f1f;
+  --code-keyword: #0b4fd1;
+  --code-keyword-weight: 400;
+  --code-string: #a31515;
+  --code-number: #0b7a50;
+  --code-function: #795e26;
+  --code-type: #1d6f87;
+  --code-comment: #3f7f3f;
+  --code-operator: #3b3b3b;
+  --code-identifier: #00539c;
+  --code-error: #cd3131;
+  --code-toolbar-bg: #f6f8fa;
+  --code-toolbar-fg: #3b3b3b;
+  --code-muted: #57606a;
+  --code-border: #d0d7de;
+  --code-pressed-bg: #ffffff;
+}

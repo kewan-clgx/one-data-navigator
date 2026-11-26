@@ -587,7 +587,7 @@ body.resizing iframe { pointer-events: none; }
   margin: 0; padding: 0.55rem 0; max-height: 24rem; overflow: auto; counter-reset: sqlh-line;
   /* Gutter drawn on the block (not per line) so it spans the top/bottom padding; `local` scrolls it with the code. */
   background: linear-gradient(to right, var(--code-gutter-bg) 2.8rem, var(--code-border) 2.8rem calc(2.8rem + 1px), var(--code-bg) 0);
-  background-attachment: local;
+  background-attachment: local; color-scheme: var(--code-scheme, light);
   color: var(--code-fg); border-top: 1px solid var(--code-border);
   font-family: var(--font-mono); font-size: 0.8rem; line-height: 1.55; tab-size: 2;
 }
@@ -599,7 +599,7 @@ body.resizing iframe { pointer-events: none; }
 }
 
 /* Syntax classes from lib/sqlSyntax.ts (CodeMirror editor and static blocks). */
-.sqlh-keyword { color: var(--code-keyword); font-weight: 600; }
+.sqlh-keyword { color: var(--code-keyword); font-weight: var(--code-keyword-weight, 400); }
 .sqlh-string { color: var(--code-string); }
 .sqlh-number { color: var(--code-number); }
 .sqlh-function { color: var(--code-function); }
@@ -679,8 +679,14 @@ body.resizing iframe { pointer-events: none; }
   white-space: nowrap;
 }
 .sqled-chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
-.sqled-chip-sub { font-weight: 400; color: var(--fg-muted); max-width: 10rem; overflow: hidden; text-overflow: ellipsis; }
-.sqled-tools { display: inline-flex; gap: 0.15rem; flex-wrap: wrap; }
+.sqled-chip-sub { font-weight: 400; color: var(--code-muted); max-width: 10rem; overflow: hidden; text-overflow: ellipsis; }
+.sqled-tools { display: inline-flex; gap: 0.15rem; flex-wrap: wrap; align-items: center; }
+.sqled-theme {
+  background: transparent; color: var(--code-toolbar-fg); border: 1px solid var(--code-border); border-radius: var(--radius);
+  padding: 0.22rem 0.35rem; font: inherit; font-size: 0.76rem; cursor: pointer; color-scheme: var(--code-scheme, light);
+}
+.sqled-theme:hover { color: var(--code-fg); background: var(--code-bg); }
+.sqled-theme:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .sqled-run { display: inline-flex; gap: 0.35rem; margin-left: auto; align-items: center; }
 .sqled-btn {
   background: transparent; color: var(--code-toolbar-fg); border: 1px solid transparent; border-radius: var(--radius);
@@ -703,7 +709,7 @@ body.resizing iframe { pointer-events: none; }
 .sqled-run-btn kbd { font-family: var(--font-mono); font-size: 0.68rem; font-weight: 600; opacity: 0.75; }
 .sqled-frame {
   height: 300px; min-height: 140px; max-height: 85vh; resize: vertical; overflow: hidden;
-  border: 1px solid var(--code-border); background: var(--code-bg);
+  border: 1px solid var(--code-border); background: var(--code-bg); color-scheme: var(--code-scheme, light);
 }
 .sqled-frame:focus-within { border-color: var(--accent-strong); box-shadow: 0 0 0 1px var(--accent-strong); }
 .sqled-frame--tall { height: 62vh; }
@@ -712,7 +718,7 @@ body.resizing iframe { pointer-events: none; }
 .sqled-loading { display: grid; place-items: center; color: var(--code-gutter-fg); font-size: 0.8rem; background: var(--code-bg); }
 .sqled-status {
   display: flex; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;
-  padding: 0.25rem 0.6rem; background: var(--code-toolbar-bg); color: var(--fg-muted);
+  padding: 0.25rem 0.6rem; background: var(--code-toolbar-bg); color: var(--code-muted);
   border: 1px solid var(--code-border); border-top: none; border-radius: 0 0 var(--radius) var(--radius);
   font-family: var(--font-mono); font-size: 0.7rem;
 }

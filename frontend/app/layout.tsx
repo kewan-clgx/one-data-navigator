@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 
 import "@copilotkit/react-ui/styles.css";
 import "./themes/cotality.css";
+import "./themes/code.css";
 import "./globals.css";
 import { brandCompanyLabel } from "./themes";
 import { brandCompany, tenantTheme } from "./themes/server";
