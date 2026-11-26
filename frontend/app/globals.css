@@ -688,12 +688,6 @@ body.resizing iframe { pointer-events: none; }
 .sqled-chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
 .sqled-chip-sub { font-weight: 400; color: var(--code-muted); max-width: 10rem; overflow: hidden; text-overflow: ellipsis; }
 .sqled-tools { display: inline-flex; gap: 0.15rem; flex-wrap: wrap; align-items: center; }
-.sqled-theme {
-  background: transparent; color: var(--code-toolbar-fg); border: 1px solid var(--code-border); border-radius: var(--radius);
-  padding: 0.22rem 0.35rem; font: inherit; font-size: 0.76rem; cursor: pointer; color-scheme: var(--code-scheme, light);
-}
-.sqled-theme:hover { color: var(--code-fg); background: var(--code-bg); }
-.sqled-theme:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .sqled-run { display: inline-flex; gap: 0.35rem; margin-left: auto; align-items: center; }
 .sqled-btn {
   background: transparent; color: var(--code-toolbar-fg); border: 1px solid transparent; border-radius: var(--radius);
