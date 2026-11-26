@@ -1540,6 +1540,19 @@ wheels = [
 ]
 
 [[package]]
+name = "microsoft-copilot-sdk"
+version = "2.0.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "python-dateutil" },
+]
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fb/a3/a409c7b78f9b6946800eee4454b6817320c1b70fcf1eaacbe60284f50ac4/microsoft_copilot_sdk-2.0.3-py3-none-any.whl", hash = "sha256:e2ccadb9da5fbc8982d6d882582455cd316108c8a576df1ab8780dee2d02c2fd", size = 1273482, upload-time = "2026-11-25T17:14:42.909Z" },
+]
+
+[[package]]
 name = "multidict"
 version = "7.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1676,6 +1689,7 @@ agent = [
     { name = "ag-ui-adk" },
     { name = "google-adk" },
     { name = "litellm" },
+    { name = "microsoft-copilot-sdk" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "sqlalchemy", extra = ["asyncio"] },
@@ -1686,6 +1700,7 @@ api = [
     { name = "google-cloud-bigquery-storage" },
     { name = "google-cloud-secret-manager" },
     { name = "google-cloud-storage" },
+    { name = "microsoft-copilot-sdk" },
     { name = "openpyxl" },
     { name = "oracledb" },
     { name = "pgvector" },
@@ -1727,6 +1742,8 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "litellm", marker = "extra == 'agent'", specifier = ">=1.81.13,<=1.82.6" },
     { name = "matplotlib", marker = "extra == 'worker'", specifier = ">=3.9" },
+    { name = "microsoft-copilot-sdk", marker = "extra == 'agent'", specifier = ">=2.0.3,<3" },
+    { name = "microsoft-copilot-sdk", marker = "extra == 'api'", specifier = ">=2.0.3,<3" },
     { name = "openpyxl", marker = "extra == 'api'", specifier = ">=3.1" },
     { name = "oracledb", marker = "extra == 'api'", specifier = ">=26.2.0,<27" },
     { name = "pgvector", marker = "extra == 'api'", specifier = ">=0.3" },

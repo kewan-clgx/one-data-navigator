@@ -30,6 +30,8 @@ api = [
     "pyarrow>=18",
     # XLSX uploads become workspace tables.
     "openpyxl>=3.1",
+    # GitHub Copilot as a user's AI model (Settings → AI model): lists the models their Copilot seat allows.
+    "microsoft-copilot-sdk>=2.0.3,<3",
 ]
 agent = [
     "google-adk>=1.25.0",
@@ -40,6 +42,8 @@ agent = [
     # Durable ADK sessions (DatabaseSessionService) in Postgres.
     "sqlalchemy[asyncio]>=2,<3",
     "psycopg[binary]>=3.2",
+    # Runs chat turns on a user's GitHub Copilot seat (odn.agent.copilot_llm).
+    "microsoft-copilot-sdk>=2.0.3,<3",
 ]
 worker = [
     "duckdb>=1.1",

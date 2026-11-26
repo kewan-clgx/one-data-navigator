@@ -21,14 +21,15 @@ from google.adk.models.llm_request import LlmRequest
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
 
-from odn.agent import tools
+from odn.agent import copilot_llm, tools
 from odn.config import settings
 
 log = logging.getLogger(__name__)
 
 KEY_SOURCE = "odn_key_source"
 SETTINGS_HINT = (
-    "Add your own API key (Gemini, OpenAI, Anthropic or an OpenAI-compatible endpoint) in Settings → AI model "
+    "Sign in with GitHub Copilot, or add your own API key (Gemini, OpenAI, Anthropic or an OpenAI-compatible "
+    "endpoint), in Settings → AI model "
     "to keep chatting now, at your own provider's cost."
 )
 TRIAL_EXCEEDED = (
@@ -45,6 +46,10 @@ BUDGET_UNAVAILABLE = (
 )
 USER_KEY_UNREADABLE = (
     "Your saved AI model key can't be used ({error}). Please enter it again in Settings → AI model."
+)
+COPILOT_FAILED = (
+    "GitHub Copilot couldn't answer with model \"{model}\" ({error}). In Settings → AI model, sign in with GitHub "
+    "again or pick another model. Your organization's Copilot policy decides which models you can use."
 )
 USER_KEY_FAILED = (
     "Your AI provider ({provider}) returned an error for model \"{model}\": {error}. Check the API key, model "
@@ -100,7 +105,10 @@ class RoutedLiteLlm(LiteLlm):
             yield _reply(USER_KEY_UNREADABLE.format(error=cfg.get("error", "unknown error")), "user")
             return
 
-        if cfg["source"] == "user":
+        if cfg["source"] == "user" and cfg["provider"] == "github_copilot":
+            source = "user"
+            responses = copilot_llm.generate(llm_request, cfg["model"], cfg["api_key"])
+        elif cfg["source"] == "user":
             source = "user"
             delegate: LiteLlm = LiteLlm(
                 model=cfg["litellm_model"],
@@ -127,6 +135,9 @@ class RoutedLiteLlm(LiteLlm):
             if source != "user":
                 raise
             log.info("user LLM call failed: %s", _provider_error(exc))
+            if cfg["provider"] == "github_copilot":
+                yield _reply(COPILOT_FAILED.format(model=cfg["model"], error=str(exc) or type(exc).__name__), "user")
+                return
             yield _reply(
                 USER_KEY_FAILED.format(provider=cfg["provider"], model=cfg["model"], error=_provider_error(exc)),
                 "user",

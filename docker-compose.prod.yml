@@ -80,6 +80,8 @@ services:
       ODN_ORACLE_PROXY_PORT: 8080
       ODN_LLM_DAILY_TOKEN_BUDGET: ${ODN_LLM_DAILY_TOKEN_BUDGET:-2000000}
       ODN_LLM_TRIAL_USER_DAILY_TOKENS: ${ODN_LLM_TRIAL_USER_DAILY_TOKENS:-200000}
+      # GitHub OAuth App (Device Flow) for "Sign in with GitHub" (Copilot) in Settings → AI model; public id.
+      ODN_GITHUB_CLIENT_ID: ${ODN_GITHUB_CLIENT_ID:-}
     volumes: !reset []
     ports: !reset []
     depends_on: !override

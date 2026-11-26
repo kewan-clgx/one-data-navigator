@@ -507,7 +507,7 @@ export default function Explorer({
           </select>
         </label>
         {connections.length === 0 && !error && (
-          <p className="muted">No data connections yet. Add your own BigQuery connection in the Settings tab.</p>
+          <p className="muted">No data sources yet. Add one in Settings → Data sources.</p>
         )}
         <div className="search-row">
           <input

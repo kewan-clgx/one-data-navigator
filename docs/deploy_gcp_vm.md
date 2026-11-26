@@ -127,8 +127,13 @@ release), `/opt/odn/shared/.env` (settings, mode 600). Data lives in Docker volu
 Signed-in users manage these themselves in the app's **Settings** tab. MySQL and Oracle additionally require
 operator-approved endpoints/IP ranges; Oracle uses the restricted internal egress proxy.
 
-- **AI model**: users add their own Gemini, OpenAI, Anthropic or OpenAI-compatible key, and the chat then runs
-  on it at their own cost. Users without a key get a daily trial on the platform key
+- **AI model**: users **sign in with GitHub** to run the chat on their own GitHub Copilot seat, or add their own
+  Gemini, OpenAI, Anthropic or OpenAI-compatible key, and the chat then runs on it at their own cost.
+  GitHub sign-in needs `ODN_GITHUB_CLIENT_ID`: the client ID of a GitHub OAuth App with **Device Flow** enabled
+  (no client secret; the callback URL is unused). Users approve a one-time code at github.com/login/device; if
+  their GitHub organization restricts OAuth Apps, an org owner must approve the app once. Calls go through the
+  official GitHub Copilot SDK (`microsoft-copilot-sdk`, runtime baked into the backend image); usage counts
+  against each user's Copilot plan, and which models they see follows their organization's Copilot policy. Users without a key get a daily trial on the platform key
   (`ODN_LLM_TRIAL_USER_DAILY_TOKENS` per user, inside the tenant's `ODN_LLM_DAILY_TOKEN_BUDGET`). When the trial
   runs out, the chat asks them to add their own key.
 - **Data connections**: users add BigQuery, PostgreSQL, Snowflake, MySQL or Oracle profiles. Personal

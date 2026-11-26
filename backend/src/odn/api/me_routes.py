@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from odn.api.deps import Context
 from odn.api.routes import ConnectionOut
 from odn.api.usage_routes import require_agent
-from odn.platform import crypto
+from odn.platform import crypto, github_copilot
 from odn.platform.connections.service import (
     CredentialError,
     DuplicateName,
@@ -27,6 +27,7 @@ from odn.platform.llm_keys import (
     LlmKeyInput,
     LlmKeyOut,
     LlmKeyTest,
+    LlmKeyTestInput,
     check_llm_key,
     delete_llm_key,
     get_llm_key,
@@ -126,11 +127,63 @@ def delete_my_llm_key(ctx: Context) -> None:
 
 
 @router.post("/llm-key/test")
-def test_my_llm_key(data: LlmKeyInput, ctx: Context) -> LlmKeyTest:
+def test_my_llm_key(data: LlmKeyTestInput, ctx: Context) -> LlmKeyTest:
     try:
         return check_llm_key(ctx, data)
     except (crypto.SecretsUnavailable, crypto.SecretDecryptionError):
         return LlmKeyTest(ok=False, error="the stored key cannot be read; enter it again")
+
+
+class GitHubPollIn(BaseModel):
+    device_code: str = Field(min_length=1, max_length=200)
+
+
+class GitHubPollOut(BaseModel):
+    status: str
+    interval: int | None = None
+    login: str | None = None
+    models: list[str] = Field(default_factory=list)
+
+
+@router.get("/llm-key/github")
+def github_sign_in_available(ctx: Context) -> dict[str, bool]:
+    return {"enabled": github_copilot.enabled()}
+
+
+@router.post("/llm-key/github/start")
+def start_github_sign_in(ctx: Context) -> github_copilot.DeviceCode:
+    try:
+        return github_copilot.start_device_flow()
+    except github_copilot.GitHubUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from None
+
+
+@router.post("/llm-key/github/poll")
+def poll_github_sign_in(data: GitHubPollIn, ctx: Context) -> GitHubPollOut:
+    """Poll once; when the user has approved on github.com, check their Copilot seat and save it as their model."""
+    try:
+        result = github_copilot.poll_device_flow(data.device_code)
+    except github_copilot.GitHubUnavailable as exc:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from None
+    if result.status != "connected" or not result.token:
+        return GitHubPollOut(status=result.status, interval=result.interval)
+    try:
+        models = github_copilot.list_models(result.token)
+    except Exception:  # noqa: BLE001 - the account signed in but can't use Copilot
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f"Signed in as @{result.login or 'unknown'}, but this GitHub account has no GitHub Copilot access.",
+        ) from None
+    current = get_llm_key(ctx)
+    keep = current.model if current and current.provider == "github_copilot" and current.model in models else None
+    model = keep or ("auto" if "auto" in models else models[0] if models else "auto")
+    try:
+        save_llm_key(
+            ctx, LlmKeyInput(provider="github_copilot", model=model, api_key=result.token), hint=f"@{result.login}"
+        )
+    except crypto.SecretsUnavailable:
+        raise _unavailable() from None
+    return GitHubPollOut(status="connected", login=result.login, models=models)
 
 
 @router.get("/llm-config")

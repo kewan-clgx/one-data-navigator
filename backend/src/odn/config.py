@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     # Slug of the tenant personal accounts join (email/password sign-up through its Identity Platform tenant;
     # personal Google accounts reach it through the issuer's '*' mapping). Empty = no personal email sign-up.
     personal_tenant: str = ""
+    # Client ID of the GitHub OAuth App (Device Flow enabled) behind "Sign in with GitHub" in Settings → AI model,
+    # so a user's GitHub Copilot seat can run their chat. Public identifier, not a secret. Empty = option hidden.
+    github_client_id: str = ""
     # Slug of the live-demo tenant: anyone can check in (name + email, not verified) and gets a demo user there,
     # signed in with tokens this API signs. A check-in with the same email within demo_account_days reopens
     # that demo user; after that the email starts fresh. Empty = no demo.

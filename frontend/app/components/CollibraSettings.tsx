@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useState, type FormEvent } from "react";
 
 import { api, notify } from "@/lib/client-api";
+import { DB_LOGOS } from "./dbLogos";
 import {
   bridgeOutdated,
   COLLIBRA_CHANGED,
@@ -183,6 +184,15 @@ function EnvironmentForm({ draft, issuer, jwks, onDone }: { draft: Draft; issuer
   );
 }
 
+function CollibraMark() {
+  const logo = DB_LOGOS.find((d) => d.id === "collibra");
+  return (
+    <span className="settings-logo settings-logo--sm" aria-hidden>
+      {logo?.markup && <svg viewBox={logo.viewBox} focusable="false" dangerouslySetInnerHTML={{ __html: logo.markup }} />}
+    </span>
+  );
+}
+
 /** Settings → Collibra: setup for every user; admins add, edit and remove the organization's Collibra environments. */
 export default function CollibraSettings({ envs, isAdmin }: { envs: CollibraEnv[] | null; isAdmin: boolean }) {
   const ids = useId();
@@ -213,7 +223,15 @@ export default function CollibraSettings({ envs, isAdmin }: { envs: CollibraEnv[
 
   return (
     <section className="settings-card" aria-labelledby={`${ids}-h`}>
-      <h2 id={`${ids}-h`}>Collibra data catalog</h2>
+      <header className="settings-head settings-head--action">
+        <div>
+          <h2 id={`${ids}-h`}>Collibra data catalog</h2>
+          <p className="muted">Business definitions and lineage from your organization&apos;s catalog.</p>
+        </div>
+        {isAdmin && !editing && (
+          <button type="button" className="odn-btn odn-btn--small" onClick={() => setEditing(NEW)}>+ Add</button>
+        )}
+      </header>
       {envs?.length ? (
         <>
           <p className="muted">
@@ -226,21 +244,46 @@ export default function CollibraSettings({ envs, isAdmin }: { envs: CollibraEnv[
       )}
       {isAdmin && (
         <>
-          <h3>Manage (admins)</h3>
-          <ul className="connection-list">
-            {listing?.environments.map((e) => (
-              <li key={e.env}>
-                <strong>{e.env}</strong> <span className="badge">{e.access_mode === "token" ? "EasyQuery sign-in" : "Browser extension"}</span>{" "}
-                <span className="muted">{e.base_url}{e.enabled ? "" : " · disabled"}</span>{" "}
-                <button type="button" className="link" onClick={() => setEditing({
-                  env: e.env, base_url: e.base_url, access_mode: e.access_mode, audience: e.audience ?? "",
-                  principal_format: e.principal_format, enabled: e.enabled, isNew: false,
-                })}>Edit</button>{" "}
-                <button type="button" className="link danger" onClick={() => remove(e)}>Remove</button>
-              </li>
-            ))}
-          </ul>
-          {editing ? (
+          <h3>Environments (admins)</h3>
+          {listing && listing.environments.length === 0 && (
+            <p className="muted settings-empty">No Collibra environments yet. Use <strong>+ Add</strong> to connect one.</p>
+          )}
+          {!!listing?.environments.length && (
+            <ul className="settings-rows">
+              {listing.environments.map((e) => (
+                <li key={e.env} className="settings-row">
+                  <CollibraMark />
+                  <div className="settings-row-main">
+                    <strong>{e.env}{e.enabled ? "" : " (disabled)"}</strong>
+                    <span className="muted" title={e.base_url}>
+                      {e.access_mode === "token" ? "EasyQuery sign-in" : "Browser extension"} · {e.base_url}
+                    </span>
+                  </div>
+                  <div className="settings-row-actions">
+                    <button
+                      type="button"
+                      className="odn-btn odn-btn--outline odn-btn--small"
+                      onClick={() => setEditing({
+                        env: e.env, base_url: e.base_url, access_mode: e.access_mode, audience: e.audience ?? "",
+                        principal_format: e.principal_format, enabled: e.enabled, isNew: false,
+                      })}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="odn-btn odn-btn--outline odn-btn--small settings-danger"
+                      onClick={() => remove(e)}
+                      aria-label={`Remove ${e.env}`}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {editing && (
             <EnvironmentForm
               key={editing.env + editing.isNew}
               draft={editing}
@@ -248,8 +291,6 @@ export default function CollibraSettings({ envs, isAdmin }: { envs: CollibraEnv[
               jwks={listing?.jwks_url ?? ""}
               onDone={() => setEditing(null)}
             />
-          ) : (
-            <button type="button" onClick={() => setEditing(NEW)}>+ Add Collibra</button>
           )}
         </>
       )}

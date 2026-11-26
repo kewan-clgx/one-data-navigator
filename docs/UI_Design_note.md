@@ -56,7 +56,7 @@ These are the decisions the current UI is built on. Keep them unless there is a 
 | **Explorer** | Connection picker, keyword search over datasets/tables/fields, favorites and recent tables, dataset tree, hide-snapshots switch. Selecting a table scopes the chat; the footer offers **Details & SQL**. | Dark |
 | **Results** | Latest chart and latest result of the current conversation, with **‹ q11 · 12 of 12 · q13 ›** to step back through its earlier results: explanation, lineage, collapsed SQL, sortable grid (row paging only past 100 rows), CSV download. | Light sheet inside the dark panel |
 | **Artifacts** | Everything the user produced or uploaded, across conversations: tables, charts, files. Filters, "This conversation only", preview, downloads, link back to the source conversation, **Upload files**. | Dark list, light previews |
-| **Settings** | Own AI model key, personal data connections. | Light sheet |
+| **Settings** | One section at a time behind a switcher that shows each section's status: **AI model** (trial usage meter or active key/GitHub account; **GitHub Copilot** is the first provider: **Sign in with GitHub** shows a one-time device code + "Open github.com/login/device", polls until approved, then lists the models the user's Copilot seat allows. Other providers: Provider → API key → Model: the model dropdown lists the chat models your key can use, loaded automatically from the provider; "type a model name" is the fallback), **Data sources** (logo rows grouped shared / only you; **+ Add** opens a logo picker, add/edit opens as its own view with a back link), **Collibra** (setup steps; admins manage environments). The last section is remembered; the trial banner opens AI model. | Light sheet |
 
 **Why light sheets inside a dark panel:** dense content (grids, forms, charts) is far more legible on a light surface, while navigation chrome stays dark to match the brand. Rule of thumb: *navigation and lists → dark panel; tables, forms, charts → light sheet.*
 
@@ -110,7 +110,7 @@ Reload reopens the last conversation with its messages, step cards and latest re
 | Artifacts tab | [`ArtifactsPanel.tsx`](../frontend/app/components/ArtifactsPanel.tsx), PNG export in [`lib/chartExport.ts`](../frontend/lib/chartExport.ts) |
 | Step cards, approval card, steps toggle | [`AgentSteps.tsx`](../frontend/app/components/AgentSteps.tsx), preference in [`lib/displayPrefs.ts`](../frontend/lib/displayPrefs.ts) |
 | Uploads and chat attachments | [`lib/uploads.ts`](../frontend/lib/uploads.ts) |
-| Settings | [`Settings.tsx`](../frontend/app/components/Settings.tsx) |
+| Settings | [`Settings.tsx`](../frontend/app/components/Settings.tsx), [`CollibraSettings.tsx`](../frontend/app/components/CollibraSettings.tsx), connection forms (`*ConnectionForm.tsx`) |
 | Splitter | [`SplitPane.tsx`](../frontend/app/components/SplitPane.tsx) |
 | Themes | [`app/themes/`](../frontend/app/themes/) |
 | All styles | [`app/globals.css`](../frontend/app/globals.css) (layout/components) + theme CSS (tokens) |

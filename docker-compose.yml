@@ -9,6 +9,7 @@ name: one-data-navigator
 
 x-backend-build: &backend-build
   context: ./backend
+  secrets: [extra_ca]
 
 x-backend-env: &backend-env
   ODN_ENV: local
@@ -249,3 +250,9 @@ services:
 volumes:
   postgres_data:
   gcs_data:
+
+secrets:
+  # Extra CA for local builds behind a TLS-inspecting proxy (e.g. Zscaler): put the root PEM in keys/extra-ca.pem
+  # or set ODN_EXTRA_CA_FILE. Defaults to an empty file, so normal and prod builds add nothing.
+  extra_ca:
+    file: ${ODN_EXTRA_CA_FILE:-./keys/.gitkeep}

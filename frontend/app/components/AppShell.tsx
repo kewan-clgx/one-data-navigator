@@ -23,7 +23,7 @@ import ResultsPanel, { AGENT_ID, type AgentState } from "./Results";
 import { DEMO_PLACEHOLDER, DEMO_SUGGESTIONS, DemoImportBanner, DemoUpgradeBanner, type DemoVisitor } from "./DemoBanners";
 import ShareDialog from "./ShareDialog";
 import Organization from "./Organization";
-import Settings from "./Settings";
+import Settings, { SETTINGS_SECTION } from "./Settings";
 import SplitPane from "./SplitPane";
 
 const TABS = [
@@ -446,6 +446,7 @@ export default function AppShell({
           onOpenSettings={() => {
             showPanel(true);
             selectTab("settings");
+            window.dispatchEvent(new CustomEvent(SETTINGS_SECTION, { detail: "model" }));
           }}
         />
       )}

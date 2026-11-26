@@ -21,7 +21,14 @@ from odn.platform.connections.service import (
     save_personal_connection,
 )
 from odn.platform.governance.llm_budget import budget_status, record_llm_usage
-from odn.platform.llm_keys import LlmKeyInput, get_llm_key, resolve_llm_config, save_llm_key
+from odn.platform.llm_keys import (
+    LlmKeyInput,
+    LlmKeyTestInput,
+    check_llm_key,
+    get_llm_key,
+    resolve_llm_config,
+    save_llm_key,
+)
 from odn.tenancy.context import RequestContext
 from tests.db.test_rls import APP_URL, OWNER_URL, _reachable
 
@@ -260,6 +267,26 @@ def test_llm_key_is_per_user_and_encrypted(users) -> None:
     assert save_llm_key(a, LlmKeyInput(provider="openai", model="gpt-y")).model == "gpt-y"
     with pytest.raises(ValueError):
         save_llm_key(a, LlmKeyInput(provider="anthropic", model="claude-x"))
+
+
+def test_listing_models_needs_no_model_and_uses_the_saved_key(users, monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
+
+    from odn.platform import llm_keys
+
+    a, _, _ = users
+    save_llm_key(a, LlmKeyInput(provider="openai", model="gpt-x", api_key="sk-saved-123456789"))
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers["authorization"])
+        return httpx.Response(200, json={"data": [{"id": "gpt-z"}, {"id": "gpt-x"}]})
+
+    real_client = httpx.Client
+    monkeypatch.setattr(llm_keys.httpx, "Client", lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw))
+    result = check_llm_key(a, LlmKeyTestInput(provider="openai"))
+    assert (result.ok, result.models, result.model_found) == (True, ["gpt-x", "gpt-z"], None)
+    assert seen == ["Bearer sk-saved-123456789"]
 
 
 def test_trial_budget_is_per_user_and_own_key_is_unmetered(users, monkeypatch: pytest.MonkeyPatch) -> None:
