@@ -58,6 +58,28 @@
   --chart-6: #4a6fa5;
   --chart-7: #b8a07a;
   --chart-8: #7d6b5d;
+
+  /* Code (SQL editor and highlighted SQL): dark surface, same hues as the chat's SQL blocks. */
+  --code-bg: #1e1e1e;
+  --code-fg: #d4d4d4;
+  --code-gutter-bg: #1e1e1e;
+  --code-gutter-fg: #858585;
+  --code-active-line: rgba(255, 255, 255, 0.05);
+  --code-selection: rgba(38, 79, 120, 0.9);
+  --code-match: rgba(173, 214, 255, 0.15);
+  --code-cursor: #aeafad;
+  --code-keyword: #569cd6;
+  --code-string: #ce9178;
+  --code-number: #b5cea8;
+  --code-function: #dcdcaa;
+  --code-type: #4ec9b0;
+  --code-comment: #6a9955;
+  --code-operator: #d4d4d4;
+  --code-identifier: #9cdcfe;
+  --code-error: #f48771;
+  --code-toolbar-bg: #252526;
+  --code-toolbar-fg: #cccccc;
+  --code-border: #3c3c3c;
 }
 
 /* Brand mark: coral dot before the wordmark. */

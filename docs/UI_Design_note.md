@@ -45,7 +45,7 @@ These are the decisions the current UI is built on. Keep them unless there is a 
 | Brand bar | Identity, environment tag, account | Content comes from the theme (`company`, `product`, `tag`). |
 | Side panel | Six tabs, all kept mounted so state survives tab switches | Collapsible ("Hide ✕" / "Show side panel"); open/closed is remembered. Default width 38%, min 360 px; chat min 420 px. |
 | Chat | The conversation (CopilotKit `CopilotChat`) | Toolbar, trial banner and scope chip sit above it; the workbench overlays it. |
-| Workbench | Table dictionary + SQL editor + results | Opens over the chat (not a new page) so the conversation is one click away ("Back to chat" or Esc). |
+| Workbench | IDE-style SQL editor + results, then the table dictionary | Opens over the chat (not a new page) so the conversation is one click away ("Back to chat", or Esc outside the editor). |
 
 ### Side panel tabs
 
@@ -74,7 +74,16 @@ These are the decisions the current UI is built on. Keep them unless there is a 
 The approval card shows the agent's hint (scan size and SQL) with **Run query** / **Cancel**. The server re-checks that the approved payload matches the paused query, so the model cannot approve on the user's behalf.
 
 ### 3.3 Explore a table manually
-Explorer → search or browse → click a table (chat becomes scoped) → **Details & SQL** opens the workbench with the data dictionary, a prefilled `SELECT … LIMIT 100`, **Run** and **Preview data** (sampled). Esc or **Back to chat** closes it; Explorer keeps its state.
+Explorer → search or browse → click a table (chat becomes scoped) → **Details & SQL** opens the workbench with a prefilled `SELECT … LIMIT 100`, **Run** and **Preview data** (sampled), and the data dictionary below. Esc (outside the editor) or **Back to chat** closes it; Explorer keeps its state.
+
+### 3.3b SQL editor (workbench)
+One dark IDE panel ([`SqlEditor.tsx`](../frontend/app/components/SqlEditor.tsx), CodeMirror 6, loaded only when the workbench opens), same colours as chat SQL (`--code-*` tokens):
+
+- **Toolbar:** dialect · connection chip (BigQuery, PostgreSQL, Snowflake, MySQL, Oracle; DuckDB for conversation results), **Format** (`sql-formatter`, per dialect), **Wrap** (on by default, remembered), **Copy**, **.sql** download, **Expand**; on the right **Preview data** and **▶ Run ⌘↵**.
+- **Editor:** line numbers, bracket matching/auto-close, folding, ⌘F search & replace, multi-cursor, ⌘/ comment, selection-match highlight. Completion (Ctrl+Space or typing): keywords, tables in scope, and the opened table's columns with types.
+- **Run:** ⌘/Ctrl+Enter or the button; with text selected it runs **only the selection** (button reads "Run selection"). "Run anyway" after the cost check repeats exactly what was run.
+- **Status bar:** Ln/Col, lines, chars or selection size, shortcut hints and brief confirmations (Formatted, Copied).
+- **Keyboard:** Tab indents; Esc then Tab leaves the editor; Esc inside the editor never closes the workbench.
 
 ### 3.3a SQL in chat answers
 Most readers are managers, so SQL blocks in answers start **folded** ("▸ Show SQL · N lines"); expanding shows the code with copy and download. Each block also has **Open in SQL workbench** ([`FoldableSql.tsx`](../frontend/app/components/FoldableSql.tsx)):

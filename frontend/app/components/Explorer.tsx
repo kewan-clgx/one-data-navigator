@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { createPortal } from "react-dom";
 
 import CatalogSearchResults, {
@@ -18,6 +19,15 @@ import { CONNECTIONS_CHANGED } from "@/lib/client-api";
 import { connectionFor, isWorkspaceSql, tablesIn } from "@/lib/sqlRefs";
 
 import DictionaryPanel from "./DictionaryPanel";
+import { DIALECT_LABEL, type EditorStatus, type SqlSchema } from "./SqlEditor";
+import { dialectFor, formatSql } from "@/lib/sqlFormat";
+
+// The editor (CodeMirror) loads only when the workbench opens, keeping the chat bundle light.
+const SqlEditor = dynamic(() => import("./SqlEditor"), {
+  ssr: false,
+  loading: () => <div className="sqled-editor sqled-loading">Loading editor…</div>,
+});
+const WRAP_KEY = "odn.sql.wrap";
 
 /** The table the user picked (or every table of SQL opened from the chat); the chat is scoped to it. */
 export type TableScope = { connectionId: string; connectionName: string; path: string[]; others?: string[][] };
@@ -178,6 +188,13 @@ export default function Explorer({
   const [focusColumn, setFocusColumn] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [sql, setSql] = useState("");
+  const [editorStatus, setEditorStatus] = useState<EditorStatus | null>(null);
+  // Wrap is on by default: the workbench is narrow and long `project.dataset.table` paths are common.
+  const [wrap, setWrap] = useState(() => typeof window === "undefined" || localStorage.getItem(WRAP_KEY) !== "0");
+  const [tall, setTall] = useState(false);
+  const [editorNote, setEditorNote] = useState<string | null>(null);
+  // What the last Run sent (the selection or the whole editor), so "Run anyway" repeats exactly that.
+  const [lastRunText, setLastRunText] = useState<string | null>(null);
   // "workspace": the SQL reads this conversation's results (DuckDB), not the connection's warehouse.
   const [target, setTarget] = useState<"connection" | "workspace">("connection");
   const [pending, setPending] = useState<{ sql: string; tables: string[][]; connectionId: string } | null>(null);
@@ -685,21 +702,139 @@ export default function Explorer({
       ? "Runs on this conversation's result tables (q1, q2, …), no warehouse scan."
       : `Runs on ${connections.find((c) => c.id === connectionId)?.name ?? "the selected connection"}, read-only and checked against its allowlist.`;
 
+  const activeConnection = connections.find((c) => c.id === connectionId);
+  const activeConnectionName = activeConnection?.name ?? "no connection";
+  const dialect = dialectFor(activeConnection?.kind, target === "workspace");
+  // Completion: the opened table's columns, plus the other tables the chat's SQL referenced.
+  const editorSchema = useMemo<SqlSchema>(
+    () => ({
+      tables: [
+        ...(schema ? [{ path: schema.path, columns: schema.columns.map((c) => ({ name: c.name, type: c.type })) }] : []),
+        ...(scope?.others ?? []).map((path) => ({ path, columns: [] })),
+      ],
+    }),
+    [schema, scope],
+  );
+
+  const flash = (text: string) => {
+    setEditorNote(text);
+    window.setTimeout(() => setEditorNote(null), 2500);
+  };
+  function runText(text: string) {
+    setLastRunText(text);
+    void run(false, text);
+  }
+  function formatEditor() {
+    try {
+      setSql(formatSql(sql, dialect));
+      flash("Formatted");
+    } catch {
+      flash(`Couldn't format: the SQL doesn't parse as ${DIALECT_LABEL[dialect]}`);
+    }
+  }
+  function copySql() {
+    void navigator.clipboard?.writeText(sql).then(() => flash("Copied to clipboard"));
+  }
+  function downloadSql() {
+    const url = URL.createObjectURL(new Blob([sql], { type: "application/sql" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${(schema?.path[schema.path.length - 1] ?? "query").replace(/[^\w.-]+/g, "_")}.sql`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   const workbenchBody = (
       <>
-        {schema && (
-          <DictionaryPanel
-            connectionId={connectionId}
-            path={schema.path}
-            rowCount={schema.row_count}
-            sizeLabel={formatBytes(schema.size_bytes)}
-            canEdit={role === "data_lead" || role === "admin"}
-            focusColumn={focusColumn}
-          />
-        )}
-
-        <section aria-label="SQL">
-          <label htmlFor="sql">SQL</label>
+        <section aria-label="SQL" className="sqled">
+          <div className="sqled-toolbar" role="toolbar" aria-label="SQL editor">
+            <span className="sqled-chip" title={runsOn}>
+              {DIALECT_LABEL[dialect]}
+              <span className="sqled-chip-sub">{target === "workspace" ? "conversation results" : activeConnectionName}</span>
+            </span>
+            <span className="sqled-tools">
+              <button type="button" className="sqled-btn" onClick={formatEditor} disabled={!sql.trim()} title="Format SQL (Shift+Alt+F)">
+                Format
+              </button>
+              <button
+                type="button"
+                className="sqled-btn"
+                aria-pressed={wrap}
+                onClick={() => {
+                  localStorage.setItem(WRAP_KEY, wrap ? "0" : "1");
+                  setWrap(!wrap);
+                }}
+                title="Wrap long lines"
+              >
+                Wrap
+              </button>
+              <button type="button" className="sqled-btn" onClick={copySql} disabled={!sql.trim()} title="Copy SQL">
+                Copy
+              </button>
+              <button type="button" className="sqled-btn" onClick={downloadSql} disabled={!sql.trim()} title="Download as .sql">
+                .sql
+              </button>
+              <button type="button" className="sqled-btn" aria-pressed={tall} onClick={() => setTall(!tall)} title={tall ? "Smaller editor" : "Taller editor"}>
+                {tall ? "Collapse" : "Expand"}
+              </button>
+            </span>
+            <span className="sqled-run">
+              {schema && (
+                <button
+                  type="button"
+                  className="sqled-btn"
+                  onClick={() => {
+                    const conn = connections.find((c) => c.id === connectionId);
+                    const text = previewSql(schema, focusColumn, conn?.kind ?? "bigquery");
+                    setSql(text);
+                    runText(text);
+                  }}
+                  disabled={running || !connectionId || schema.kind === "view"}
+                  title={
+                    schema.kind === "view"
+                      ? "Sampling isn't available for views; write a filtered query instead"
+                      : `Run ${PREVIEW_ROWS} rows of the first ${PREVIEW_COLUMNS} columns`
+                  }
+                >
+                  Preview data
+                </button>
+              )}
+              <button
+                type="button"
+                className="sqled-run-btn"
+                onClick={() => runText(editorStatus?.selection.trim() ? editorStatus.selection : sql)}
+                disabled={!sql.trim() || running || (target === "workspace" ? !sessionId : !connectionId)}
+                title="Run (⌘/Ctrl+Enter). Runs the selection when text is selected."
+              >
+                {running ? "Running…" : editorStatus?.selection.trim() ? "▶ Run selection" : "▶ Run"}
+                <kbd>⌘↵</kbd>
+              </button>
+            </span>
+          </div>
+          <div className={`sqled-frame${tall ? " sqled-frame--tall" : ""}`}>
+            <SqlEditor
+              id="sql"
+              value={sql}
+              onChange={setSql}
+              onRun={(selection) => runText(selection.trim() ? selection : sql)}
+              onFormat={formatEditor}
+              onStatus={setEditorStatus}
+              dialect={dialect}
+              schema={editorSchema}
+              wrap={wrap}
+              describedBy="sql-note"
+            />
+          </div>
+          <div className="sqled-status" aria-live="polite">
+            <span>
+              {editorStatus ? `Ln ${editorStatus.line}, Col ${editorStatus.col}` : ""}
+              {editorStatus ? ` · ${editorStatus.lines} ${editorStatus.lines === 1 ? "line" : "lines"}` : ""}
+              {editorStatus?.selection
+                ? ` · ${editorStatus.selection.length.toLocaleString()} selected (Run runs the selection)`
+                : editorStatus ? ` · ${editorStatus.chars.toLocaleString()} chars` : ""}
+            </span>
+            <span>{editorNote ?? "⌘F find · ⌘/ comment · Ctrl+Space suggest · Shift+Alt+F format"}</span>
+          </div>
           <p className="muted eq-wb-note" id="sql-note">
             {runsOn} Running here doesn&apos;t use the AI or any tokens.
             {target === "workspace" && (
@@ -711,33 +846,6 @@ export default function Explorer({
               </>
             )}
           </p>
-          <textarea id="sql" aria-describedby="sql-note" value={sql} onChange={(e) => setSql(e.target.value)} rows={8} spellCheck={false} />
-          <button
-            type="button"
-            onClick={() => run(false)}
-            disabled={!sql.trim() || running || (target === "workspace" ? !sessionId : !connectionId)}
-          >
-            {running ? "Running…" : "Run"}
-          </button>{" "}
-          {schema && (
-            <button
-              type="button"
-              onClick={() => {
-                const conn = connections.find((c) => c.id === connectionId);
-                const text = previewSql(schema, focusColumn, conn?.kind ?? "bigquery");
-                setSql(text);
-                run(false, text);
-              }}
-              disabled={running || !connectionId || schema.kind === "view"}
-              title={
-                schema.kind === "view"
-                  ? "Sampling isn't available for views; write a filtered query instead"
-                  : `Run ${PREVIEW_ROWS} rows of the first ${PREVIEW_COLUMNS} columns`
-              }
-            >
-              Preview data
-            </button>
-          )}
         </section>
 
         {outcome?.kind === "confirm" && (
@@ -746,7 +854,7 @@ export default function Explorer({
               This query will scan about <strong>{formatBytes(outcome.bytes)}</strong>, which is above your
               workspace&apos;s confirmation threshold.
             </p>
-            <button type="button" onClick={() => run(true)}>Run anyway</button>{" "}
+            <button type="button" onClick={() => run(true, lastRunText ?? sql)}>Run anyway</button>{" "}
             <button type="button" onClick={() => setOutcome(null)}>Cancel</button>
           </section>
         )}
@@ -791,6 +899,19 @@ export default function Explorer({
             </div>
           </section>
         )}
+
+        {schema && (
+          <section className="sqled-dictionary" aria-label="Table dictionary">
+            <DictionaryPanel
+              connectionId={connectionId}
+              path={schema.path}
+              rowCount={schema.row_count}
+              sizeLabel={formatBytes(schema.size_bytes)}
+              canEdit={role === "data_lead" || role === "admin"}
+              focusColumn={focusColumn}
+            />
+          </section>
+        )}
       </>
   );
 
@@ -802,7 +923,8 @@ export default function Explorer({
       aria-label="SQL workbench"
       tabIndex={-1}
       onKeyDown={(e) => {
-        if (e.key === "Escape") {
+        // Esc inside the SQL editor belongs to the editor (close suggestions, search, selection), not the workbench.
+        if (e.key === "Escape" && !(e.target as HTMLElement).closest(".cm-editor")) {
           e.stopPropagation();
           onWorkbenchOpenChange(false);
         }

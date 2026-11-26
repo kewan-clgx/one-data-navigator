@@ -10,9 +10,17 @@
   },
   "dependencies": {
     "@ag-ui/client": "1.0.2",
+    "@codemirror/autocomplete": "6.20.4",
+    "@codemirror/commands": "6.11.2",
+    "@codemirror/lang-sql": "6.10.0",
+    "@codemirror/language": "6.13.1",
+    "@codemirror/search": "6.7.3",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.44.1",
     "@copilotkit/react-core": "1.86.0",
     "@copilotkit/react-ui": "1.86.0",
     "@copilotkit/runtime": "1.86.0",
+    "@lezer/highlight": "1.2.5",
     "jose": "6.2.17",
     "maplibre-gl": "5.24.1",
     "next": "16.4.6",
@@ -20,7 +28,8 @@
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "server-only": "0.0.1",
-    "smol-toml": "^1.9.1"
+    "smol-toml": "^1.9.1",
+    "sql-formatter": "15.10.0"
   },
   "devDependencies": {
     "@types/node": "22.10.2",
