@@ -59,27 +59,32 @@
   --chart-7: #b8a07a;
   --chart-8: #7d6b5d;
 
-  /* Code (SQL editor and highlighted SQL): dark surface, same hues as the chat's SQL blocks. */
-  --code-bg: #1e1e1e;
-  --code-fg: #d4d4d4;
-  --code-gutter-bg: #1e1e1e;
-  --code-gutter-fg: #858585;
-  --code-active-line: rgba(255, 255, 255, 0.05);
-  --code-selection: rgba(38, 79, 120, 0.9);
-  --code-match: rgba(173, 214, 255, 0.15);
-  --code-cursor: #aeafad;
-  --code-keyword: #569cd6;
-  --code-string: #ce9178;
-  --code-number: #b5cea8;
-  --code-function: #dcdcaa;
-  --code-type: #4ec9b0;
-  --code-comment: #6a9955;
-  --code-operator: #d4d4d4;
-  --code-identifier: #9cdcfe;
-  --code-error: #f48771;
-  --code-toolbar-bg: #252526;
-  --code-toolbar-fg: #cccccc;
-  --code-border: #3c3c3c;
+  /* Code (SQL workbench editor and the chat's SQL blocks): warm "paper" on the light working surface, so code reads
+     as part of the page rather than a dark slab. Cream chrome, coral caret/selection, syntax hues drawn from the
+     brand palette; every token colour is >= 4.5:1 on --code-bg and on the active line. */
+  --code-bg: #fffdf8;
+  --code-fg: #1e1405;
+  --code-gutter-bg: #fbf6ee;
+  --code-gutter-fg: #9a8b78;
+  --code-active-line: #fdf4e7;
+  --code-selection: rgba(242, 115, 94, 0.22);
+  --code-match: rgba(244, 162, 89, 0.28);
+  --code-search: rgba(244, 162, 89, 0.4);
+  --code-search-current: rgba(242, 115, 94, 0.45);
+  --code-cursor: #d9492f;
+  --code-keyword: #b23a1f;
+  --code-string: #4b6b1f;
+  --code-number: #a8530a;
+  --code-function: #7a4a12;
+  --code-type: #2f5d8a;
+  --code-comment: #7d6b5d;
+  --code-operator: #6b5a47;
+  --code-identifier: #1f6470;
+  --code-error: #b8361f;
+  --code-toolbar-bg: #f7efe2;
+  --code-toolbar-fg: rgba(30, 20, 5, 0.78);
+  --code-border: rgba(30, 20, 5, 0.16);
+  --code-pressed-bg: #ffffff;
 }
 
 /* Brand mark: coral dot before the wordmark. */

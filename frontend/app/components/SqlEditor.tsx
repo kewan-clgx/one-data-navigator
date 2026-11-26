@@ -2,8 +2,8 @@
 
 import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap, type Completion } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap, indentWithTab, toggleComment } from "@codemirror/commands";
-import { MySQL, PLSQL, PostgreSQL, SQLDialect, StandardSQL, sql, type SQLNamespace } from "@codemirror/lang-sql";
-import { bracketMatching, foldGutter, foldKeymap, HighlightStyle, indentOnInput, syntaxHighlighting } from "@codemirror/language";
+import { sql, type SQLNamespace } from "@codemirror/lang-sql";
+import { bracketMatching, foldGutter, foldKeymap, indentOnInput, syntaxHighlighting } from "@codemirror/language";
 import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { Compartment, EditorState } from "@codemirror/state";
 import {
@@ -17,55 +17,11 @@ import {
   placeholder as placeholderExt,
   rectangularSelection,
 } from "@codemirror/view";
-import { tags as t } from "@lezer/highlight";
 import { useEffect, useLayoutEffect, useRef } from "react";
 
-export type SqlDialectId = "bigquery" | "postgres" | "mysql" | "snowflake" | "oracle" | "duckdb";
+import { DIALECTS, sqlHighlighter, type SqlDialectId } from "@/lib/sqlSyntax";
 
-export const DIALECT_LABEL: Record<SqlDialectId, string> = {
-  bigquery: "BigQuery",
-  postgres: "PostgreSQL",
-  mysql: "MySQL",
-  snowflake: "Snowflake",
-  oracle: "Oracle",
-  duckdb: "DuckDB",
-};
-
-// lang-sql keeps the standard keyword list internal; PostgreSQL's full list is a good base for other dialects.
-const BASE_KEYWORDS = PostgreSQL.spec.keywords ?? "";
-const BASE_TYPES = PostgreSQL.spec.types ?? "";
-
-// BigQuery: backtick-quoted identifiers (`project.dataset.table`), "strings", # comments and its common functions.
-const BigQuery = SQLDialect.define({
-  ...StandardSQL.spec,
-  keywords:
-    `${BASE_KEYWORDS} qualify struct array unnest safe_cast except replace window partition ` +
-    "over rows range unbounded preceding following current tablesample system interval if ifnull",
-  builtin:
-    "countif safe_divide approx_count_distinct array_agg string_agg date_trunc timestamp_trunc format_date " +
-    "parse_date date_diff timestamp_diff regexp_contains regexp_extract coalesce nullif trim lower upper concat " +
-    "split generate_array generate_date_array current_date current_timestamp extract cast",
-  types: `${BASE_TYPES} int64 float64 numeric bignumeric bool string bytes date datetime time timestamp geography json`,
-  identifierQuotes: "`",
-  doubleQuotedStrings: true,
-  backslashEscapes: true,
-  hashComments: true,
-});
-const Snowflake = SQLDialect.define({
-  ...StandardSQL.spec,
-  keywords: `${BASE_KEYWORDS} qualify ilike sample`,
-  types: `${BASE_TYPES} variant object array number`,
-});
-const DuckDB = SQLDialect.define({ ...PostgreSQL.spec, keywords: `${PostgreSQL.spec.keywords ?? ""} qualify pivot unpivot` });
-
-const DIALECTS: Record<SqlDialectId, SQLDialect> = {
-  bigquery: BigQuery,
-  postgres: PostgreSQL,
-  mysql: MySQL,
-  snowflake: Snowflake,
-  oracle: PLSQL,
-  duckdb: DuckDB,
-};
+export { DIALECT_LABEL, type SqlDialectId } from "@/lib/sqlSyntax";
 
 export type SqlSchema = { tables: { path: string[]; columns: { name: string; type: string }[] }[] };
 
@@ -91,19 +47,6 @@ function namespace(schema: SqlSchema | undefined): { ns: SQLNamespace; defaultTa
   return { ns: root, defaultTable: short };
 }
 
-const highlight = HighlightStyle.define([
-  { tag: [t.keyword, t.operatorKeyword, t.modifier], color: "var(--code-keyword)" },
-  { tag: t.string, color: "var(--code-string)" },
-  { tag: [t.number, t.bool, t.null], color: "var(--code-number)" },
-  { tag: [t.standard(t.name), t.function(t.variableName)], color: "var(--code-function)" },
-  { tag: [t.typeName], color: "var(--code-type)" },
-  { tag: [t.lineComment, t.blockComment, t.comment], color: "var(--code-comment)", fontStyle: "italic" },
-  { tag: [t.operator, t.punctuation, t.bracket], color: "var(--code-operator)" },
-  // Quoted identifiers (`project.dataset.table`, "Table") and special variables read as names, not strings.
-  { tag: [t.special(t.string), t.special(t.name), t.propertyName], color: "var(--code-identifier)" },
-  { tag: t.invalid, color: "var(--code-error)" },
-]);
-
 const theme = EditorView.theme(
   {
     "&": { backgroundColor: "var(--code-bg)", color: "var(--code-fg)", fontSize: "13px", height: "100%" },
@@ -117,7 +60,6 @@ const theme = EditorView.theme(
     ".cm-activeLine": { backgroundColor: "var(--code-active-line)" },
     ".cm-selectionMatch": { backgroundColor: "var(--code-match)" },
     ".cm-matchingBracket, &.cm-focused .cm-matchingBracket": { backgroundColor: "var(--code-match)", outline: "1px solid var(--code-gutter-fg)" },
-    ".cm-gutters": { backgroundColor: "var(--code-gutter-bg)", color: "var(--code-gutter-fg)", border: "none" },
     ".cm-activeLineGutter": { backgroundColor: "var(--code-active-line)", color: "var(--code-fg)" },
     ".cm-lineNumbers .cm-gutterElement": { padding: "0 10px 0 14px", minWidth: "36px" },
     ".cm-foldPlaceholder": { backgroundColor: "var(--code-toolbar-bg)", border: "1px solid var(--code-border)", color: "var(--code-fg)" },
@@ -127,10 +69,11 @@ const theme = EditorView.theme(
     ".cm-completionDetail": { color: "var(--code-gutter-fg)", fontStyle: "normal", marginLeft: "1em" },
     ".cm-panels": { backgroundColor: "var(--code-toolbar-bg)", color: "var(--code-fg)", borderColor: "var(--code-border)" },
     ".cm-panels input, .cm-panels button": { color: "var(--code-fg)", backgroundColor: "var(--code-bg)", border: "1px solid var(--code-border)" },
-    ".cm-searchMatch": { backgroundColor: "rgba(234, 92, 0, 0.33)", outline: "1px solid rgba(234, 92, 0, 0.6)" },
-    ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "rgba(98, 51, 21, 0.9)" },
+    ".cm-searchMatch": { backgroundColor: "var(--code-search)" },
+    ".cm-searchMatch.cm-searchMatch-selected": { backgroundColor: "var(--code-search-current)" },
+    ".cm-gutters": { backgroundColor: "var(--code-gutter-bg)", color: "var(--code-gutter-fg)", borderRight: "1px solid var(--code-border)" },
+    ".cm-tooltip-autocomplete": { boxShadow: "0 6px 20px rgba(30, 20, 5, 0.14)" },
   },
-  { dark: true },
 );
 
 export type EditorStatus = { line: number; col: number; lines: number; chars: number; selection: string };
@@ -205,7 +148,7 @@ export default function SqlEditor({
           highlightActiveLine(),
           highlightSelectionMatches(),
           search({ top: true }),
-          syntaxHighlighting(highlight),
+          syntaxHighlighting(sqlHighlighter),
           theme,
           placeholderExt("Write SQL… (⌘/Ctrl+Enter to run, Ctrl+Space for suggestions)"),
           language.current.of(sql({ dialect: DIALECTS[dialect], schema: ns, defaultTable, upperCaseKeywords: true })),

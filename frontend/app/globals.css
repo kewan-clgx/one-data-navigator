@@ -573,7 +573,41 @@ body.resizing iframe { pointer-events: none; }
 .eq-sql-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .eq-sql-chevron { width: 0.8rem; color: var(--fg-muted); }
 .eq-sql-meta { font-weight: 400; color: var(--fg-muted); }
+.eq-sql-actions { display: inline-flex; align-items: center; gap: 0.35rem; margin-left: auto; }
+.eq-sql-icon {
+  display: inline-grid; place-items: center; width: 1.75rem; height: 1.75rem; padding: 0;
+  background: transparent; color: var(--fg-muted); border: 1px solid transparent; border-radius: var(--radius); cursor: pointer;
+}
+.eq-sql-icon:hover { color: var(--fg); background: var(--surface); border-color: var(--border); }
+.eq-sql-icon:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .eq-sql > pre { margin: 0; border-top: 1px solid var(--border); }
+
+/* Highlighted SQL (chat answers): same paper surface, gutter and syntax colours as the workbench editor. */
+.sqlh-block {
+  margin: 0; padding: 0.55rem 0; max-height: 24rem; overflow: auto; counter-reset: sqlh-line;
+  /* Gutter drawn on the block (not per line) so it spans the top/bottom padding; `local` scrolls it with the code. */
+  background: linear-gradient(to right, var(--code-gutter-bg) 2.8rem, var(--code-border) 2.8rem calc(2.8rem + 1px), var(--code-bg) 0);
+  background-attachment: local;
+  color: var(--code-fg); border-top: 1px solid var(--code-border);
+  font-family: var(--font-mono); font-size: 0.8rem; line-height: 1.55; tab-size: 2;
+}
+.sqlh-line { display: block; padding-right: 0.9rem; white-space: pre; min-height: 1.55em; }
+.sqlh-line::before {
+  counter-increment: sqlh-line; content: counter(sqlh-line);
+  display: inline-block; box-sizing: border-box; width: 2.8rem; margin-right: 0.8rem; padding-right: 0.6rem;
+  text-align: right; color: var(--code-gutter-fg); user-select: none;
+}
+
+/* Syntax classes from lib/sqlSyntax.ts (CodeMirror editor and static blocks). */
+.sqlh-keyword { color: var(--code-keyword); font-weight: 600; }
+.sqlh-string { color: var(--code-string); }
+.sqlh-number { color: var(--code-number); }
+.sqlh-function { color: var(--code-function); }
+.sqlh-type { color: var(--code-type); }
+.sqlh-comment { color: var(--code-comment); font-style: italic; }
+.sqlh-operator { color: var(--code-operator); }
+.sqlh-identifier { color: var(--code-identifier); }
+.sqlh-error { color: var(--code-error); text-decoration: underline wavy; }
 .eq-wb-note { margin: 0.15rem 0 0.4rem; font-size: 0.75rem; }
 .odn-linklike {
   background: none; border: none; padding: 0; cursor: pointer;
@@ -632,7 +666,7 @@ body.resizing iframe { pointer-events: none; }
 .workspace section > label { display: block; font-size: 0.78rem; font-weight: 600; margin-bottom: 0.3rem; }
 .workspace textarea { width: 100%; margin: 0 0 0.5rem; font-family: var(--font-mono); font-size: 0.8rem; line-height: 1.45; }
 
-/* SQL workbench editor: one dark IDE panel (toolbar, CodeMirror editor, status bar), same hues as chat SQL. */
+/* SQL workbench editor: one paper-toned IDE panel (cream toolbar, editor, cream status bar), same syntax as chat SQL. */
 .sqled { display: flex; flex-direction: column; gap: 0; }
 .sqled-toolbar {
   display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
@@ -640,18 +674,23 @@ body.resizing iframe { pointer-events: none; }
   border: 1px solid var(--code-border); border-bottom: none; border-radius: var(--radius) var(--radius) 0 0;
 }
 .sqled-chip {
-  display: inline-flex; align-items: baseline; gap: 0.4rem; padding: 0.2rem 0.55rem; font-size: 0.75rem; font-weight: 700;
-  color: var(--code-keyword); border: 1px solid var(--code-border); border-radius: var(--radius); white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.2rem 0.55rem; font-size: 0.75rem; font-weight: 700;
+  color: var(--code-fg); background: var(--code-bg); border: 1px solid var(--code-border); border-radius: var(--radius);
+  white-space: nowrap;
 }
-.sqled-chip-sub { font-weight: 400; color: var(--code-gutter-fg); max-width: 10rem; overflow: hidden; text-overflow: ellipsis; }
+.sqled-chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.sqled-chip-sub { font-weight: 400; color: var(--fg-muted); max-width: 10rem; overflow: hidden; text-overflow: ellipsis; }
 .sqled-tools { display: inline-flex; gap: 0.15rem; flex-wrap: wrap; }
 .sqled-run { display: inline-flex; gap: 0.35rem; margin-left: auto; align-items: center; }
 .sqled-btn {
   background: transparent; color: var(--code-toolbar-fg); border: 1px solid transparent; border-radius: var(--radius);
   padding: 0.28rem 0.45rem; font: inherit; font-size: 0.76rem; cursor: pointer;
 }
-.sqled-btn:hover:not(:disabled) { background: var(--code-active-line); border-color: var(--code-border); color: var(--code-fg); }
-.sqled-btn[aria-pressed="true"] { border-color: var(--code-keyword); color: var(--code-fg); }
+.sqled-btn:hover:not(:disabled) { background: var(--code-bg); border-color: var(--code-border); color: var(--code-fg); }
+.sqled-btn[aria-pressed="true"] {
+  background: var(--code-pressed-bg); border-color: var(--code-border); color: var(--code-fg);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
 .sqled-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .sqled-btn:focus-visible, .sqled-run-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .sqled-run-btn {
@@ -666,13 +705,14 @@ body.resizing iframe { pointer-events: none; }
   height: 300px; min-height: 140px; max-height: 85vh; resize: vertical; overflow: hidden;
   border: 1px solid var(--code-border); background: var(--code-bg);
 }
+.sqled-frame:focus-within { border-color: var(--accent-strong); box-shadow: 0 0 0 1px var(--accent-strong); }
 .sqled-frame--tall { height: 62vh; }
 .sqled-editor { height: 100%; }
 .sqled-editor .cm-editor { height: 100%; }
 .sqled-loading { display: grid; place-items: center; color: var(--code-gutter-fg); font-size: 0.8rem; background: var(--code-bg); }
 .sqled-status {
   display: flex; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;
-  padding: 0.25rem 0.6rem; background: var(--code-toolbar-bg); color: var(--code-gutter-fg);
+  padding: 0.25rem 0.6rem; background: var(--code-toolbar-bg); color: var(--fg-muted);
   border: 1px solid var(--code-border); border-top: none; border-radius: 0 0 var(--radius) var(--radius);
   font-family: var(--font-mono); font-size: 0.7rem;
 }

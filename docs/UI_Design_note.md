@@ -77,7 +77,7 @@ The approval card shows the agent's hint (scan size and SQL) with **Run query** 
 Explorer → search or browse → click a table (chat becomes scoped) → **Details & SQL** opens the workbench with a prefilled `SELECT … LIMIT 100`, **Run** and **Preview data** (sampled), and the data dictionary below. Esc (outside the editor) or **Back to chat** closes it; Explorer keeps its state.
 
 ### 3.3b SQL editor (workbench)
-One dark IDE panel ([`SqlEditor.tsx`](../frontend/app/components/SqlEditor.tsx), CodeMirror 6, loaded only when the workbench opens), same colours as chat SQL (`--code-*` tokens):
+One IDE panel ([`SqlEditor.tsx`](../frontend/app/components/SqlEditor.tsx), CodeMirror 6, loaded only when the workbench opens) in the theme's warm **paper** style rather than a dark slab, so code sits inside the light working surface: cream toolbar and status bar, near-white code area with a cream gutter, coral caret/selection/focus ring, syntax hues from the brand palette (all ≥ 4.5:1). One highlighter ([`sqlSyntax.ts`](../frontend/lib/sqlSyntax.ts): tags → `sqlh-*` classes coloured by `--code-*` tokens) serves the editor and chat SQL, so both always match.
 
 - **Toolbar:** dialect · connection chip (BigQuery, PostgreSQL, Snowflake, MySQL, Oracle; DuckDB for conversation results), **Format** (`sql-formatter`, per dialect), **Wrap** (on by default, remembered), **Copy**, **.sql** download, **Expand**; on the right **Preview data** and **▶ Run ⌘↵**.
 - **Editor:** line numbers, bracket matching/auto-close, folding, ⌘F search & replace, multi-cursor, ⌘/ comment, selection-match highlight. Completion (Ctrl+Space or typing): keywords, tables in scope, and the opened table's columns with types.
@@ -86,7 +86,7 @@ One dark IDE panel ([`SqlEditor.tsx`](../frontend/app/components/SqlEditor.tsx),
 - **Keyboard:** Tab indents; Esc then Tab leaves the editor; Esc inside the editor never closes the workbench.
 
 ### 3.3a SQL in chat answers
-Most readers are managers, so SQL blocks in answers start **folded** ("▸ Show SQL · N lines"); expanding shows the code with copy and download. Each block also has **Open in SQL workbench** ([`FoldableSql.tsx`](../frontend/app/components/FoldableSql.tsx)):
+Most readers are managers, so SQL blocks in answers start **folded** ("▸ Show SQL · N lines"); expanding shows the code highlighted exactly like the editor (line numbers, [`SqlCode.tsx`](../frontend/app/components/SqlCode.tsx), loaded on first expand) with copy and download in the bar. Each block also has **Open in SQL workbench** ([`FoldableSql.tsx`](../frontend/app/components/FoldableSql.tsx)):
 
 - The tables it reads (FROM/JOIN, CTEs and subqueries skipped) pick the connection whose allowlist covers them ([`sqlRefs.ts`](../frontend/lib/sqlRefs.ts)); the chat is scoped to all of them and the first table's dictionary opens. The SQL is kept as written.
 - SQL that only reads the conversation's results (`q1`, `q2`, …) runs on the workspace (DuckDB, no warehouse scan) and saves a new `qN`.
