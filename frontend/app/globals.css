@@ -140,7 +140,9 @@ code, pre, textarea.mono { font-family: var(--font-mono); }
 /* ============ Main split: side panel | chat ============ */
 
 .odn-main { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(360px, 38%) 6px minmax(0, 1fr); }
-.odn-main--collapsed { grid-template-columns: 0 0 minmax(0, 1fr) !important; }
+/* Panel and handle are display:none, so the chat is the only grid item: give it the one full-width column
+   (with three columns it would be auto-placed into the first, zero-width one). */
+.odn-main--collapsed { grid-template-columns: minmax(0, 1fr) !important; }
 .odn-main--collapsed > .odn-panel,
 .odn-main--collapsed > .split-handle { display: none; }
 
