@@ -19,6 +19,7 @@ import ArtifactsPanel from "./ArtifactsPanel";
 import ChatsPanel, { useConversations } from "./Conversations";
 import Explorer, { type ActiveConnection, type SqlRequest, type TableScope } from "./Explorer";
 import FoldableSql, { OpenSqlContext } from "./FoldableSql";
+import ScopedStarters from "./TableQuestions";
 import ResultsPanel, { AGENT_ID, type AgentState } from "./Results";
 import { DEMO_PLACEHOLDER, DEMO_SUGGESTIONS, DemoImportBanner, DemoUpgradeBanner, type DemoVisitor } from "./DemoBanners";
 import ShareDialog from "./ShareDialog";
@@ -279,9 +280,8 @@ export default function AppShell({
     localStorage.setItem(WORKBENCH_FOCUS_KEY, String(on));
   }, []);
 
-  // "Ask EasyQuery about this result": leave the workbench and pre-fill (never send) the chat input.
-  const askAbout = useCallback((text: string) => {
-    openWorkbench(false);
+  // Pre-fills (never sends) the chat input and focuses it, cursor at the end.
+  const prefillChat = useCallback((text: string) => {
     window.setTimeout(() => {
       const input = document.querySelector<HTMLTextAreaElement>(".odn-chat textarea");
       if (!input) return;
@@ -290,7 +290,12 @@ export default function AppShell({
       input.focus();
       input.setSelectionRange(text.length, text.length);
     }, 0);
-  }, [openWorkbench]);
+  }, []);
+  // "Ask EasyQuery about this result": leave the workbench with the question pre-filled.
+  const askAbout = useCallback((text: string) => {
+    openWorkbench(false);
+    prefillChat(text);
+  }, [openWorkbench, prefillChat]);
   const sidePanelShown = panelOpen && !workbenchFocus;
 
   const selectTab = useCallback((id: TabId) => {
@@ -504,6 +509,7 @@ export default function AppShell({
       <div className="odn-chat-body">
         <div className="odn-chat-messages" aria-live="polite" aria-atomic="false">
           <OpenSqlContext.Provider value={openSqlInWorkbench}>
+          <ScopedStarters scope={scope} onPick={prefillChat} />
           <CopilotChat
             markdownTagRenderers={{ pre: FoldableSql }}
             attachments={{
@@ -524,7 +530,9 @@ export default function AppShell({
             }}
             labels={{
               title: theme.product,
-              initial: demo ? DEMO_PLACEHOLDER : "Ask anything about your data, e.g. “How many businesses per status in CA?”",
+              // A scoped table gets the starter-questions card instead of the generic example.
+              initial: scope ? "" : demo ? DEMO_PLACEHOLDER : "Ask anything about your data, e.g. “How many businesses per status in CA?”",
+              ...(scope ? { placeholder: `Ask about ${scope.path[scope.path.length - 1]}…` } : {}),
             }}
             {...(demo ? { suggestions: DEMO_SUGGESTIONS } : {})}
           />

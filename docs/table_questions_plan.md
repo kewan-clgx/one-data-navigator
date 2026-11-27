@@ -1,6 +1,6 @@
 # Table questions ("what you can ask"): implementation plan
 
-*Status: plan approved 2026-11-27 (decisions in §7). Implementation: Q0 → Q3.*
+*Status: plan approved 2026-11-27 (decisions in §7). **Q0 implemented** (starter card [TableQuestions.tsx](../frontend/app/components/TableQuestions.tsx); `get_table_schema` returns profile and `modified_at`; agent rule 10). Next: Q1 → Q3.*
 *Related: column profiles ([0038_column_profiles.sql](../backend/src/odn/db/migrations/0038_column_profiles.sql), [column_profiles.py](../backend/src/odn/platform/catalog/column_profiles.py)), LLM routing ([agent/budget.py](../backend/src/odn/agent/budget.py)), chat empty state ([AppShell.tsx](../frontend/app/components/AppShell.tsx)), [UI_Design_note.md](./UI_Design_note.md).*
 
 ## 1. Goal

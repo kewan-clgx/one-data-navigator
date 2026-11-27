@@ -200,9 +200,12 @@ async def list_tables(connection_id: str, dataset: str = "") -> dict[str, Any]:
 
 
 async def get_table_schema(connection_id: str, table: str) -> dict[str, Any]:
-    """Gets columns, types, descriptions, curated business definitions, row count and partitioning.
+    """Gets columns, types, descriptions, curated business definitions, row count, partitioning, when the table was
+    last modified (`modified_at`) and, when the table has been profiled, each column's `fill_rate` (share of non-null
+    values in a 10% sample) and `min`/`max`.
 
-    Prefer approved business definitions over raw descriptions when choosing columns and filters.
+    Prefer approved business definitions over raw descriptions when choosing columns and filters. Answer questions
+    about fill rates, freshness, core fields or what the table is useful for from this result, without running SQL.
 
     Args:
         connection_id: The connection id from `list_connections`.
@@ -226,7 +229,44 @@ async def get_table_schema(connection_id: str, table: str) -> dict[str, Any]:
             if col["name"] in curated:
                 c = curated[col["name"]]
                 col["business_definition"] = f'{c["definition"]} ({c["status"]})'
+    await _add_profile(connection_id, params, schema)
     return schema
+
+
+async def _add_profile(connection_id: str, params: list[tuple[str, str]], schema: dict[str, Any]) -> None:
+    """Best effort: the stored column profile (no scan). Absent profiles are stated so the agent doesn't scan for them."""
+    resp = await _api("GET", f"connections/{connection_id}/column-profile", params=params)
+    if resp.status_code != 200:
+        return  # profiling isn't available for this connection type
+    profile = resp.json()
+    rows = profile.get("sample_rows")
+    fields = {tuple(f["path"]): f for f in profile.get("fields") or []}
+    if not rows or not fields:
+        schema["profile"] = (
+            "Not profiled yet: fill rates and ranges are unknown. Offer to profile the table "
+            "(Profile this table in the workbench, a 10% sample) instead of writing a query to compute them."
+        )
+        return
+    # The profile reads a random ~10% sample (column_profile_sql: WHERE RAND() < 0.1). Label sample_rows so it is never
+    # mistaken for the table's size, which views don't report.
+    schema["profile"] = {
+        "note": "fill_rate/min/max are estimates from a random ~10% sample. sample_rows is the SAMPLE size, "
+                "NOT the number of rows in the table.",
+        "sample_rows": rows,
+        "sampled_at": profile.get("sampled_at"),
+    }
+    if not schema.get("row_count"):
+        schema["row_count_estimate"] = {
+            "value": rows * 10,
+            "note": "About sample_rows x 10 (the warehouse reports no row count for this object, e.g. a view). "
+                    "Present it as approximate; run COUNT(*) only if the user needs the exact number.",
+        }
+    for col in schema["columns"]:
+        field = fields.get((col["name"],))
+        if field:
+            col["fill_rate"] = f'{100 * field["filled_rows"] / rows:.1f}%'
+            if field.get("min_value") is not None and field.get("max_value") is not None:
+                col["min"], col["max"] = field["min_value"], field["max_value"]
 
 
 async def run_sql(connection_id: str, sql: str, tool_context: ToolContext) -> dict[str, Any]:

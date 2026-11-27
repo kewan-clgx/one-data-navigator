@@ -927,6 +927,27 @@ table.wb-grid thead th.wb-rownum { z-index: 2; background: var(--surface-alt); }
 .hscroll-btn:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 1px; }
 @media (max-width: 700px) { .hscroll-hint { display: none; } }
 
+/* Empty scoped conversation: starter questions (TableQuestions.tsx). */
+.tq {
+  margin: 1rem 1rem 0.5rem; padding: 1rem 1.1rem; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface-alt); max-width: 46rem;
+}
+.tq-title { margin: 0; font-size: 1rem; font-weight: 600; color: var(--fg); }
+.tq-title code { font-size: 0.95rem; overflow-wrap: anywhere; }
+.tq-meta { margin: 0.2rem 0 0; font-size: 0.78rem; color: var(--fg-muted); }
+.tq-group {
+  margin: 0.9rem 0 0.45rem; font-size: 0.68rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--fg-muted);
+}
+.tq-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 0.45rem; }
+.tq-chip {
+  padding: 0.35rem 0.75rem; font: inherit; font-size: 0.82rem; cursor: pointer; color: var(--fg);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+}
+.tq-chip:hover { border-color: var(--accent); }
+.tq-chip:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+.tq-hint { margin: 0.7rem 0 0; font-size: 0.74rem; color: var(--fg-muted); }
+
 .grid-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin: 0.4rem 0; flex-wrap: wrap; }
 .pager { display: flex; gap: 0.4rem; align-items: center; }
 .download { font-size: 0.75rem; color: var(--fg); margin-left: 0.5rem; text-decoration-color: var(--accent); }

@@ -98,6 +98,9 @@ Most readers are managers, so SQL blocks in answers start **folded** ("▸ Show 
 - SQL that only reads the conversation's results (`q1`, `q2`, …) runs on the workspace (DuckDB, no warehouse scan) and saves a new `qN`.
 - Workbench runs call the query APIs directly and never the agent, so they use no AI tokens; the workbench says so under the editor.
 
+### 3.3c Starter questions for a scoped table
+A new (empty) conversation with a table in scope shows **Ask about `<table>`** with the table's kind, rows, fields and when it was modified, plus five **Get to know this table** chips: *Fill rates*, *Last updated*, *Core fields*, *Possible insights*, and *Sample rows* (tables, a free preview) or *Empty fields* (views, whose preview would scan everything). A chip **pre-fills** the message box; Enter sends. The agent answers these from `get_table_schema` alone (stored profile fill rates and ranges, `modified_at`, definitions) without running SQL. The input placeholder reads "Ask about `<table>`…". **Answer style** (agent instructions, all answers): a bold one-line answer, then at most 5 one-line bullets (about 2 after a table, which is capped at 10 rows); no method notes, repeated caveats or closing offers. Generated and frequently asked questions with cached answers come next: [table_questions_plan.md](./table_questions_plan.md).
+
 ### 3.4 Attach a file
 Paperclip in the chat input (or drag a file onto the chat, or **Upload files** in Artifacts).
 - The file is uploaded to the Artifacts store immediately and shows as a chip in the input.
