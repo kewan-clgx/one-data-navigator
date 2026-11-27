@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import "@copilotkit/react-ui/styles.css";
 import "./themes/cotality.css";
 import "./themes/appearance.css";
+import "./themes/studio.css";
 import "./themes/code.css";
 import "./globals.css";
 import { brandCompanyLabel } from "./themes";

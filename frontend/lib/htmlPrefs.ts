@@ -3,7 +3,7 @@
  * Shared by the client store (displayPrefs.ts) and the pre-paint script in the root layout.
  */
 export const APPEARANCE_KEY = "odn.appearance";
-export const APPEARANCE_IDS = ["elegant", "code-dark", "code-light"] as const;
+export const APPEARANCE_IDS = ["elegant", "code-dark", "code-light", "studio", "studio-dark"] as const;
 export const CODE_THEME_KEY = "odn.sql.theme";
 export const CODE_THEME_IDS = ["auto", "elegant", "vscode-dark", "vscode-light"] as const;
 

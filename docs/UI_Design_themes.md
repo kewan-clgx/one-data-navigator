@@ -1,6 +1,7 @@
 # EasyQuery UI themes: research and proposal
 
 *Status: research and proposal only (no code changes). Date: 2026-11-26.*
+*Update 2026-11-26: §4.1 is now in a working dry run as the appearances **Studio** and **Studio Dark** ([frontend/app/themes/studio.css](../frontend/app/themes/studio.css)). They are additive only: Elegant, Code Dark and Code Light are unchanged, and Elegant stays the default.*
 *Audience: whoever decides the next theme work. Read with [UI_Design_note.md](./UI_Design_note.md) §5 (Theming).*
 
 ## 1. Summary

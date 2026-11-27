@@ -78,6 +78,8 @@ export const APPEARANCES = [
   { id: "elegant", label: "Elegant", hint: "The brand look: dark ink panel, warm paper surfaces" },
   { id: "code-dark", label: "Code Dark", hint: "VS Code Dark Modern colours, easy on the eyes" },
   { id: "code-light", label: "Code Light", hint: "VS Code Light Modern colours, bright and neutral" },
+  { id: "studio", label: "Studio", hint: "Clean neutral greys, one green accent, rounded cards (Nuxt UI style)" },
+  { id: "studio-dark", label: "Studio Dark", hint: "Studio after dark: zinc greys with a green accent" },
 ] as const;
 export type AppearanceId = (typeof APPEARANCES)[number]["id"];
 const appearance = htmlPref<AppearanceId>(APPEARANCE_KEY, "appearance", APPEARANCE_IDS, "elegant");

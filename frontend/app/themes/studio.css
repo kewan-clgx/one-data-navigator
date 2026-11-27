@@ -1,0 +1,200 @@
+/* Appearance "Studio" / "Studio Dark": a dry run of the Nuxt UI look (see docs/UI_Design_themes.md §4.1, §5.3).
+   Additive only: nothing here touches Elegant, Code Dark or Code Light. Neutral zinc greys, ONE accent (green) used for
+   primary actions, active items, focus and the first chart series; chrome and side panel sit on the page background;
+   the chat is a rounded card. Text pairs >= 4.5:1, focus >= 3:1. */
+
+:root[data-appearance="studio"],
+[data-appearance-preview="studio"] {
+  /* Tuned for long sessions: soft off-white surfaces instead of pure white, a desaturated emerald instead of a
+     saturated green, warm amber highlights instead of bright yellow, and calmer GitHub-style code hues. */
+  color-scheme: light;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "Helvetica Neue", Arial, sans-serif;
+  --radius: 6px;
+
+  --app-bg: #f6f6f7;
+  --chrome-bg: #f6f6f7;
+  --chrome-fg: #27272a;
+  --chrome-border: #e4e4e7;
+
+  --panel-bg: #f6f6f7;
+  --panel-fg: #3f3f46;
+  --panel-muted: #67676f;
+  --panel-border: #e4e4e7;
+  --panel-border-strong: #d4d4d8;
+  --panel-hover: #efeff1;
+  --panel-selected: #e9e9ec;
+  --panel-input-bg: #fdfdfd;
+  --panel-focus: #2f7d57;
+
+  --surface: #fdfdfd;
+  --surface-alt: #f3f3f4;
+  --fg: #3f3f46;
+  --fg-muted: #67676f;
+  --border: #e4e4e7;
+
+  --primary: #1f6f4a;
+  --primary-fg: #f4faf6;
+  --accent: #1f6f4a;
+  --accent-strong: #2f7d57;
+  --accent-2: #2a6e4c;
+  --on-accent: #f4faf6;
+  --btn-hover-bg: #1a5f40;
+  --btn-hover-fg: #f4faf6;
+  --btn-secondary-fg: #3f3f46;
+  --btn-secondary-border: #d4d4d8;
+  --btn-secondary-hover-bg: #efeff1;
+  --btn-secondary-hover-fg: #27272a;
+  --bubble-bg: #efeff1;
+  --bubble-fg: #27272a;
+  --mark-bg: #fbe7b2;
+  --mark-fg: #3f3a2a;
+
+  --danger: #c03b3b;
+  --danger-bg: #fbf0f0;
+  --success: #2f7d57;
+  --success-bg: #f1f8f3;
+  --warning-bg: #fdf8ec;
+  --warning-border: #d9a94a;
+
+  --chart-1: #3f9a6c;
+  --chart-2: #5b8fd1;
+  --chart-3: #8f7cc9;
+  --chart-4: #d19a3a;
+  --chart-5: #d06a7c;
+  --chart-6: #3fa0b0;
+  --chart-7: #8a8a93;
+  --chart-8: #8aae4a;
+
+  /* Code: GitHub Light hues, toned down a step. */
+  --code-scheme: light;
+  --code-bg: #f8f8f9;
+  --code-fg: #2d333b;
+  --code-gutter-bg: #f8f8f9;
+  --code-gutter-fg: #a1a1aa;
+  --code-active-line: #f1f1f3;
+  --code-selection: rgba(31, 111, 74, 0.14);
+  --code-match: rgba(31, 111, 74, 0.09);
+  --code-search: rgba(217, 169, 74, 0.3);
+  --code-search-current: rgba(217, 169, 74, 0.5);
+  --code-cursor: #27272a;
+  --code-keyword: #b8383d;
+  --code-keyword-weight: 400;
+  --code-string: #1c4b80;
+  --code-number: #2a5f9e;
+  --code-function: #7246b5;
+  --code-type: #8a4a14;
+  --code-comment: #5f6873;
+  --code-operator: #2d333b;
+  --code-identifier: #2a6b3d;
+  --code-error: #b8383d;
+  --code-toolbar-bg: #f1f1f3;
+  --code-toolbar-fg: #3f3f46;
+  --code-muted: #67676f;
+  --code-border: #e4e4e7;
+  --code-pressed-bg: #fdfdfd;
+}
+
+:root[data-appearance="studio-dark"],
+[data-appearance-preview="studio-dark"] {
+  /* Tuned for long sessions: body text ~11:1 (not pure white), a desaturated emerald instead of neon green, soft
+     off-white on green fills, and GitHub "Dark Dimmed" code colours. Green fills darken on hover rather than glow. */
+  color-scheme: dark;
+  --hscroll-shade: rgba(0, 0, 0, 0.55);
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "Helvetica Neue", Arial, sans-serif;
+  --radius: 6px;
+
+  --app-bg: #0f0f11;
+  --chrome-bg: #0f0f11;
+  --chrome-fg: #d4d4d8;
+  --chrome-border: #27272a;
+
+  --panel-bg: #0f0f11;
+  --panel-fg: #c4c4ca;
+  --panel-muted: #9a9aa3;
+  --panel-border: #27272a;
+  --panel-border-strong: #3a3a40;
+  --panel-hover: rgba(255, 255, 255, 0.035);
+  --panel-selected: #232327;
+  --panel-input-bg: #18181b;
+  --panel-focus: #5bb48a;
+
+  --surface: #18181b;
+  --surface-alt: #1f1f23;
+  --fg: #cfcfd4;
+  --fg-muted: #9a9aa3;
+  --border: #27272a;
+
+  --primary: #1c6e46;
+  --primary-fg: #e8f5ee;
+  --accent: #1c6e46;
+  --accent-strong: #5bb48a;
+  --accent-2: #196340;
+  --on-accent: #e8f5ee;
+  --btn-hover-bg: #196340;
+  --btn-hover-fg: #e8f5ee;
+  --btn-secondary-fg: #c4c4ca;
+  --btn-secondary-border: #3a3a40;
+  --btn-secondary-hover-bg: #26262a;
+  --btn-secondary-hover-fg: #e4e4e7;
+  --bubble-bg: #26262a;
+  --bubble-fg: #d4d4d8;
+  --mark-bg: #5c4a14;
+  --mark-fg: #f3ead0;
+
+  --danger: #f08c8c;
+  --danger-bg: #2a1616;
+  --success: #5bb48a;
+  --success-bg: #13251b;
+  --warning-bg: #2a2110;
+  --warning-border: #c9a23a;
+
+  --chart-1: #5bb48a;
+  --chart-2: #6c9fd8;
+  --chart-3: #a08bd6;
+  --chart-4: #d9a94a;
+  --chart-5: #e07f8f;
+  --chart-6: #4fb3c4;
+  --chart-7: #9a9aa3;
+  --chart-8: #9cbf5a;
+
+  /* Code: GitHub Dark Dimmed hues on zinc-950. */
+  --code-scheme: dark;
+  --code-bg: #141417;
+  --code-fg: #adbac7;
+  --code-gutter-bg: #141417;
+  --code-gutter-fg: #5c5c66;
+  --code-active-line: rgba(255, 255, 255, 0.03);
+  --code-selection: rgba(91, 180, 138, 0.18);
+  --code-match: rgba(91, 180, 138, 0.1);
+  --code-search: rgba(214, 170, 60, 0.25);
+  --code-search-current: rgba(214, 170, 60, 0.4);
+  --code-cursor: #c9d1d9;
+  --code-keyword: #f47067;
+  --code-keyword-weight: 400;
+  --code-string: #96d0ff;
+  --code-number: #6cb6ff;
+  --code-function: #dcbdfb;
+  --code-type: #f69d50;
+  --code-comment: #8b949e;
+  --code-operator: #adbac7;
+  --code-identifier: #8ddb8c;
+  --code-error: #e5534b;
+  --code-toolbar-bg: #18181b;
+  --code-toolbar-fg: #c4c4ca;
+  --code-muted: #9a9aa3;
+  --code-border: #27272a;
+  --code-pressed-bg: #26262a;
+}
+
+/* Nuxt-style shell: the chat sits as a rounded card on the page; the side panel and resize handle blend into the page. */
+@media (min-width: 861px) {
+  :root[data-appearance^="studio"] .odn-chat {
+    margin: 0.5rem 0.5rem 0.5rem 0;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  :root[data-appearance^="studio"] .odn-main--collapsed .odn-chat { margin-left: 0.5rem; }
+}
+:root[data-appearance^="studio"] .odn-brandbar { border-bottom-color: transparent; }
+:root[data-appearance^="studio"] .copilotKitMessage.copilotKitUserMessage { border-radius: 12px !important; }
