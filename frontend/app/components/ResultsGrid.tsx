@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import HScroll from "./HScroll";
 
 const PAGE = 100;
 
@@ -100,7 +101,7 @@ export default function ResultsGrid({
         </span>
       </div>
       {error && <p role="alert" className="error">{error}</p>}
-      <div className="results" aria-busy={loading}>
+      <HScroll className="results" columns={columns.length} busy={loading}>
         <table className="grid">
           <thead>
             <tr>
@@ -127,7 +128,7 @@ export default function ResultsGrid({
             ))}
           </tbody>
         </table>
-      </div>
+      </HScroll>
     </div>
   );
 }

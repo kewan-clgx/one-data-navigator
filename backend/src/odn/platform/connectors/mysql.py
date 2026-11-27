@@ -263,7 +263,8 @@ class MySQLConnector(BaseConnector):
         self._path(path, 2)
         with self._cursor() as cur:
             cur.execute(
-                "SELECT TABLE_TYPE, TABLE_COMMENT FROM INFORMATION_SCHEMA.TABLES "
+                # UPDATE_TIME is NULL for some engines/versions (often InnoDB); the UI then omits it.
+                "SELECT TABLE_TYPE, TABLE_COMMENT, UPDATE_TIME FROM INFORMATION_SCHEMA.TABLES "
                 "WHERE BINARY TABLE_SCHEMA = %s AND BINARY TABLE_NAME = %s", path,
             )
             row = cur.fetchone()
@@ -271,7 +272,7 @@ class MySQLConnector(BaseConnector):
             raise ValueError("MySQL table not found")
         return TableSchema(
             path=path, kind="view" if row[0] == "VIEW" else "table", description=row[1] or None,
-            columns=self._columns(*path).get(path, []),
+            columns=self._columns(*path).get(path, []), modified_at=row[2],
         )
 
     def list_columns(self, container: tuple[str, ...]) -> dict[tuple[str, ...], list[ColumnSchema]]:

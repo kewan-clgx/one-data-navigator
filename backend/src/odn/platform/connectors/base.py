@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal
 
 import pyarrow as pa
@@ -40,6 +41,8 @@ class TableSchema(BaseModel):
     size_bytes: int | None = None
     partitioning: str | None = None
     clustering: list[str] | None = None
+    # When the table's data or definition last changed, where the source reports it (None = unknown).
+    modified_at: datetime | None = None
 
 
 class CostEstimate(BaseModel):

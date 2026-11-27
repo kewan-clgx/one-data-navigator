@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, replace
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 import pyarrow as pa
 from google.api_core import exceptions as gexc
@@ -179,6 +179,47 @@ def run_query(
     )
 
 
+CheckStatus = Literal["ok", "free_preview", "confirm", "over_cap", "rejected", "error"]
+
+
+@dataclass(frozen=True)
+class QueryCheck:
+    status: CheckStatus
+    message: str
+    bytes_estimated: int | None = None
+    tables: tuple[str, ...] = ()
+    cost_known: bool = False
+
+
+def check_query(
+    ctx: RequestContext, profile: ConnectionProfile, sql: str, *, connector: BaseConnector | None = None
+) -> QueryCheck:
+    """What `run_query` would decide for this SQL, without reading any data: policy, free preview, dry-run cost, cap.
+
+    Backs the workbench's live check line, so users see scan size, limits and allowlist problems before they run.
+    Not audited (no data is read); callers rate-limit it.
+    """
+    connector = connector or build_connector(profile)
+    decision = build_policy(profile, connector).validate(sql)
+    if not decision.allowed:
+        return QueryCheck("rejected", decision.reason or "Not allowed by the connection's SQL policy.")
+    cap = scan_cap(ctx)
+    try:
+        if connector.free_preview(sql, QueryLimits(max_bytes_billed=cap)) is not None:
+            return QueryCheck("free_preview", "Free preview: reads stored rows, no scan.", 0, decision.tables, True)
+        if not connector.supports_dry_run:
+            return QueryCheck("ok", "Allowed. Cost estimate isn't available for this database.", None, decision.tables)
+        estimated = connector.estimate_cost(sql).bytes_processed or 0
+    except (gexc.GoogleAPIError, ConnectorError) as exc:
+        return QueryCheck("error", _error_message(exc), None, decision.tables)
+    if estimated > cap:
+        return QueryCheck("over_cap", _over_cap_message(estimated, cap), estimated, decision.tables, True)
+    if estimated > settings.confirm_bytes_threshold:
+        return QueryCheck("confirm", f"This query will scan about {_size(estimated)} and will ask to confirm.",
+                          estimated, decision.tables, True)
+    return QueryCheck("ok", f"This query will scan about {_size(estimated)}.", estimated, decision.tables, True)
+
+
 def _cancel_quietly(connector: BaseConnector, job_id: str) -> None:
     try:
         connector.cancel_job(job_id)
@@ -205,6 +246,14 @@ def _over_cap_message(estimated: int, cap: int) -> str:
 def _gb(n: int) -> str:
     gb = n / 1e9
     return f"{gb:,.0f} GB" if gb >= 10 else f"{gb:,.1f} GB"
+
+
+def _size(n: int) -> str:
+    for unit, scale in (("TB", 1e12), ("GB", 1e9), ("MB", 1e6), ("KB", 1e3)):
+        if n >= scale:
+            v = n / scale
+            return f"{v:,.1f} {unit}" if v < 10 else f"{v:,.0f} {unit}"
+    return f"{n} B"
 
 
 def _ms(start: float) -> int:

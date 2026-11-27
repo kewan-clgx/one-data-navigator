@@ -20,6 +20,8 @@ import { CONNECTIONS_CHANGED } from "@/lib/client-api";
 import { connectionFor, isWorkspaceSql, tablesIn } from "@/lib/sqlRefs";
 
 import DictionaryPanel from "./DictionaryPanel";
+import { QueryCheckLine, useQueryCheck } from "./QueryCheck";
+import WorkbenchResults from "./WorkbenchResults";
 import { fieldPath, fillRate, profileField, ProfileStatus, useColumnProfile } from "./ColumnProfile";
 import { DIALECT_LABEL, type EditorStatus, type SqlSchema } from "./SqlEditor";
 import { dialectFor, formatSql } from "@/lib/sqlFormat";
@@ -108,8 +110,11 @@ function previewSql(s: TableSchema, focus: string | null, connectionKind: string
 type Connection = { id: string; name: string; kind: string; scope?: "shared" | "personal"; allowed_objects: string[] };
 type CatalogNode = { kind: string; path: string[]; name: string };
 type Column = { name: string; type: string; nullable: boolean; description?: string | null };
-type TableSchema = { path: string[]; kind: "table" | "view"; columns: Column[]; row_count?: number | null; size_bytes?: number | null; description?: string | null };
-type QueryMeta = { rows: number; bytes_processed: number | null; duration_ms: number; truncated: boolean; columns: Column[] };
+type TableSchema = {
+  path: string[]; kind: "table" | "view"; columns: Column[]; row_count?: number | null; size_bytes?: number | null;
+  description?: string | null; modified_at?: string | null; partitioning?: string | null; clustering?: string[] | null;
+};
+type QueryMeta = { rows: number; bytes_processed: number | null; duration_ms: number; truncated: boolean; columns: Column[]; job_id?: string | null };
 type QueryResult = { meta: QueryMeta; tables: string[]; bytes_estimated: number | null; rows: Record<string, unknown>[] };
 type MetadataStatus = {
   state: "not_indexed" | "building" | "ready" | "stale" | "partial" | "failed";
@@ -197,11 +202,6 @@ function formatBytes(n: number | null | undefined): string {
   return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
 }
 
-function cell(v: unknown): string {
-  if (v === null || v === undefined) return "NULL";
-  return typeof v === "object" ? JSON.stringify(v) : String(v);
-}
-
 export default function Explorer({
   scope,
   onScopeChange,
@@ -211,6 +211,9 @@ export default function Explorer({
   onWorkbenchOpenChange,
   sqlRequest,
   sessionId,
+  focus = false,
+  onFocusChange,
+  onAskAbout,
 }: {
   scope: TableScope | null;
   onScopeChange: (scope: TableScope | null) => void;
@@ -222,6 +225,11 @@ export default function Explorer({
   sqlRequest?: SqlRequest | null;
   /** The conversation's workspace, for SQL over its results (q1, q2, ...). */
   sessionId?: string;
+  /** Workbench "Focus": the side panel is hidden while the workbench is open. */
+  focus?: boolean;
+  onFocusChange?: (on: boolean) => void;
+  /** Leave the workbench with a question about the result pre-filled in the chat (not sent). */
+  onAskAbout?: (text: string) => void;
 }) {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [connectionId, setConnectionId] = useState<string>("");
@@ -262,7 +270,12 @@ export default function Explorer({
   const [editorStatus, setEditorStatus] = useState<EditorStatus | null>(null);
   // Wrap is on by default: the workbench is narrow and long `project.dataset.table` paths are common.
   const [wrap, setWrap] = useState(() => typeof window === "undefined" || localStorage.getItem(WRAP_KEY) !== "0");
-  const [tall, setTall] = useState(false);
+  // Field-name clicks in the table pane insert at the editor cursor; the nonce makes repeats insert again.
+  const [insertReq, setInsertReq] = useState<{ text: string; nonce: number } | null>(null);
+  // Remounts the results panel per run so it opens on Results.
+  const [runNonce, setRunNonce] = useState(0);
+  // Side-by-side table pane only when the workbench is wide enough; otherwise the pane folds into a tab.
+  const [wide, setWide] = useState(false);
   const [editorNote, setEditorNote] = useState<string | null>(null);
   // What the last Run sent (the selection or the whole editor), so "Run anyway" repeats exactly that.
   const [lastRunText, setLastRunText] = useState<string | null>(null);
@@ -678,6 +691,13 @@ export default function Explorer({
   useEffect(() => {
     if (workbenchOpen) workbenchRef.current?.focus();
   }, [workbenchOpen]);
+  useEffect(() => {
+    const el = workbenchRef.current;
+    if (!workbenchOpen || !el) return;
+    const observer = new ResizeObserver(([entry]) => setWide(entry.contentRect.width >= 1080));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [workbenchOpen, workbenchHost]);
 
   const run = useCallback(
     async (confirmed: boolean, sqlText: string = sql) => {
@@ -701,6 +721,7 @@ export default function Explorer({
               savedAs: out.artifact.name,
             },
           });
+          setRunNonce((n) => n + 1);
           return;
         }
         const result = await api<QueryResult>(`connections/${connectionId}/query`, {
@@ -708,6 +729,7 @@ export default function Explorer({
           body: JSON.stringify({ sql: sqlText, confirmed, source: "explorer", max_rows: 1000 }),
         });
         setOutcome({ kind: "result", result });
+        setRunNonce((n) => n + 1);
         loadMine();
       } catch (e) {
         const err = e as ApiError;
@@ -1058,6 +1080,9 @@ export default function Explorer({
     }),
     [schema, scope],
   );
+  // What Run would send: the selection if any, else the whole editor.
+  const runnable = editorStatus?.selection.trim() ? editorStatus.selection : sql;
+  const live = useQueryCheck(target === "connection" && connectionId ? connectionId : null, runnable);
 
   const flash = (text: string) => {
     setEditorNote(text);
@@ -1087,8 +1112,42 @@ export default function Explorer({
     URL.revokeObjectURL(url);
   }
 
+  const dictionary = schema && (
+    <DictionaryPanel
+      key={selectedPath}
+      connectionId={connectionId}
+      path={schema.path}
+      kind={schema.kind}
+      rowCount={schema.row_count}
+      sizeLabel={schema.size_bytes ? formatBytes(schema.size_bytes) : null}
+      modifiedAt={schema.modified_at}
+      partitioning={schema.partitioning}
+      clustering={schema.clustering}
+      canEdit={role === "data_lead" || role === "admin"}
+      focusColumn={focusColumn}
+      initialFilter={search.trim()}
+      onInsertField={(name) => setInsertReq({ text: name, nonce: Date.now() })}
+      compact={wide}
+    />
+  );
+  const sidePane = wide && !!dictionary;
+  const result = outcome?.kind === "result" ? outcome.result : null;
+  const resultsPanel = (result || (dictionary && !sidePane)) && (
+    <WorkbenchResults
+      key={runNonce}
+      result={result}
+      ranSql={lastRunText}
+      connectionName={activeConnectionName}
+      fileName={(schema?.path[schema.path.length - 1] ?? "query").replace(/[^\w.-]+/g, "_")}
+      fields={sidePane ? undefined : dictionary || undefined}
+      fieldsLabel={schema ? `Fields (${schema.columns.length})` : "Fields"}
+      onAskAbout={onAskAbout}
+    />
+  );
+
   const workbenchBody = (
-      <>
+    <div className={`wb-layout${sidePane ? " wb-layout--wide" : ""}`}>
+      <div className="wb-main">
         <section aria-label="SQL" className="sqled">
           <div className="sqled-toolbar" role="toolbar" aria-label="SQL editor">
             <span className="sqled-chip" title={runsOn}>
@@ -1117,9 +1176,17 @@ export default function Explorer({
               <button type="button" className="sqled-btn" onClick={downloadSql} disabled={!sql.trim()} title="Download as .sql">
                 .sql
               </button>
-              <button type="button" className="sqled-btn" aria-pressed={tall} onClick={() => setTall(!tall)} title={tall ? "Smaller editor" : "Taller editor"}>
-                {tall ? "Collapse" : "Expand"}
-              </button>
+              {onFocusChange && (
+                <button
+                  type="button"
+                  className="sqled-btn"
+                  aria-pressed={focus}
+                  onClick={() => onFocusChange(!focus)}
+                  title={focus ? "Show the side panel again" : "Hide the side panel while the workbench is open (remembered)"}
+                >
+                  ⤢ Focus
+                </button>
+              )}
             </span>
             <span className="sqled-run">
               {schema && (
@@ -1154,7 +1221,7 @@ export default function Explorer({
               </button>
             </span>
           </div>
-          <div className={`sqled-frame${tall ? " sqled-frame--tall" : ""}`}>
+          <div className="sqled-frame">
             <SqlEditor
               id="sql"
               value={sql}
@@ -1166,8 +1233,15 @@ export default function Explorer({
               schema={editorSchema}
               wrap={wrap}
               describedBy="sql-note"
+              insert={insertReq}
             />
           </div>
+          <QueryCheckLine
+            check={live.check}
+            loading={live.loading}
+            failed={live.failed}
+            fallback={target === "workspace" ? "Runs on this conversation's results: no warehouse scan." : undefined}
+          />
           <div className="sqled-status" aria-live="polite">
             <span>
               {editorStatus ? `Ln ${editorStatus.line}, Col ${editorStatus.col}` : ""}
@@ -1208,54 +1282,10 @@ export default function Explorer({
           </p>
         )}
 
-        {outcome?.kind === "result" && (
-          <section aria-label="Results">
-            <p className="muted">
-              {outcome.result.meta.rows.toLocaleString()} {outcome.result.meta.rows === 1 ? "row" : "rows"} ·{" "}
-              {outcome.result.savedAs
-                ? <>saved as <code>{outcome.result.savedAs}</code></>
-                : <>scanned {formatBytes(outcome.result.meta.bytes_processed)}</>} ·{" "}
-              {outcome.result.meta.duration_ms} ms
-              {outcome.result.meta.truncated && <strong> · partial result (row limit reached)</strong>}
-            </p>
-            <div className="results">
-              <table className="grid">
-                <thead>
-                  <tr>
-                    {outcome.result.meta.columns.map((c) => (
-                      <th key={c.name} scope="col" title={c.type}>
-                        {c.name}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {outcome.result.rows.map((r, i) => (
-                    <tr key={i}>
-                      {outcome.result.meta.columns.map((c) => (
-                        <td key={c.name}>{cell(r[c.name])}</td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
-
-        {schema && (
-          <section className="sqled-dictionary" aria-label="Table dictionary">
-            <DictionaryPanel
-              connectionId={connectionId}
-              path={schema.path}
-              rowCount={schema.row_count}
-              sizeLabel={formatBytes(schema.size_bytes)}
-              canEdit={role === "data_lead" || role === "admin"}
-              focusColumn={focusColumn}
-            />
-          </section>
-        )}
-      </>
+        {resultsPanel}
+      </div>
+      {sidePane && <aside className="wb-side" aria-label="Table">{dictionary}</aside>}
+    </div>
   );
 
   const workbench = (

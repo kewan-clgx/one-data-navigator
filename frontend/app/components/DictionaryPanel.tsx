@@ -1,8 +1,30 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { fieldPath, fillRate, profileField, ProfileStatus, useColumnProfile } from "./ColumnProfile";
+
+/** "3 days ago" style, with the absolute time kept for the tooltip. */
+function relative(iso: string): string {
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  const steps: [number, Intl.RelativeTimeFormatUnit][] = [[60, "second"], [60, "minute"], [24, "hour"], [30, "day"], [12, "month"]];
+  let v = -s;
+  for (const [n, unit] of steps) {
+    if (Math.abs(v) < n) return new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(Math.round(v), unit);
+    v /= n;
+  }
+  return new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(Math.round(v), "year");
+}
+
+/** Field names break after underscores (business_status_code), never mid-word. */
+function breakable(name: string) {
+  return name.split("_").flatMap((part, i, all) => (i < all.length - 1 ? [part, "_", <wbr key={i} />] : [part]));
+}
+
+function matches(f: FieldEntry, tokens: string[]): boolean {
+  const hay = `${f.name} ${f.source_description ?? ""} ${f.curated?.definition ?? ""}`.toLowerCase();
+  return tokens.every((t) => hay.includes(t));
+}
 
 type Curated = { definition: string; status: "draft" | "approved" | "deprecated"; updated_by: string | null; updated_at: string };
 type FieldEntry = { name: string; type: string; source_description: string | null; curated: Curated | null };
@@ -99,21 +121,41 @@ function Editor({
 export default function DictionaryPanel({
   connectionId,
   path,
+  kind = "table",
   rowCount,
   sizeLabel,
+  modifiedAt,
+  partitioning,
+  clustering,
   canEdit,
   focusColumn,
+  initialFilter = "",
+  onInsertField,
+  compact = false,
 }: {
   connectionId: string;
   path: string[];
+  kind?: "table" | "view";
   rowCount: number | null | undefined;
-  sizeLabel: string;
+  /** Formatted size, or null when unknown (views report none). */
+  sizeLabel: string | null;
+  modifiedAt?: string | null;
+  partitioning?: string | null;
+  clustering?: string[] | null;
   canEdit: boolean;
   focusColumn: string | null;
+  /** Pre-fills the field filter (e.g. the Explorer search), when it matches any field. */
+  initialFilter?: string;
+  /** Click on a field name: insert it into the SQL editor. */
+  onInsertField?: (name: string) => void;
+  /** Narrow side pane: drop the Range column (shown as a tooltip on Fill). */
+  compact?: boolean;
 }) {
   const [dict, setDict] = useState<Dictionary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const [filter, setFilter] = useState(initialFilter);
+  const [copied, setCopied] = useState(false);
   const focusRow = useRef<HTMLTableRowElement | null>(null);
   const query = path.map((p) => `path=${encodeURIComponent(p)}`).join("&");
   const { profile, error: profileError, disabled: profileDisabled, requesting, request } =
@@ -153,24 +195,52 @@ export default function DictionaryPanel({
   };
 
   const curatedCount = dict ? dict.fields.filter((f) => f.curated).length : 0;
+  const tokens = useMemo(() => filter.toLowerCase().split(/\s+/).filter(Boolean), [filter]);
+  const matched = dict ? dict.fields.filter((f) => matches(f, tokens)) : [];
+  // A carried-over Explorer search that matches nothing here shouldn't hide every field.
+  const shownFields = dict && !matched.length && filter === initialFilter ? dict.fields : matched;
+  const name = path[path.length - 1];
+  const identity = [
+    kind === "view" ? "View" : "Table",
+    rowCount ? `${rowCount.toLocaleString()} rows` : null,
+    sizeLabel,
+    partitioning ? `Partitioned by ${partitioning}` : null,
+    clustering?.length ? `Clustered by ${clustering.join(", ")}` : null,
+  ].filter(Boolean);
+  const profiling = profile?.job_status === "queued" || profile?.job_status === "running";
+  const profileProblem = profileError || profile?.error_code || profile?.credential_changed;
 
   return (
-    <section aria-label="Table schema and data dictionary">
-      <h2>{path.join(".")}</h2>
-      <p className="muted">
-        {rowCount?.toLocaleString() ?? "?"} rows · {sizeLabel}
-        {dict && ` · ${curatedCount} of ${dict.fields.length} fields have a business definition`}
-      </p>
+    <section aria-label="Table schema and data dictionary" className="dict">
+      <header className="dict-head">
+        <h2 title={path.join(".")}>{name}</h2>
+        <div className="dict-path">
+          <code>{path.slice(0, -1).join(".")}</code>
+          <button
+            type="button"
+            className="link"
+            onClick={() => void navigator.clipboard?.writeText(path.join(".")).then(() => {
+              setCopied(true);
+              window.setTimeout(() => setCopied(false), 1500);
+            })}
+            aria-label={`Copy full path ${path.join(".")}`}
+          >
+            {copied ? "Copied" : "Copy path"}
+          </button>
+        </div>
+        <p className="dict-identity">
+          {identity.join(" · ")}
+          {modifiedAt && (
+            <>
+              {" · "}
+              <span title={new Date(modifiedAt).toLocaleString()}>Modified {relative(modifiedAt)}</span>
+            </>
+          )}
+          {dict && ` · ${curatedCount} of ${dict.fields.length} fields defined`}
+        </p>
+      </header>
       {error && <p role="alert" className="error">{error}</p>}
       {dict && SOURCE_NOTES[dict.source] && <p className="muted">{SOURCE_NOTES[dict.source]}</p>}
-      {!profileDisabled && (
-        <div>
-          <button type="button" onClick={request} disabled={requesting || profile?.job_status === "queued" || profile?.job_status === "running"}>
-            {requesting ? "Requesting…" : "Profile"}
-          </button>
-          <ProfileStatus profile={profile} error={profileError} />
-        </div>
-      )}
       {dict && (
         <div className="table-defs">
           <p>
@@ -192,32 +262,60 @@ export default function DictionaryPanel({
         </div>
       )}
       {dict && (
-        <details key={`${path.join(".")}:${focusColumn ?? ""}`} open={focusColumn ? true : undefined}>
-          <summary>{dict.fields.length} fields</summary>
-          <table className="grid dictionary">
+        <div className="dict-fields">
+          <div className="dict-fields-head">
+            <h3>
+              Fields <span className="muted">({filter && shownFields !== dict.fields ? `${shownFields.length} of ${dict.fields.length}` : dict.fields.length})</span>
+            </h3>
+            <input
+              type="search"
+              className="dict-filter"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Filter fields"
+              aria-label="Filter fields by name or definition"
+            />
+            {!profileDisabled && (
+              <span className="dict-profile muted" aria-live="polite">
+                {profiling
+                  ? "Profiling…"
+                  : profile?.sampled_at
+                    ? <span title={new Date(profile.sampled_at).toLocaleString()}>Profile: 10% sample · {relative(profile.sampled_at)}</span>
+                    : "No profile yet"}{" "}
+                <button type="button" className="link" onClick={request} disabled={requesting || profiling}
+                        title="Estimate fill rates and ranges from a 10% sample of the table">
+                  {requesting ? "Requesting…" : profile?.sampled_at ? "↻ Refresh profile" : "Profile this table"}
+                </button>
+              </span>
+            )}
+          </div>
+          {!profileDisabled && profileProblem && <ProfileStatus profile={profile} error={profileError} />}
+          {!shownFields.length && <p className="muted">No fields match “{filter}”.</p>}
+          <table className={`grid dictionary dict-table${compact ? " dict-table--compact" : ""}`}>
             <thead>
               <tr>
                 <th scope="col">Field</th>
                 <th scope="col">Type</th>
-                {!profileDisabled && <th scope="col">Fill rate</th>}
-                {!profileDisabled && <th scope="col">Range</th>}
-                <th scope="col">Source description</th>
-                <th scope="col">Business definition</th>
+                {!profileDisabled && <th scope="col">Fill</th>}
+                {!profileDisabled && !compact && <th scope="col">Range</th>}
               </tr>
             </thead>
             <tbody>
-              {dict.fields.map((f) => {
+              {shownFields.map((f) => {
                 // Nested field matches (a.b) focus their top-level column.
                 const focused = !!focusColumn && (focusColumn === f.name || focusColumn.startsWith(`${f.name}.`));
                 const field = profileField(profile, f.name, f.type);
+                const range = field?.min_value != null && field.max_value != null ? `${field.min_value} – ${field.max_value}` : null;
+                const pct = field && profile?.sample_rows ? (100 * field.filled_rows) / profile.sample_rows : null;
                 return (
                   <tr key={f.name} ref={focused ? focusRow : undefined} className={focused ? "focused" : undefined}>
-                    <td><code>{f.name}</code></td>
-                    <td>{f.type}</td>
-                    {!profileDisabled && <td>{fillRate(field, profile)}</td>}
-                    {!profileDisabled && <td>{field?.min_value != null && field.max_value != null ? `${field.min_value} – ${field.max_value}` : "–"}</td>}
-                    <td>{f.source_description ?? <span className="muted">None</span>}</td>
-                    <td className="def-cell">
+                    <td className="dict-field-cell">
+                      {onInsertField ? (
+                        <button type="button" className="dict-field" onClick={() => onInsertField(f.name)}
+                                title="Insert into the SQL editor at the cursor">
+                          <code>{breakable(f.name)}</code>
+                        </button>
+                      ) : <code>{breakable(f.name)}</code>}
                       {editing === f.name ? (
                         <Editor
                           initial={f.curated}
@@ -225,9 +323,9 @@ export default function DictionaryPanel({
                           onCancel={() => setEditing(null)}
                           label={`Business definition for ${f.name}`}
                         />
-                      ) : (
-                        <>
-                          <CuratedText c={f.curated} />{" "}
+                      ) : (f.curated || canEdit) && (
+                        <span className={`dict-desc dict-def${f.curated ? "" : " dict-def--add"}`}>
+                          {f.curated && <CuratedText c={f.curated} />}{" "}
                           {canEdit && (
                             <button
                               type="button"
@@ -235,18 +333,31 @@ export default function DictionaryPanel({
                               onClick={() => setEditing(f.name)}
                               aria-label={`${f.curated ? "Edit" : "Add"} business definition for ${f.name}`}
                             >
-                              {f.curated ? "Edit" : "Add"}
+                              {f.curated ? "Edit" : "Add definition"}
                             </button>
                           )}
-                        </>
+                        </span>
                       )}
+                      {f.source_description && <span className="dict-desc">{f.source_description}</span>}
                     </td>
+                    <td className="dict-type">{f.type}</td>
+                    {!profileDisabled && (
+                      <td className="dict-fill" title={compact && range ? `Range ${range}` : undefined}>
+                        {pct == null ? <span className="muted">–</span> : (
+                          <span className="fill" aria-label={`${pct.toFixed(1)}% filled`}>
+                            <span className="fill-bar" aria-hidden><span style={{ width: `${Math.max(2, pct)}%` }} /></span>
+                            {fillRate(field, profile)}
+                          </span>
+                        )}
+                      </td>
+                    )}
+                    {!profileDisabled && !compact && <td className="dict-range">{range ?? <span className="muted">–</span>}</td>}
                   </tr>
                 );
               })}
             </tbody>
           </table>
-        </details>
+        </div>
       )}
       {profile && profile.fields.some((field) => field.path.length > 1) && (
         <details>

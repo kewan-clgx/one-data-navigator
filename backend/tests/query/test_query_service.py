@@ -19,7 +19,14 @@ from odn.platform.connectors.base import (
 )
 from odn.platform.governance.audit import AuditRecord
 from odn.platform.query import service
-from odn.platform.query.service import ConfirmationRequired, PreviewSink, QueryRejected, run_query, scan_cap
+from odn.platform.query.service import (
+    ConfirmationRequired,
+    PreviewSink,
+    QueryRejected,
+    check_query,
+    run_query,
+    scan_cap,
+)
 from odn.tenancy.context import RequestContext
 
 CTX = RequestContext(tenant_id=uuid.uuid4(), user_id=uuid.uuid4(), subject="u", role="member")
@@ -240,6 +247,38 @@ def test_scan_cap_by_role_and_tenant() -> None:
     admin = dataclasses.replace(CTX, role="admin")
     assert (scan_cap(CTX), scan_cap(admin)) == (100 * 10**9, 200 * 10**9)
     assert scan_cap(dataclasses.replace(admin, max_bytes_billed=25 * 1024**3)) == 25 * 1024**3
+
+
+class _FailingEstimate(FakeConnector):
+    def estimate_cost(self, sql: str) -> CostEstimate:
+        raise ConnectorError("Syntax error: Unexpected keyword FORM at [1:10]")
+
+
+class _NoDryRun(FakeConnector):
+    supports_dry_run = False
+
+
+@pytest.mark.parametrize(
+    ("connector", "sql", "status", "cost_known"),
+    [
+        (FakeConnector(bytes_estimate=5_000_000), "SELECT id FROM orders", "ok", True),
+        (FakeConnector(bytes_estimate=11 * 1024**3), "SELECT id FROM orders", "confirm", True),
+        (FakeConnector(bytes_estimate=101 * 10**9), "SELECT id FROM orders", "over_cap", True),
+        (_FreePreviewConnector(), "SELECT * FROM proj.sales.orders LIMIT 3", "free_preview", True),
+        (FakeConnector(), "SELECT * FROM proj.hr.salaries", "rejected", False),
+        (_FailingEstimate(), "SELECT id FROM orders", "error", False),
+        (_NoDryRun(), "SELECT id FROM orders", "ok", False),
+    ],
+)
+def test_check_query_mirrors_run_decisions_without_running(connector, sql, status, cost_known, audits) -> None:
+    result = check_query(CTX, PROFILE, sql, connector=connector)
+    assert (result.status, result.cost_known) == (status, cost_known)
+    assert connector.executed == [] and audits == []
+
+
+def test_check_query_messages_are_human_sized() -> None:
+    assert check_query(CTX, PROFILE, "SELECT id FROM orders", connector=FakeConnector(bytes_estimate=6_100_000)).message \
+        == "This query will scan about 6.1 MB."
 
 
 def test_row_cap_truncates_and_cancels(audits: list[AuditRecord]) -> None:

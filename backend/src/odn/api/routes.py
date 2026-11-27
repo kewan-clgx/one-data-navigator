@@ -11,6 +11,7 @@ from psycopg.errors import QueryCanceled
 from pydantic import BaseModel, Field
 
 from odn.api.deps import Context, require_data_lead
+from odn.api.ratelimit import RateLimiter
 from odn.config import settings
 from odn.db import tenant_transaction
 from odn.platform.catalog.column_profiles import (
@@ -83,6 +84,7 @@ from odn.platform.query.service import (
     PreviewSink,
     QueryFailed,
     QueryRejected,
+    check_query,
     run_query,
     scan_cap,
 )
@@ -127,6 +129,22 @@ class QueryRequest(BaseModel):
     source: Source = "explorer"
     confirmed: bool = False
     max_rows: int = Field(default=EXPLORER_MAX_ROWS, ge=1, le=EXPLORER_MAX_ROWS)
+
+
+class QueryCheckRequest(BaseModel):
+    sql: str = Field(min_length=1, max_length=100_000)
+
+
+class QueryCheckResponse(BaseModel):
+    status: Literal["ok", "free_preview", "confirm", "over_cap", "rejected", "error"]
+    message: str
+    bytes_estimated: int | None = None
+    tables: list[str] = []
+    cost_known: bool = False
+
+
+# Live checks fire after typing pauses (debounced client-side); this caps a runaway client per user.
+_check_limit = RateLimiter(limit=40, window_s=60)
 
 
 class QueryResponse(BaseModel):
@@ -427,6 +445,19 @@ def put_favorite(connection_id: UUID, data: FavoriteInput, ctx: Context) -> Favo
 def delete_favorite(connection_id: UUID, ctx: Context, path: Annotated[list[str], Query()]) -> None:
     profile = _profile(ctx, connection_id)
     remove_favorite(ctx, profile.id, path, preserve_case=profile.kind in ("snowflake", "mysql", "oracle"))
+
+
+@router.post("/connections/{connection_id}/query/check")
+def query_check(connection_id: UUID, req: QueryCheckRequest, ctx: Context) -> QueryCheckResponse:
+    """Policy, free-preview, dry-run cost and cap verdict for SQL, without running it (workbench live check)."""
+    if not _check_limit.allow(str(ctx.user_id)):
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "too many checks; slow down", headers={"Retry-After": "10"})
+    profile = _profile(ctx, connection_id)
+    result = check_query(ctx, profile, req.sql, connector=_connector(profile))
+    return QueryCheckResponse(
+        status=result.status, message=result.message, bytes_estimated=result.bytes_estimated,
+        tables=list(result.tables), cost_known=result.cost_known,
+    )
 
 
 @router.post("/connections/{connection_id}/query")

@@ -40,6 +40,8 @@ const TABS = [
 type TabId = (typeof TABS)[number]["id"];
 
 const PANEL_OPEN_KEY = "odn.panelOpen";
+// Workbench "Focus": hide the side panel while the workbench is open (user's choice, remembered; off by default).
+const WORKBENCH_FOCUS_KEY = "odn.workbench.focus";
 const THREAD_KEY = "odn.activeThreadId";
 // CopilotKit's dev-only Inspector button is fixed top-right; keep the chat toolbar clear of it locally.
 const IS_DEV = process.env.NODE_ENV === "development";
@@ -226,6 +228,7 @@ export default function AppShell({
   const [scope, setScope] = useState<TableScope | null>(null);
   const [connection, setConnection] = useState<ActiveConnection | null>(null);
   const [workbenchOpen, setWorkbenchOpen] = useState(false);
+  const [workbenchFocus, setWorkbenchFocus] = useState(false);
   const [sqlRequest, setSqlRequest] = useState<SqlRequest | null>(null);
   const openSqlInWorkbench = useCallback((sql: string) => setSqlRequest({ sql, nonce: Date.now() }), []);
   const [shareOpen, setShareOpen] = useState(false);
@@ -262,8 +265,33 @@ export default function AppShell({
 
   const showPanel = useCallback((open: boolean) => {
     setPanelOpen(open);
+    setWorkbenchFocus(false);
     localStorage.setItem(PANEL_OPEN_KEY, String(open));
   }, []);
+
+  // Focus never touches the saved panel preference: it only hides the panel while the workbench is open.
+  const openWorkbench = useCallback((open: boolean) => {
+    setWorkbenchOpen(open);
+    setWorkbenchFocus(open && localStorage.getItem(WORKBENCH_FOCUS_KEY) === "true");
+  }, []);
+  const changeWorkbenchFocus = useCallback((on: boolean) => {
+    setWorkbenchFocus(on);
+    localStorage.setItem(WORKBENCH_FOCUS_KEY, String(on));
+  }, []);
+
+  // "Ask EasyQuery about this result": leave the workbench and pre-fill (never send) the chat input.
+  const askAbout = useCallback((text: string) => {
+    openWorkbench(false);
+    window.setTimeout(() => {
+      const input = document.querySelector<HTMLTextAreaElement>(".odn-chat textarea");
+      if (!input) return;
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(input, text);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.focus();
+      input.setSelectionRange(text.length, text.length);
+    }, 0);
+  }, [openWorkbench]);
+  const sidePanelShown = panelOpen && !workbenchFocus;
 
   const selectTab = useCallback((id: TabId) => {
     setTab(id);
@@ -373,7 +401,10 @@ export default function AppShell({
           onConnectionChange={setConnection}
           workbenchHost={workbenchHost}
           workbenchOpen={workbenchOpen}
-          onWorkbenchOpenChange={setWorkbenchOpen}
+          onWorkbenchOpenChange={openWorkbench}
+          focus={workbenchFocus}
+          onFocusChange={changeWorkbenchFocus}
+          onAskAbout={askAbout}
         />
       </div>
       {(collibraEnvs?.length ?? 0) > 0 && (
@@ -413,7 +444,7 @@ export default function AppShell({
     <section className="odn-chat" aria-label={`Chat with ${theme.product}`}>
       <div className={`odn-chat-toolbar${IS_DEV ? " odn-chat-toolbar--dev" : ""}`}>
         <div className="odn-chat-toolbar-actions">
-          {!panelOpen && (
+          {!sidePanelShown && (
             <button type="button" className="odn-btn odn-btn--outline odn-btn--small" onClick={() => showPanel(true)}>
               Show side panel
             </button>
@@ -519,7 +550,7 @@ export default function AppShell({
         <ChatRenderers />
         <CollibraBrowserTools envs={collibraEnvs} bridge={collibraBridge} scope={collibraScope} />
         <SplitPane
-          className={`odn-main${panelOpen ? "" : " odn-main--collapsed"}`}
+          className={`odn-main${sidePanelShown ? "" : " odn-main--collapsed"}`}
           storageKey="odn.split.shell"
           defaultFraction={0.38}
           minLeft={360}

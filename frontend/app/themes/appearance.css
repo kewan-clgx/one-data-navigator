@@ -7,6 +7,7 @@
 :root[data-appearance="code-dark"],
 [data-appearance-preview="code-dark"] {
   color-scheme: dark;
+  --hscroll-shade: rgba(0, 0, 0, 0.55);
   --font: -apple-system, BlinkMacSystemFont, "Segoe WPC", "Segoe UI", system-ui, Ubuntu, sans-serif;
   --radius: 4px;
 

@@ -92,6 +92,7 @@ export default function SqlEditor({
   dialect,
   schema,
   wrap = false,
+  insert,
   id,
   ariaLabel = "SQL editor",
   describedBy,
@@ -104,6 +105,8 @@ export default function SqlEditor({
   dialect: SqlDialectId;
   schema?: SqlSchema;
   wrap?: boolean;
+  /** Insert text at the cursor (replacing the selection); a new nonce inserts again. */
+  insert?: { text: string; nonce: number } | null;
   id?: string;
   ariaLabel?: string;
   describedBy?: string;
@@ -209,6 +212,13 @@ export default function SqlEditor({
       effects: language.current.reconfigure(sql({ dialect: DIALECTS[dialect], schema: ns, defaultTable, upperCaseKeywords: true })),
     });
   }, [dialect, schema]);
+
+  useEffect(() => {
+    const v = view.current;
+    if (!v || !insert) return;
+    v.dispatch(v.state.replaceSelection(insert.text), { scrollIntoView: true });
+    v.focus();
+  }, [insert]);
 
   useEffect(() => {
     view.current?.dispatch({ effects: wrapping.current.reconfigure(wrap ? EditorView.lineWrapping : []) });

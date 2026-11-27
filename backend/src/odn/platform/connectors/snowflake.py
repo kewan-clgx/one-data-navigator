@@ -212,7 +212,7 @@ class SnowflakeConnector(BaseConnector):
         for part in path:
             _identifier(part)
         sql = (
-            f"SELECT TABLE_TYPE, COMMENT, ROW_COUNT, BYTES FROM {_identifier(db)}.INFORMATION_SCHEMA.TABLES "
+            f"SELECT TABLE_TYPE, COMMENT, ROW_COUNT, BYTES, LAST_ALTERED FROM {_identifier(db)}.INFORMATION_SCHEMA.TABLES "
             "WHERE TABLE_SCHEMA = %s AND TABLE_NAME = %s"
         )
         with self._cursor() as cur:
@@ -222,7 +222,7 @@ class SnowflakeConnector(BaseConnector):
             raise ValueError("Snowflake table not found")
         columns = self._columns((db, schema), table).get(path, [])
         return TableSchema(path=path, kind="view" if row[0] == "VIEW" else "table", columns=columns,
-                           description=row[1], row_count=row[2], size_bytes=row[3])
+                           description=row[1], row_count=row[2], size_bytes=row[3], modified_at=row[4])
 
     def _columns(self, container: tuple[str, ...], table: str | None = None) -> dict[tuple[str, ...], list[ColumnSchema]]:
         db, schema = container

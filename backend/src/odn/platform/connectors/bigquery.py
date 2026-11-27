@@ -178,6 +178,7 @@ class BigQueryConnector(BaseConnector):
             size_bytes=t.num_bytes,
             partitioning=t.time_partitioning.field if t.time_partitioning else None,
             clustering=t.clustering_fields,
+            modified_at=t.modified,
         )
 
     def list_columns(self, container: tuple[str, ...]) -> dict[tuple[str, ...], list[ColumnSchema]]:
