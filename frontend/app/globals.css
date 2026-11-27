@@ -947,6 +947,62 @@ table.wb-grid thead th.wb-rownum { z-index: 2; background: var(--surface-alt); }
 .tq-chip:hover { border-color: var(--accent); }
 .tq-chip:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
 .tq-hint { margin: 0.7rem 0 0; font-size: 0.74rem; color: var(--fg-muted); }
+.tq-group-row { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
+.tq-link {
+  padding: 0; font: inherit; font-size: 0.78rem; color: var(--accent); background: none; border: 0; cursor: pointer;
+}
+.tq-link:hover:not(:disabled) { text-decoration: underline; }
+.tq-link:disabled { color: var(--fg-muted); cursor: default; }
+.tq-link:focus-visible, .tq-q:focus-visible, .tq-again:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+/* Data questions: full sentences, so a list of rows rather than chips. */
+.tq-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.tq-item { display: flex; align-items: stretch; gap: 0.35rem; }
+.tq-q {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 0.25rem; text-align: left;
+  padding: 0.5rem 0.75rem; font: inherit; color: var(--fg); cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.tq-q:hover:not(:disabled) { border-color: var(--accent); }
+.tq-q:disabled { cursor: progress; opacity: 0.75; }
+.tq-q-text { font-size: 0.85rem; line-height: 1.35; overflow-wrap: anywhere; }
+.tq-q-text code { font-size: 0.8em; padding: 0 0.2em; border-radius: 3px; background: var(--surface-alt); }
+.tq-q-meta { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.tq-badge {
+  display: inline-flex; align-items: center; gap: 0.2rem; padding: 0.05rem 0.45rem; font-size: 0.68rem;
+  color: var(--fg-muted); border: 1px solid var(--border); border-radius: 999px; white-space: nowrap;
+}
+.tq-badge--accent, .tq-badge--saved { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.tq-badge--saved.is-stale { color: var(--fg-muted); border-color: var(--border); }
+.tq-again {
+  flex: none; width: 2rem; font-size: 0.95rem; color: var(--fg-muted); cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.tq-again:hover { color: var(--accent); border-color: var(--accent); }
+.tq-skeleton {
+  height: 2.6rem; border-radius: var(--radius); border: 1px solid var(--border);
+  background: linear-gradient(90deg, var(--surface) 25%, var(--surface-alt) 50%, var(--surface) 75%) 0 0 / 200% 100%;
+  animation: tq-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes tq-shimmer { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .tq-skeleton { animation: none; } }
+.tq-empty { margin: 0; font-size: 0.8rem; color: var(--fg-muted); }
+.tq-error { margin: 0.4rem 0 0; font-size: 0.78rem; color: var(--danger); }
+.tq-item--edit {
+  align-items: center; flex-wrap: wrap; padding: 0.4rem 0.6rem; background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius);
+}
+.tq-item--edit .tq-q-text { flex: 1 1 16rem; }
+.tq-item--edit.is-hidden .tq-q-text { color: var(--fg-muted); text-decoration: line-through; }
+.tq-edit-actions { display: flex; gap: 0.6rem; }
+.tq-curate { display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-start; }
+.tq-curate .tq-list { align-self: stretch; }
+.tq-add { display: flex; flex-wrap: wrap; gap: 0.4rem; align-self: stretch; }
+.tq-add input {
+  padding: 0.35rem 0.6rem; font: inherit; font-size: 0.82rem; color: var(--fg);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.tq-add input:first-child { flex: 0 1 10rem; }
+.tq-add input:nth-child(2) { flex: 1 1 16rem; }
 
 .grid-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin: 0.4rem 0; flex-wrap: wrap; }
 .pager { display: flex; gap: 0.4rem; align-items: center; }

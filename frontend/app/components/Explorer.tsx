@@ -214,6 +214,7 @@ export default function Explorer({
   focus = false,
   onFocusChange,
   onAskAbout,
+  onSuggestQuestions,
 }: {
   scope: TableScope | null;
   onScopeChange: (scope: TableScope | null) => void;
@@ -230,6 +231,8 @@ export default function Explorer({
   onFocusChange?: (on: boolean) => void;
   /** Leave the workbench with a question about the result pre-filled in the chat (not sent). */
   onAskAbout?: (text: string) => void;
+  /** Starts a new conversation scoped to the selected table, which shows its suggested questions. */
+  onSuggestQuestions?: () => void;
 }) {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [connectionId, setConnectionId] = useState<string>("");
@@ -1341,6 +1344,11 @@ export default function Explorer({
                 <button type="button" className="odn-btn odn-btn--on-panel odn-btn--small" onClick={() => onWorkbenchOpenChange(true)}>
                   Details &amp; SQL
                 </button>
+                {onSuggestQuestions && (
+                  <button type="button" className="odn-btn odn-btn--ghost-panel odn-btn--small" onClick={onSuggestQuestions}>
+                    Suggested questions ›
+                  </button>
+                )}
                 <button type="button" className="odn-btn odn-btn--ghost-panel odn-btn--small" onClick={() => onScopeChange(null)}>
                   Clear selection
                 </button>

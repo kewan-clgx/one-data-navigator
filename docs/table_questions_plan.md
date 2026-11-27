@@ -1,6 +1,6 @@
 # Table questions ("what you can ask"): implementation plan
 
-*Status: plan approved 2026-11-27 (decisions in §7). **Q0 implemented** (starter card [TableQuestions.tsx](../frontend/app/components/TableQuestions.tsx); `get_table_schema` returns profile and `modified_at`; agent rule 10). Next: Q1 → Q3.*
+*Status: **Q0–Q3 implemented** (2026-11-27). Plan approved 2026-11-27 (decisions in §7); where the build differs from the plan, §8 is authoritative.*
 *Related: column profiles ([0038_column_profiles.sql](../backend/src/odn/db/migrations/0038_column_profiles.sql), [column_profiles.py](../backend/src/odn/platform/catalog/column_profiles.py)), LLM routing ([agent/budget.py](../backend/src/odn/agent/budget.py)), chat empty state ([AppShell.tsx](../frontend/app/components/AppShell.tsx)), [UI_Design_note.md](./UI_Design_note.md).*
 
 ## 1. Goal
@@ -174,7 +174,7 @@ Each answered FAQ question also stores **its answer**, so the next person (or th
 - **Privacy/governance:**
   - Answers live in the same tenant and connection scope as the data they came from; the shared connection's allowlist is identical for every tenant user.
   - Personal-connection answers are owner-only.
-  - The privacy filter (§4.4) also runs on the answer text before sharing; if it trips, the answer is cached for the asker only.
+  - The privacy filter (§4.4) runs on the **question only**. The answer holds warehouse data that every user of the connection can already query, so it shares the question's visibility (see §8).
 
 ### 4.6 Tests
 
@@ -269,3 +269,44 @@ When `messages.length === 0` and a table is in scope, replace the static first a
 2. **Generation is charged to the tenant**, on the platform model (`purpose='table_questions'`), never to a user's own key or Copilot seat.
 3. **Clicking a question pre-fills the chat input**; the user presses Enter to send. A question with a fresh **cached answer** opens that answer instead (no tokens), with Refresh.
 4. **Answer cache** (§4.5): tables are fresh until their data or schema changes; **views expire after 30 days**.
+
+## 8. As built (2026-11-27)
+
+Where this differs from §4–§5, this section wins.
+
+**Backend**
+- **Store:** migration `0039_table_questions.sql`: `metadata_question_sets` (generation status per table), `metadata_table_questions`, `metadata_question_askers`, `metadata_question_answers`. All four have forced RLS:
+  - Rows are visible only when the connection is visible, so personal connections stay owner-only.
+  - Private questions are visible to `private_to` only.
+  - Answers also need the connection's current `metadata_revision`. A trigger deletes a connection's answers when its revision changes (allowlist, credentials, owner).
+- **Service:** `odn/platform/catalog/table_questions.py`. The API generates in a small thread pool, not in the worker; the client polls `GET /questions`.
+  - Generation runs on the first visit, on a schema change, after 30 days, 6 hours after a failure, or when a run has been stuck for more than 10 minutes.
+  - The platform model is called through the agent's `POST /internal/complete` (agent token plus the user's bearer), because litellm and its settings live only in the agent.
+  - Usage is recorded with `record_llm_usage(..., "platform")`, so it counts toward the tenant budget; a budget that has run out skips generation.
+- **API** (`odn/api/question_routes.py`):
+  - `GET /v1/connections/{id}/questions?path=` returns `{status, questions ≤ 5, all}`; `all` covers every question, including hidden ones, and is sent to data leads and admins only;
+  - `POST …/questions` and `PATCH …/questions/{qid}` (title, question, hidden, pinned) are for data leads and admins;
+  - `POST …/questions/regenerate?path=`;
+  - `POST …/questions/{qid}/open`;
+  - `POST /v1/questions/capture` (agent only).
+- **Popular** means at least 3 distinct askers.
+- **Capture:** an `after_agent_callback` in the agent (`odn/agent/capture.py`).
+  - It stores only the **first question of a conversation**, never imported or shared threads.
+  - The answer must come from one connection, with every `run_sql` successful and nothing awaiting approval. An approval granted in a later invocation still counts.
+  - Tables come from the successful SQL, through the connection's policy, or from `get_table_schema` for metadata-only answers. At most 3 tables are recorded.
+  - Starters, follow-ups, notices and clarifying replies (ending in "?") are skipped. A question that trips the privacy filter is stored privately for the asker.
+- **Saved answers:**
+  - Each stores the final text and its SQL. No result preview or chart is stored; the SQL can rerun them.
+  - **Opening one** (`…/open`) imports a new conversation owned by the user, with the same mechanism as continuing a shared answer. It starts with "*Saved answer from <date>. The data hasn't changed since / has changed since…*", and the SQL appears as folded blocks with **Open in SQL workbench**.
+  - Follow-ups work as in any conversation. A stale answer still opens, with the "has changed" note.
+
+**Frontend** ([TableQuestions.tsx](../frontend/app/components/TableQuestions.tsx))
+- **Two sections:**
+  - **Get to know this table:** the starter chips.
+  - **Questions about the data:** full-sentence rows, because generated questions read better than 6-word titles. Columns show as inline code.
+- **Badges:** ★ Pinned, ★ Popular, You asked, Asked by a teammate, ✦ Suggested, Private.
+- **Saved answers:** marked ⚡ *Saved answer* (or *data changed*). A click opens the saved answer instantly; ↻ pre-fills the question to ask again. Other questions pre-fill on click.
+- **While generating:** three shimmer rows, polling every 2s for up to 25s.
+- **Curation:** inline in the card, not in a workbench tab. Data leads and admins get **Edit**, where they can Pin/Unpin, Hide/Show, add a question (title plus text), or use **Write new suggestions**.
+- **Explorer:** the selected table gets **Suggested questions ›**, which starts a new conversation scoped to it.
+- The `/api/odn` proxy now forwards `PATCH`.

@@ -60,6 +60,8 @@ class Settings(BaseSettings):
     # Per-query scan caps in decimal GB (as BigQuery bills); a lower per-tenant cap (tenants.max_bytes_billed) wins.
     max_bytes_billed: int = 100 * 10**9
     admin_max_bytes_billed: int = 200 * 10**9
+    # Table questions: cached answers on views (and sources without a modified time) count as fresh this long.
+    answer_cache_view_ttl_days: int = 30
     query_timeout_s: int = 300
     # Preview-only API; the durable catalog is not yet scheduled or used by Explorer.
     metadata_search_preview: bool = False

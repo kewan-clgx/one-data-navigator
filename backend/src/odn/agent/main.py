@@ -1,12 +1,14 @@
+import hmac
 import json
 import logging
+import os
 import re
 import uuid
-from typing import Any
+from typing import Annotated, Any
 
 import httpx
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
-from fastapi import FastAPI, HTTPException, status
+from fastapi import FastAPI, Header, HTTPException, status
 from google.adk.apps import App, ResumabilityConfig
 from google.adk.events import Event
 from google.adk.sessions import BaseSessionService, InMemorySessionService, Session
@@ -34,6 +36,32 @@ app.add_middleware(BearerAuthMiddleware)
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok", "service": "agent"}
+
+
+class CompleteIn(BaseModel):
+    messages: list[dict[str, str]] = Field(min_length=1, max_length=4)
+
+
+@app.post("/internal/complete")
+async def internal_complete(body: CompleteIn, x_odn_agent_token: Annotated[str, Header()] = "") -> dict[str, Any]:
+    """One platform-model completion for the API (suggested table questions). The platform LLM key stays here; the
+    API checks the tenant budget first and records the usage. Requires the shared agent token and a signed-in user."""
+    if not settings.agent_token or not hmac.compare_digest(x_odn_agent_token, settings.agent_token):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "agent token required")
+    import litellm
+
+    model = os.environ["LITELLM_MODEL"]
+    resp = await litellm.acompletion(
+        model=model, api_key=os.environ.get("LITELLM_API_KEY") or None,
+        api_base=os.environ.get("LITELLM_API_BASE") or None, messages=body.messages, temperature=0.3, timeout=60,
+        num_retries=1,
+    )
+    usage = getattr(resp, "usage", None)
+    return {
+        "text": resp.choices[0].message.content or "", "model": model,
+        "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+        "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
+    }
 
 
 def _user_id(_input: object) -> str:

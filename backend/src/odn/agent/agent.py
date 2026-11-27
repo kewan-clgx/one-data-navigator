@@ -13,6 +13,7 @@ from google.adk.agents.readonly_context import ReadonlyContext
 
 from odn.agent.attachments import describe_attachments
 from odn.agent.budget import RoutedLiteLlm, record_usage
+from odn.agent.capture import CONTINUED_STATE_KEY, capture_question
 from odn.agent.collibra_tools import BROWSER_TOOL_NAMES, COLLIBRA_TOOLS
 from odn.agent.tools import (
     generate_chart,
@@ -187,8 +188,6 @@ def ui_context_text(items: Any) -> str:
     return "\n".join(lines)
 
 
-# Set on conversations a teammate continued from a shared answer: {"owner": ..., "shared_at": ..., "title": ...}.
-CONTINUED_STATE_KEY = "odn_continued_from"
 
 
 def continued_note(value: Any) -> str:
@@ -232,6 +231,7 @@ def build_root_agent() -> LlmAgent:
         before_agent_callback=remember_title,
         before_model_callback=describe_attachments,
         after_model_callback=record_usage,
+        after_agent_callback=capture_question,
         tools=[
             list_connections, get_my_tables, search_tables_by_keyword, list_tables, get_table_schema, 
             run_sql, query_workspace, list_workspace, generate_chart, *COLLIBRA_TOOLS,

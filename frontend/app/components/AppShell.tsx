@@ -324,6 +324,18 @@ export default function AppShell({
     setResultsUnseen(false);
   }, []);
 
+  // A saved FAQ answer arrives as a new conversation of the user's own; refresh the Chats list to show it.
+  const openSavedAnswer = useCallback((id: string) => {
+    openConversation(id);
+    bump();
+  }, [openConversation, bump]);
+
+  // Explorer "Suggested questions": a fresh conversation (still scoped) shows the table's question card.
+  const suggestQuestions = useCallback(() => {
+    startNewConversation();
+    openWorkbench(false);
+  }, [startNewConversation, openWorkbench]);
+
   const onConversationDeleted = useCallback(
     (id: string) => {
       forgetConversation(id);
@@ -410,6 +422,7 @@ export default function AppShell({
           focus={workbenchFocus}
           onFocusChange={changeWorkbenchFocus}
           onAskAbout={askAbout}
+          onSuggestQuestions={suggestQuestions}
         />
       </div>
       {(collibraEnvs?.length ?? 0) > 0 && (
@@ -509,7 +522,10 @@ export default function AppShell({
       <div className="odn-chat-body">
         <div className="odn-chat-messages" aria-live="polite" aria-atomic="false">
           <OpenSqlContext.Provider value={openSqlInWorkbench}>
-          <ScopedStarters scope={scope} onPick={prefillChat} />
+          <ScopedStarters
+            scope={scope} onPick={prefillChat} onOpenThread={openSavedAnswer}
+            canEdit={role === "data_lead" || role === "admin"}
+          />
           <CopilotChat
             markdownTagRenderers={{ pre: FoldableSql }}
             attachments={{
