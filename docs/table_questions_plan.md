@@ -39,7 +39,7 @@ The **generated** and **asked** questions (below) then add 3–5 *data* question
 | Generation input | Table name and description, column names/types/descriptions, curated definitions, profile fill rates and min/max (when present). **No row values beyond the profile.** | Enough to write grounded questions ("by `business_status_code`", "range of `year_established`"). Nothing the user couldn't already see in the Fields pane |
 | When to (re)generate | On first request with no stored set. Again when the table's **schema fingerprint** (hash of column names and types) changes, or after a 30-day TTL. A data lead can also regenerate manually | "Generate once", but never stale after a schema change |
 | Collected questions | The agent reports each **answered** question with the tables it actually read. The server normalizes, deduplicates and counts them | Only questions that produced an answer from that table count, so failed or off-topic ones don't pollute the list |
-| Sharing collected questions | Shown to *other* users only when **≥ 2 distinct users** asked it (or a data lead approved it), and it passes a privacy filter (§4.4) | One person's question may contain names, IDs or confidential context; a small anonymity threshold plus filtering avoids leaking it |
+| Sharing collected questions | Shared tenant-wide **right after the first successful answer**, together with that answer, if it passes the privacy filter (§4.4); otherwise private to the asker | Fast FAQ growth and answer reuse; the filter (emails, IDs, phones, URLs, quoted names) keeps personal or confidential context out |
 | Personal connections | Questions are stored **per owner** (`owner_user_id`) and never shared | Matches how personal connections and keys are already RLS-scoped by `odn.user_id` |
 | Clicking a question | **Pre-fills the chat input** (cursor at end, "↵ to ask" hint) rather than sending | Same principle as "Ask EasyQuery about this result": the user stays in control of when tokens are spent, and can adjust the question first |
 
@@ -56,7 +56,7 @@ CREATE TABLE metadata_table_questions (
   owner_user_id    uuid REFERENCES users(id) ON DELETE CASCADE,  -- set for personal connections only
   table_path       text[] NOT NULL CHECK (cardinality(table_path) BETWEEN 2 AND 3),
   source           text NOT NULL CHECK (source IN ('generated', 'asked', 'curated')),
-  status           text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'pending', 'hidden')),
+  status           text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'private', 'hidden')),
   title            text NOT NULL CHECK (length(title) <= 60),      -- chip label: "Businesses by status"
   question         text NOT NULL CHECK (length(question) <= 300),  -- full text pre-filled into the input
   normalized_hash  text NOT NULL,             -- sha256 of the normalized question: the dedup key
@@ -146,16 +146,44 @@ Deduplicate by hash, cap at 5, and keep at least 2 generated questions while ask
   - is obviously a follow-up ("and now by state", "same for 2023", "what about it", or starts with *and/also/now/then* plus a pronoun), because those don't stand alone;
   - matches the privacy filter: emails, phone numbers, long digit runs (≥ 6, e.g. IDs), URLs, or text in quotes over 3 words (likely names or values);
   - comes from the demo tenant (seeded questions there are curated instead).
-- **Visibility:** a new asked question starts as `pending`. It's visible to the asker as "asked by you", and to others only once `distinct_askers ≥ 2` (configurable as `ODN_QUESTIONS_SHARE_MIN_ASKERS`) or a data lead approves it.
+- **Visibility:** a new asked question that passes the privacy filter is `active` (shared tenant-wide) after its first successful answer. One that trips the filter is stored as `private` and visible only to the asker.
 - **Personal connections:** stored with `owner_user_id` and never shared.
 
-### 4.5 Tests
+### 4.5 Answer cache (reuse answers, refresh on demand)
+
+Each answered FAQ question also stores **its answer**, so the next person (or the same person later) gets it instantly, with **no LLM tokens and no warehouse scan**. They can still ask for a fresh answer.
+
+- **Store** (`metadata_question_answers`, one current row per question; tenant RLS and owner scoping exactly like the question row):
+  - `answer_md`: the agent's final text, capped at 8 KB;
+  - `sql[]`: what ran, at most 3 statements;
+  - `result_preview`: columns plus at most 200 rows as JSON, capped at 256 KB;
+  - `chart_spec`: optional;
+  - `bytes_scanned`, `answered_at`, `answered_by`;
+  - `data_modified_at`: the table's `modified_at` when answered;
+  - `schema_fingerprint`.
+- **Where it comes from:** the same agent hook as §4.4 adds the turn's final answer, its successful SQL, the first result's preview and any chart to the payload. Only turns that answered from that table, and **only the first question of a conversation or a standalone one**, are cached. Follow-ups depend on earlier context, so they aren't.
+- **Fresh vs stale:** a cached answer is *fresh* while:
+  - **Tables:** the table's current `modified_at` is no later than `data_modified_at`. Checked on read with one cheap metadata call, cached for 10 minutes.
+  - **Views and databases with no modified time:** `answered_at` is within **30 days** (`ODN_ANSWER_CACHE_VIEW_TTL_DAYS`).
+  - **All tables:** the schema fingerprint is unchanged.
+
+  A stale answer is still shown, labelled "Data changed since this answer", with Refresh as the main action.
+- **Starter questions** (§2) are answered from metadata anyway, so they cost no scan and aren't cached.
+- **API:** `GET /questions` items gain `answer: {answered_at, fresh, bytes_scanned, has_chart}` (no body). The body comes from `GET /v1/connections/{id}/questions/{qid}/answer` (same access check as the table).
+- **Refresh:** "Refresh answer" sends the question to the agent as a normal turn. Its answer replaces the cached one through the same hook, so every user sees the newest.
+- **Privacy/governance:**
+  - Answers live in the same tenant and connection scope as the data they came from; the shared connection's allowlist is identical for every tenant user.
+  - Personal-connection answers are owner-only.
+  - The privacy filter (§4.4) also runs on the answer text before sharing; if it trips, the answer is cached for the asker only.
+
+### 4.6 Tests
 
 - **DB:** RLS isolation across tenants, owner-only rows, cleared on revision change, `test_rls` guard passes.
 - **Service:**
   - generated-candidate validation (unknown column dropped, duplicates merged, too-few → retry/fail);
   - normalization and follow-up/privacy skips;
-  - the sharing threshold;
+  - the privacy filter and private-vs-shared status;
+  - answer cache freshness (table modified, view TTL, schema change) and refresh replacing the cached answer;
   - ranking order.
 - **API:** `generating` → `ready` flow with a fake worker; allowlist enforced; data-lead-only edits; the agent endpoint rejects without the token.
 - **Budget:** a skipped job when the tenant is over budget; tokens recorded with `purpose='table_questions'`.
@@ -190,6 +218,13 @@ When `messages.length === 0` and a table is in scope, replace the static first a
   - The order comes from the server.
 - **Click a chip:** pre-fills the chat input with the full question, focuses it, and puts the cursor at the end. A brief hint shows: "Press Enter to ask, or edit first".
 - **Loading (`generating`):** the starter row shows immediately; the data row shows shimmer chips and "Writing questions for this table…". The client polls every 2s for up to 20s. On timeout or `unavailable`, fall back to a **scoped static prompt**: "Ask anything about `vw_edr_…`, for example how many rows per `<first high-fill categorical column>`" (built locally from the schema), so even the fallback isn't stale.
+- **FAQ questions with a cached answer** show a ⚡ and "answered 2 days ago". Clicking one opens the **cached answer** right in the chat area, instantly and with no tokens:
+  - It has a header line: "Answered 2 days ago · scanned 746 MB then · 0 B now".
+  - It shows the answer text, the result table/chart, and "Show SQL".
+  - Actions: **↻ Refresh answer** (sends the question to the agent for a fresh answer) and **Ask a follow-up** (focuses the input).
+  - When the user continues, the cached question and answer are passed to the agent as context, through the same readable-context mechanism used for the table scope. Follow-ups then work without re-running the original query.
+  - If the answer is stale, the header says "Data changed since this answer" and **Refresh** becomes the primary button.
+- **Questions without a cached answer** pre-fill the input, as decided in §7.
 - **Unscoped conversations** keep today's prompt and the demo suggestions.
 - **Input placeholder** when scoped: "Ask about vw_edr_firmographics_standardized…".
 - **Multiple tables in scope** (a chat SQL hand-off): show questions for the first table, with a small "for" selector listing the others.
@@ -204,7 +239,7 @@ When `messages.length === 0` and a table is in scope, replace the static first a
   - edit text;
   - add a question;
   - **Regenerate** (shows "Generated 3 days ago for this schema");
-  - **Pending** asked questions, with Approve / Hide, so a lead can share a good question before the threshold is reached.
+  - Recently added asked questions (newest first), with Hide / Edit / Pin, so a lead can tidy the shared list.
 - **Clicking a question:** closes the workbench and pre-fills the chat, using the existing `onAskAbout` path.
 
 ### 5.3 Explorer (lightweight)
@@ -224,12 +259,13 @@ When `messages.length === 0` and a table is in scope, replace the static first a
 | --- | --- | --- |
 | **Q0** | Starter questions (client-side templates, view/table variant for #5), the Questions card with the starter row, pre-fill on click; agent: `get_table_schema` returns profile + `modified_at`, plus the "answer from metadata" prompt rule. **No migration needed**: shippable on its own | S |
 | **Q1** | Migration and store, worker generation and validation, `GET /questions`, the Questions card in the chat empty state, scoped fallback prompt, pre-fill on click | M |
-| **Q2** | Agent collection hook and `/internal/questions/asked`, normalization/privacy/sharing, ranking with Popular/Your badges | M |
+| **Q2** | Agent collection hook + **answer cache** (§4.5: store, freshness, cached-answer view, Refresh) and `/internal/questions/asked`, normalization/privacy/sharing, ranking with Popular/Your badges | M |
 | **Q3** | Data-lead curation (Questions tab in the table pane: pin/hide/edit/add/approve/regenerate), Explorer "questions people ask" link | S–M |
 | **Later** | Semantic dedup (embeddings) so "businesses per status" ≈ "count of businesses by status"; "this question worked" thumbs feedback feeding the ranking; per-question SQL caching for instant answers | — |
 
 ## 7. Decisions (2026-11-27)
 
-1. **No approval step for sharing.** Asked questions become shared FAQ entries automatically once **2 distinct users** asked them and they pass the privacy filter (§4.4). Data leads can still pin, hide or edit after the fact (§5.2), but nothing waits for approval. The "Pending" list in the Questions tab becomes a read-only "Asked once" list. The `ODN_QUESTIONS_SHARE_MIN_ASKERS` setting stays (default 2).
+1. **Shared right away, no approval.** A newly asked question, *and its cached answer*, joins the tenant's shared FAQ after its first successful answer if it passes the privacy filter (§4.4). If the filter trips, it stays private to the asker. Data leads can still pin, hide or edit after the fact (§5.2). This replaces the earlier 2-asker threshold; `distinct_askers` is kept for the ★ Popular ranking only.
 2. **Generation is charged to the tenant**, on the platform model (`purpose='table_questions'`), never to a user's own key or Copilot seat.
-3. **Clicking a question pre-fills the chat input**; the user presses Enter to send.
+3. **Clicking a question pre-fills the chat input**; the user presses Enter to send. A question with a fresh **cached answer** opens that answer instead (no tokens), with Refresh.
+4. **Answer cache** (§4.5): tables are fresh until their data or schema changes; **views expire after 30 days**.
