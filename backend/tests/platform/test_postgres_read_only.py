@@ -106,6 +106,10 @@ def test_metadata_calls_work_and_leave_no_connections_open(sample_schema: str) -
     assert [s.ok for s in c.test_connection()] == [True, True, True, True]
     assert sample_schema in [n.name for n in c.list_catalog()]
     assert {(n.name, n.kind) for n in c.list_catalog((sample_schema,))} == {("businesses", "table"), ("vegas", "view")}
+    assert sample_schema in [n.name for n in c.list_catalog_complete()]
+    assert {(n.name, n.kind) for n in c.list_catalog_complete((sample_schema,))} == {
+        ("businesses", "table"), ("vegas", "view")
+    }
 
     table = c.get_schema((sample_schema, "businesses"))
     assert (table.kind, table.description, table.row_count) == ("table", "Business listings", 50)

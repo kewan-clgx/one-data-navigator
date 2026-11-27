@@ -120,6 +120,8 @@ services:
       ODN_AGENT_TOKEN: ${ODN_AGENT_TOKEN:-local-dev-agent-token}
       ODN_LLM_DAILY_TOKEN_BUDGET: ${ODN_LLM_DAILY_TOKEN_BUDGET:-2000000}
       ODN_LLM_TRIAL_USER_DAILY_TOKENS: ${ODN_LLM_TRIAL_USER_DAILY_TOKENS:-200000}
+      ODN_METADATA_SEARCH_PREVIEW: ${ODN_METADATA_SEARCH_PREVIEW:-false}
+      ODN_COLUMN_PROFILING_PREVIEW: ${ODN_COLUMN_PROFILING_PREVIEW:-false}
       ODN_ORACLE_PROXY_HOST: oracle-egress
       ODN_ORACLE_PROXY_PORT: 8080
       # Encrypts user-supplied credentials (connection keys, LLM keys). Local default only.

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { fieldPath, fillRate, profileField, ProfileStatus, useColumnProfile } from "./ColumnProfile";
+
 type Curated = { definition: string; status: "draft" | "approved" | "deprecated"; updated_by: string | null; updated_at: string };
 type FieldEntry = { name: string; type: string; source_description: string | null; curated: Curated | null };
 type Dictionary = {
@@ -114,6 +116,8 @@ export default function DictionaryPanel({
   const [editing, setEditing] = useState<string | null>(null);
   const focusRow = useRef<HTMLTableRowElement | null>(null);
   const query = path.map((p) => `path=${encodeURIComponent(p)}`).join("&");
+  const { profile, error: profileError, disabled: profileDisabled, requesting, request } =
+    useColumnProfile(connectionId, path);
 
   const load = useCallback(() => {
     setError(null);
@@ -159,6 +163,14 @@ export default function DictionaryPanel({
       </p>
       {error && <p role="alert" className="error">{error}</p>}
       {dict && SOURCE_NOTES[dict.source] && <p className="muted">{SOURCE_NOTES[dict.source]}</p>}
+      {!profileDisabled && (
+        <div>
+          <button type="button" onClick={request} disabled={requesting || profile?.job_status === "queued" || profile?.job_status === "running"}>
+            {requesting ? "Requesting…" : "Profile"}
+          </button>
+          <ProfileStatus profile={profile} error={profileError} />
+        </div>
+      )}
       {dict && (
         <div className="table-defs">
           <p>
@@ -187,6 +199,8 @@ export default function DictionaryPanel({
               <tr>
                 <th scope="col">Field</th>
                 <th scope="col">Type</th>
+                {!profileDisabled && <th scope="col">Fill rate</th>}
+                {!profileDisabled && <th scope="col">Range</th>}
                 <th scope="col">Source description</th>
                 <th scope="col">Business definition</th>
               </tr>
@@ -195,10 +209,13 @@ export default function DictionaryPanel({
               {dict.fields.map((f) => {
                 // Nested field matches (a.b) focus their top-level column.
                 const focused = !!focusColumn && (focusColumn === f.name || focusColumn.startsWith(`${f.name}.`));
+                const field = profileField(profile, f.name, f.type);
                 return (
                   <tr key={f.name} ref={focused ? focusRow : undefined} className={focused ? "focused" : undefined}>
                     <td><code>{f.name}</code></td>
                     <td>{f.type}</td>
+                    {!profileDisabled && <td>{fillRate(field, profile)}</td>}
+                    {!profileDisabled && <td>{field?.min_value != null && field.max_value != null ? `${field.min_value} – ${field.max_value}` : "–"}</td>}
                     <td>{f.source_description ?? <span className="muted">None</span>}</td>
                     <td className="def-cell">
                       {editing === f.name ? (
@@ -227,6 +244,24 @@ export default function DictionaryPanel({
                   </tr>
                 );
               })}
+            </tbody>
+          </table>
+        </details>
+      )}
+      {profile && profile.fields.some((field) => field.path.length > 1) && (
+        <details>
+          <summary>Nested field profiles</summary>
+          <table className="grid dictionary">
+            <thead><tr><th scope="col">Field</th><th scope="col">Type</th><th scope="col">Fill rate</th><th scope="col">Range</th></tr></thead>
+            <tbody>
+              {profile.fields.filter((field) => field.path.length > 1).map((field) => (
+                <tr key={JSON.stringify(field.path)}>
+                  <td><code>{fieldPath(field)}</code></td>
+                  <td>{field.data_type}</td>
+                  <td>{fillRate(field, profile)}</td>
+                  <td>{field.min_value != null && field.max_value != null ? `${field.min_value} – ${field.max_value}` : "–"}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </details>

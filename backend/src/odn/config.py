@@ -61,6 +61,10 @@ class Settings(BaseSettings):
     max_bytes_billed: int = 100 * 10**9
     admin_max_bytes_billed: int = 200 * 10**9
     query_timeout_s: int = 300
+    # Preview-only API; the durable catalog is not yet scheduled or used by Explorer.
+    metadata_search_preview: bool = False
+    # Data-derived source scans are separately opt-in and have a shared per-connection budget.
+    column_profiling_preview: bool = False
     worker_url: str = "http://worker:8000"
     # Shared secret for API -> worker calls (Cloud Run: replace with IAM-authenticated invocation).
     worker_token: str = ""

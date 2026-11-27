@@ -137,10 +137,16 @@ class BigQueryConnector(BaseConnector):
         return steps
 
     def list_catalog(self, parent: tuple[str, ...] = ()) -> list[CatalogNode]:
+        return self._list_catalog(parent, max_results=_MAX_LIST)
+
+    def list_catalog_complete(self, parent: tuple[str, ...] = ()) -> list[CatalogNode]:
+        return self._list_catalog(parent, max_results=None)
+
+    def _list_catalog(self, parent: tuple[str, ...], *, max_results: int | None) -> list[CatalogNode]:
         if len(parent) == 0:
             return [
                 CatalogNode(kind="dataset", path=(self.project, ds.dataset_id), name=ds.dataset_id)
-                for ds in self._client.list_datasets(self.project, max_results=_MAX_LIST)
+                for ds in self._client.list_datasets(self.project, max_results=max_results)
             ]
         if len(parent) == 2:
             project, dataset = parent
@@ -150,7 +156,7 @@ class BigQueryConnector(BaseConnector):
                     path=(project, dataset, t.table_id),
                     name=t.table_id,
                 )
-                for t in self._client.list_tables(f"{project}.{dataset}", max_results=_MAX_LIST)
+                for t in self._client.list_tables(f"{project}.{dataset}", max_results=max_results)
             ]
         raise ValueError("parent must be () or (project, dataset)")
 
@@ -199,6 +205,26 @@ class BigQueryConnector(BaseConnector):
             sql, job_config=bigquery.QueryJobConfig(dry_run=True, use_query_cache=False, labels=_LABELS)
         )
         return CostEstimate(bytes_processed=job.total_bytes_processed)
+
+    def profile_schema(self, path: tuple[str, ...]) -> list[bigquery.SchemaField]:
+        if len(path) != 3:
+            raise ValueError("path must be (project, dataset, table)")
+        return list(self._client.get_table(".".join(path)).schema)
+
+    def profile_aggregate(self, sql: str, max_bytes_billed: int, job_id: str) -> dict[str, object]:
+        config = bigquery.QueryJobConfig(
+            maximum_bytes_billed=max_bytes_billed, use_query_cache=False, use_legacy_sql=False, labels=_LABELS
+        )
+        config.job_timeout_ms = 300_000
+        job = self._client.query(sql, job_config=config, job_id=job_id, job_retry=None)
+        try:
+            rows = list(job.result(timeout=300))
+        except TimeoutError:
+            job.cancel()
+            raise
+        if len(rows) != 1:
+            raise ValueError("profiling aggregate did not return exactly one row")
+        return dict(rows[0].items())
 
     def execute_paged(self, sql: str, limits: QueryLimits) -> QueryExecution:
         job = self._client.query(sql, job_config=self._job_config(limits), job_id_prefix="odn_")

@@ -8,6 +8,7 @@ Two kinds, both RLS-protected:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -443,15 +444,14 @@ class CredentialError(Exception):
     pass
 
 
-def is_tenant_secret_ref(tenant_id: UUID, secret_ref: str) -> bool:
+def is_tenant_secret_ref(tenant_id: UUID | None, secret_ref: str) -> bool:
     """Secret Manager refs must name a secret prefixed with the owning tenant's id."""
     return bool(
         re.fullmatch(rf"projects/[a-z0-9-]+/secrets/odn-{tenant_id}-[A-Za-z0-9_-]+/versions/(latest|\d+)", secret_ref)
     )
 
 
-def resolve_credentials(profile: ConnectionProfile) -> Credentials:
-    """Every connection must carry its own credentials; the platform identity is never used as a fallback."""
+def _service_account_info(profile: ConnectionProfile) -> dict[str, Any]:
     if profile.secret_ciphertext is not None or profile.personal:
         if profile.secret_ciphertext is None:
             raise CredentialError("this connection has no stored key")
@@ -461,14 +461,20 @@ def resolve_credentials(profile: ConnectionProfile) -> Credentials:
             )
         except (crypto.SecretsUnavailable, crypto.SecretDecryptionError) as exc:
             raise CredentialError(str(exc)) from None
-        return service_account.Credentials.from_service_account_info(json.loads(raw), scopes=_SCOPES)
+        info = json.loads(raw)
+        if not isinstance(info, dict):
+            raise CredentialError("invalid service account credentials")
+        return info
 
     tenant_id, secret_ref = profile.tenant_id, profile.secret_ref or ""
     if is_tenant_secret_ref(tenant_id, secret_ref):
         from google.cloud import secretmanager
 
         payload = secretmanager.SecretManagerServiceClient().access_secret_version(name=secret_ref).payload.data
-        return service_account.Credentials.from_service_account_info(json.loads(payload), scopes=_SCOPES)
+        info = json.loads(payload)
+        if not isinstance(info, dict):
+            raise CredentialError("invalid service account credentials")
+        return info
 
     if secret_ref.startswith("file:"):
         if settings.env != "local":
@@ -477,9 +483,29 @@ def resolve_credentials(profile: ConnectionProfile) -> Credentials:
         path = (keys_dir / secret_ref.removeprefix("file:")).resolve()
         if not path.is_relative_to(keys_dir) or not path.is_file():
             raise CredentialError("credential file not found")
-        return service_account.Credentials.from_service_account_file(str(path), scopes=_SCOPES)
+        info = json.loads(path.read_bytes())
+        if not isinstance(info, dict):
+            raise CredentialError("invalid service account credentials")
+        return info
 
     raise CredentialError("secret_ref is not a permitted reference for this tenant")
+
+
+def resolve_credentials(profile: ConnectionProfile) -> Credentials:
+    """Every connection must carry its own credentials; the platform identity is never used as a fallback."""
+    return service_account.Credentials.from_service_account_info(_service_account_info(profile), scopes=_SCOPES)
+
+
+def resolve_profile_credentials(profile: ConnectionProfile) -> tuple[Credentials, str]:
+    """Bind persisted profiles to the exact public identity of the resolved service-account key."""
+    info = _service_account_info(profile)
+    credentials = service_account.Credentials.from_service_account_info(info, scopes=_SCOPES)
+    key = serialization.load_pem_private_key(info["private_key"].encode(), password=None)
+    public_key = key.public_key().public_bytes(serialization.Encoding.DER, serialization.PublicFormat.SubjectPublicKeyInfo)
+    public_info = {name: value for name, value in info.items() if name != "private_key"}
+    identity = json.dumps(public_info, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode()
+    fingerprint = hashlib.sha256(public_key + b"\0" + identity).hexdigest()
+    return credentials, fingerprint
 
 
 def resolve_postgres_credentials(profile: ConnectionProfile) -> str | None:

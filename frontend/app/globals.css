@@ -336,6 +336,7 @@ body.resizing iframe { pointer-events: none; }
 .search-row { display: flex; gap: 0.6rem; align-items: center; }
 .search-row input { flex: 1; min-width: 0; }
 .search-status { margin: -0.2rem 0 0; font-size: 0.72rem; min-height: 1.1em; }
+.metadata-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; font-size: 0.72rem; }
 
 /* Toggle switch (works on both dark panel and light surfaces via currentColor). */
 .switch {

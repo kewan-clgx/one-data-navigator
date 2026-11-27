@@ -1,3 +1,8 @@
+import logging
+import threading
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
@@ -22,7 +27,29 @@ from odn.api.workspace_routes import router as workspace_router
 from odn.config import settings
 from odn.platform.connectors.ssh_tunnel import TunnelError
 
-app = FastAPI(title="EasyQuery API")
+log = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    stop = threading.Event()
+    worker = None
+    if settings.column_profiling_preview:
+        from odn.platform.catalog.column_profiles import run_worker
+
+        worker = threading.Thread(target=run_worker, args=(stop,), name="column-profile-worker", daemon=True)
+        worker.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        if worker:
+            worker.join(timeout=5)
+            if worker.is_alive():
+                log.warning("column profile worker did not stop before shutdown")
+
+
+app = FastAPI(title="EasyQuery API", lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=2048)
 app.include_router(shared_connections_router)
 app.include_router(router)

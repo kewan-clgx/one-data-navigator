@@ -5,13 +5,22 @@ from __future__ import annotations
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from google.api_core import exceptions as gexc
+from psycopg.errors import QueryCanceled
 from pydantic import BaseModel, Field
 
 from odn.api.deps import Context, require_data_lead
 from odn.config import settings
 from odn.db import tenant_transaction
+from odn.platform.catalog.column_profiles import (
+    ProfileNotAllowed,
+    ProfileUnavailable,
+    TableProfile,
+    get_profile,
+    request_automatic,
+    request_profile,
+)
 from odn.platform.catalog.dictionary import (
     CuratedDefinition,
     DefinitionInput,
@@ -20,6 +29,23 @@ from odn.platform.catalog.dictionary import (
     all_definitions,
     table_dictionary,
     upsert_definition,
+)
+from odn.platform.catalog.metadata_dispatch import RefreshBusy, request_refresh
+from odn.platform.catalog.metadata_queue import RefreshNotAuthorized
+from odn.platform.catalog.metadata_search import (
+    InvalidCursor,
+    MetadataAuthorizationMismatch,
+    MetadataConnectionNotFound,
+    MetadataStatus,
+    SearchPage,
+    get_status,
+)
+from odn.platform.catalog.metadata_search import search as search_metadata
+from odn.platform.catalog.metadata_snapshot import (
+    MetadataSnapshot,
+    SnapshotTooLarge,
+    SnapshotUnavailable,
+    get_snapshot,
 )
 from odn.platform.catalog.personal import (
     Favorite,
@@ -185,6 +211,77 @@ def catalog(
     ]
 
 
+@router.get("/connections/{connection_id}/metadata-search")
+def metadata_search(
+    connection_id: UUID,
+    ctx: Context,
+    q: Annotated[str, Query(min_length=1, max_length=300)],
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    include_snapshots: bool = False,
+    cursor: Annotated[str | None, Query(max_length=16384)] = None,
+) -> SearchPage:
+    if not settings.metadata_search_preview:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    try:
+        return search_metadata(ctx.tenant_id, ctx.user_id, connection_id, q, limit=limit,
+                               include_snapshots=include_snapshots, cursor=cursor)
+    except MetadataConnectionNotFound:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "connection not found") from None
+    except MetadataAuthorizationMismatch:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "metadata authorization filter mismatch") from None
+    except QueryCanceled:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "metadata search timed out or was canceled") from None
+    except (InvalidCursor, ValueError) as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+
+
+@router.get("/connections/{connection_id}/metadata-status")
+def metadata_status(connection_id: UUID, ctx: Context) -> MetadataStatus:
+    if not settings.metadata_search_preview:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    try:
+        return get_status(ctx.tenant_id, ctx.user_id, connection_id)
+    except MetadataConnectionNotFound:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "connection not found") from None
+
+
+@router.get("/connections/{connection_id}/metadata-index")
+def metadata_index(connection_id: UUID, ctx: Context, response: Response) -> MetadataSnapshot:
+    if not settings.metadata_search_preview:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        return get_snapshot(ctx.tenant_id, ctx.user_id, connection_id)
+    except MetadataConnectionNotFound:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "connection not found") from None
+    except SnapshotUnavailable as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from None
+    except SnapshotTooLarge as exc:
+        raise HTTPException(status.HTTP_413_CONTENT_TOO_LARGE, str(exc)) from None
+    except QueryCanceled:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "metadata index download timed out") from None
+
+
+class MetadataRefreshResponse(BaseModel):
+    job_id: UUID
+    created: bool
+
+
+@router.post("/connections/{connection_id}/metadata-refresh", status_code=status.HTTP_202_ACCEPTED)
+def metadata_refresh(connection_id: UUID, ctx: Context) -> MetadataRefreshResponse:
+    if not settings.metadata_search_preview:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    _profile(ctx, connection_id)
+    try:
+        job_id, created = request_refresh(ctx.tenant_id, ctx.user_id, connection_id)
+        return MetadataRefreshResponse(job_id=job_id, created=created)
+    except RefreshNotAuthorized:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "connection refresh is not authorized") from None
+    except RefreshBusy:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "another metadata refresh is running; retry later",
+                            headers={"Retry-After": "10"}) from None
+
+
 @router.get("/connections/{connection_id}/schema")
 def schema(connection_id: UUID, ctx: Context, path: Annotated[list[str], Query()]) -> TableSchema:
     profile = _profile(ctx, connection_id)
@@ -199,6 +296,43 @@ def schema(connection_id: UUID, ctx: Context, path: Annotated[list[str], Query()
         raise HTTPException(status.HTTP_404_NOT_FOUND, "table not found") from None
     except ConnectorError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(exc)) from None
+
+
+@router.get("/connections/{connection_id}/column-profile")
+def column_profile(
+    connection_id: UUID, ctx: Context, response: Response, path: Annotated[list[str], Query()]
+) -> TableProfile:
+    if not settings.column_profiling_preview:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        return get_profile(ctx, _profile(ctx, connection_id), tuple(path))
+    except ProfileUnavailable as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    except ProfileNotAllowed as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from None
+    except CredentialError:
+        raise HTTPException(status.HTTP_409_CONFLICT, "connection credentials unavailable") from None
+    except gexc.GoogleAPIError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"source schema unavailable: {type(exc).__name__}") from None
+
+
+@router.post("/connections/{connection_id}/column-profile", status_code=status.HTTP_202_ACCEPTED)
+def create_column_profile(connection_id: UUID, ctx: Context, path: Annotated[list[str], Query()]) -> TableProfile:
+    if not settings.column_profiling_preview:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    try:
+        profile = _profile(ctx, connection_id)
+        request_profile(ctx, profile, tuple(path))
+        return get_profile(ctx, profile, tuple(path))
+    except ProfileUnavailable as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+    except ProfileNotAllowed as exc:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, str(exc)) from None
+    except CredentialError:
+        raise HTTPException(status.HTTP_409_CONFLICT, "connection credentials unavailable") from None
+    except gexc.GoogleAPIError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"source schema unavailable: {type(exc).__name__}") from None
 
 
 @router.get("/connections/{connection_id}/search-index")
@@ -281,9 +415,12 @@ def my_tables(connection_id: UUID, ctx: Context) -> MyTables:
 def put_favorite(connection_id: UUID, data: FavoriteInput, ctx: Context) -> Favorite:
     profile = _profile(ctx, connection_id)
     try:
-        return add_favorite(ctx, profile.id, build_policy(profile, _connector(profile)), data.path)
+        favorite = add_favorite(ctx, profile.id, build_policy(profile, _connector(profile)), data.path)
     except FavoriteNotAllowed:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "object not in allowlist") from None
+    if favorite.kind == "table":
+        request_automatic(ctx, profile, [tuple(data.path)])
+    return favorite
 
 
 @router.delete("/connections/{connection_id}/favorites", status_code=status.HTTP_204_NO_CONTENT)

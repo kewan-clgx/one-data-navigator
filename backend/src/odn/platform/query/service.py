@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass, replace
 from typing import Any, Protocol
@@ -22,6 +23,8 @@ from odn.platform.connectors.base import (
 from odn.platform.governance.audit import AuditRecord, Source, write_audit
 from odn.platform.workspace.rows import json_safe
 from odn.tenancy.context import RequestContext
+
+log = logging.getLogger(__name__)
 
 
 class QueryRejected(Exception):
@@ -152,6 +155,15 @@ def run_query(
         record_usage(ctx, profile.id, decision.tables, preserve_case=True)
     else:
         record_usage(ctx, profile.id, decision.tables)
+    if settings.column_profiling_preview and profile.kind == "bigquery":
+        from odn.platform.catalog.column_profiles import query_paths, request_automatic
+        from odn.platform.connectors.bigquery import BigQueryConnector
+
+        if isinstance(connector, BigQueryConnector):
+            try:
+                request_automatic(ctx, profile, query_paths(sql, connector, decision.tables))
+            except Exception as exc:  # noqa: BLE001 - a successful query must remain successful
+                log.warning("automatic column profiling could not inspect query: %s", type(exc).__name__)
     return QueryOutcome(
         meta=QueryResultMeta(
             job_id=execution.job_id,

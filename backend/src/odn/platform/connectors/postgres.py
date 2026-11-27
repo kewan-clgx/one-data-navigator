@@ -195,13 +195,20 @@ class PostgresConnector(BaseConnector):
 
     def list_catalog(self, parent: tuple[str, ...] = ()) -> list[CatalogNode]:
         """Schemas if parent=(), tables and views if parent=(schema,)."""
+        return self._list_catalog(parent, complete=False)
+
+    def list_catalog_complete(self, parent: tuple[str, ...] = ()) -> list[CatalogNode]:
+        return self._list_catalog(parent, complete=True)
+
+    def _list_catalog(self, parent: tuple[str, ...], *, complete: bool) -> list[CatalogNode]:
+        limit = "" if complete else " LIMIT %s"
         if len(parent) == 0:
             with self._metadata() as cur:
                 cur.execute(
                     "SELECT schema_name FROM information_schema.schemata "
                     "WHERE schema_name NOT IN ('pg_catalog', 'information_schema') AND schema_name NOT LIKE 'pg\\_%%' "
-                    "ORDER BY schema_name LIMIT %s",
-                    (_MAX_LIST,),
+                    "ORDER BY schema_name" + limit,
+                    () if complete else (_MAX_LIST,),
                 )
                 rows = cur.fetchall()
             return [CatalogNode(kind="schema", path=(r["schema_name"],), name=r["schema_name"]) for r in rows]
@@ -212,8 +219,8 @@ class PostgresConnector(BaseConnector):
             with self._metadata() as cur:
                 cur.execute(
                     "SELECT table_name, table_type FROM information_schema.tables "
-                    "WHERE table_schema = %s ORDER BY table_name LIMIT %s",
-                    (schema, _MAX_LIST),
+                    "WHERE table_schema = %s ORDER BY table_name" + limit,
+                    (schema,) if complete else (schema, _MAX_LIST),
                 )
                 rows = cur.fetchall()
             return [

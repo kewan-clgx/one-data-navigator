@@ -236,6 +236,9 @@ class MySQLConnector(BaseConnector):
             for name, kind, comment in rows if _MYSQL_IDENTIFIER.fullmatch(name)
         ]
 
+    def list_catalog_complete(self, parent: tuple[str, ...] = ()) -> list[CatalogNode]:
+        return self.list_catalog(parent)
+
     def _columns(self, database: str, table: str | None = None) -> dict[tuple[str, ...], list[ColumnSchema]]:
         sql = (
             "SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_COMMENT "

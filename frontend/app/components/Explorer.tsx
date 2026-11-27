@@ -12,6 +12,7 @@ import CatalogSearchResults, {
   StarButton,
   tablePriority,
   withoutSnapshots,
+  type DatasetHit,
   type MyTables,
   type SearchIndex,
 } from "./CatalogSearch";
@@ -19,6 +20,7 @@ import { CONNECTIONS_CHANGED } from "@/lib/client-api";
 import { connectionFor, isWorkspaceSql, tablesIn } from "@/lib/sqlRefs";
 
 import DictionaryPanel from "./DictionaryPanel";
+import { fieldPath, fillRate, profileField, ProfileStatus, useColumnProfile } from "./ColumnProfile";
 import { DIALECT_LABEL, type EditorStatus, type SqlSchema } from "./SqlEditor";
 import { dialectFor, formatSql } from "@/lib/sqlFormat";
 
@@ -66,6 +68,7 @@ function withCuratedDefinitions(index: SearchIndex, defs: CuratedRow[]): SearchI
 }
 
 const HIDE_SNAPSHOTS_KEY = "odn.explorer.hideSnapshots";
+const SEARCH_MODE_KEY = "odn.explorer.searchMode";
 const CONNECTION_KEY = "odn.explorer.connection";
 const MY_TABLES_SHOWN = 8;
 const PREVIEW_ROWS = 20;
@@ -108,6 +111,52 @@ type Column = { name: string; type: string; nullable: boolean; description?: str
 type TableSchema = { path: string[]; kind: "table" | "view"; columns: Column[]; row_count?: number | null; size_bytes?: number | null; description?: string | null };
 type QueryMeta = { rows: number; bytes_processed: number | null; duration_ms: number; truncated: boolean; columns: Column[] };
 type QueryResult = { meta: QueryMeta; tables: string[]; bytes_estimated: number | null; rows: Record<string, unknown>[] };
+type MetadataStatus = {
+  state: "not_indexed" | "building" | "ready" | "stale" | "partial" | "failed";
+  last_success_at: string | null;
+  job_status: string | null;
+  error_code: string | null;
+  progress_done: number | null;
+  progress_total: number | null;
+  finished_at: string | null;
+  last_completed_status: string | null;
+  last_completed_error_code: string | null;
+  can_refresh: boolean;
+};
+type StoredTableHit = {
+  path: string[];
+  container_path: string[];
+  container_name: string;
+  name: string;
+  kind: string;
+  matching_fields: { path: string[]; data_type: string; description: string | null }[];
+};
+type StoredPage = { status: MetadataStatus; items: StoredTableHit[]; next_cursor: string | null };
+type SearchMode = "stored" | "browser" | "shared";
+type DownloadedIndex = { status: MetadataStatus; datasets: SearchIndex["datasets"] };
+
+function ExplorerProfile({ connectionId, schema }: { connectionId: string; schema: TableSchema }) {
+  const { profile, error, disabled } = useColumnProfile(connectionId, schema.path);
+  if (disabled) return null;
+  return (
+    <details>
+      <summary>Field fill rates</summary>
+      <ProfileStatus profile={profile} error={error} />
+      <ul>
+        {schema.columns.map((column) => (
+          <li key={column.name}>
+            <code>{column.name}</code>: {fillRate(profileField(profile, column.name, column.type), profile)}
+          </li>
+        ))}
+        {profile?.fields.filter((field) => field.path.length > 1).map((field) => (
+          <li key={JSON.stringify(field.path)}>
+            <code>{fieldPath(field)}</code>: {fillRate(field, profile)}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
 
 type Outcome =
   | { kind: "result"; result: QueryResult & { savedAs?: string } }
@@ -180,8 +229,30 @@ export default function Explorer({
   const [tables, setTables] = useState<Record<string, CatalogNode[]>>({});
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
-  const [index, setIndex] = useState<SearchIndex | null>(null);
+  const [loadedIndex, setLoadedIndex] = useState<{
+    connectionId: string; mode: "browser" | "shared"; generation: number; index: SearchIndex; duration: number;
+  } | null>(null);
   const [indexState, setIndexState] = useState<"loading" | "ready" | "error">("loading");
+  const [indexError, setIndexError] = useState<string | null>(null);
+  const [indexAttempt, setIndexAttempt] = useState(0);
+  const [searchMode, setSearchMode] = useState<SearchMode>("stored");
+  const [metadataAvailability, setMetadataAvailability] = useState<"checking" | "available" | "unavailable" | "error">("checking");
+  const [metadataStatus, setMetadataStatus] = useState<MetadataStatus | null>(null);
+  const [metadataError, setMetadataError] = useState<string | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [refreshingMetadata, setRefreshingMetadata] = useState(false);
+  const [storedPage, setStoredPage] = useState<StoredPage | null>(null);
+  const [storedPageKey, setStoredPageKey] = useState("");
+  const [storedLoading, setStoredLoading] = useState(false);
+  const [storedError, setStoredError] = useState<string | null>(null);
+  const [storedDuration, setStoredDuration] = useState<number | null>(null);
+  const [metadataGeneration, setMetadataGeneration] = useState(0);
+  const [browserSearch, setBrowserSearch] = useState<{
+    results: DatasetHit[]; duration: number; query: string; index: SearchIndex; prefs: ReturnType<typeof prefsOf>;
+  } | null>(null);
+  const searchSerial = useRef(0);
+  const refreshSerial = useRef(0);
+  const mineSerial = useRef(0);
   const [hideSnapshots, setHideSnapshots] = useState(true);
   const [mine, setMine] = useState<MyTables | null>(null);
   const [schema, setSchema] = useState<TableSchema | null>(null);
@@ -204,6 +275,8 @@ export default function Explorer({
 
   useEffect(() => {
     if (localStorage.getItem(HIDE_SNAPSHOTS_KEY) === "false") setHideSnapshots(false);
+    const savedMode = localStorage.getItem(SEARCH_MODE_KEY);
+    if (savedMode === "browser" || savedMode === "shared") setSearchMode(savedMode);
   }, []);
 
   const toggleSnapshots = () => {
@@ -254,13 +327,16 @@ export default function Explorer({
 
   const loadMine = useCallback(() => {
     if (!connectionId) return;
+    const serial = ++mineSerial.current;
     api<MyTables>(`connections/${connectionId}/my-tables`)
-      .then(setMine)
-      .catch(() => setMine(null));
+      .then((result) => { if (serial === mineSerial.current) setMine(result); })
+      .catch(() => { if (serial === mineSerial.current) setMine(null); });
   }, [connectionId]);
 
   useEffect(() => {
     if (!connectionId) return;
+    let cancelled = false;
+    const mineRequests = mineSerial;
     setDatasets([]);
     setTables({});
     setSchema(null);
@@ -268,25 +344,127 @@ export default function Explorer({
     setMine(null);
     loadMine();
     api<CatalogNode[]>(`connections/${connectionId}/catalog`)
-      .then(setDatasets)
-      .catch((e: Error) => setError(e.message));
-    let cancelled = false;
-    setIndex(null);
+      .then((nodes) => { if (!cancelled) setDatasets(nodes); })
+      .catch((e: Error) => { if (!cancelled) setError(e.message); });
+    setLoadedIndex(null);
     setIndexState("loading");
-    Promise.all([
-      api<SearchIndex>(`connections/${connectionId}/search-index`),
-      api<CuratedRow[]>(`connections/${connectionId}/definitions`).catch(() => [] as CuratedRow[]),
-    ])
-      .then(([idx, defs]) => {
-        if (cancelled) return;
-        setIndex(withCuratedDefinitions(idx, defs));
-        setIndexState("ready");
-      })
-      .catch(() => !cancelled && setIndexState("error"));
+    setIndexError(null);
+    refreshSerial.current++;
+    setRefreshingMetadata(false);
+    setRefreshError(null);
+    setMetadataAvailability("checking");
+    setMetadataStatus(null);
+    setMetadataError(null);
     return () => {
       cancelled = true;
+      mineRequests.current++;
     };
   }, [connectionId, loadMine, onScopeChange]);
+
+  useEffect(() => {
+    if (!connectionId) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    let previousTerminal: string | null = null;
+    const poll = async () => {
+      try {
+        const status = await api<MetadataStatus>(`connections/${connectionId}/metadata-status`);
+        if (cancelled) return;
+        if (status.state !== "building") {
+          const terminal = `${status.last_success_at}|${status.last_completed_status}|${status.finished_at}`;
+          if (previousTerminal !== null && terminal !== previousTerminal) setMetadataGeneration((n) => n + 1);
+          previousTerminal = terminal;
+        }
+        setMetadataStatus(status);
+        setMetadataAvailability("available");
+        setMetadataError(null);
+      } catch (e) {
+        if (cancelled) return;
+        const err = e as ApiError;
+        if (err.status === 404) {
+          setMetadataAvailability("unavailable");
+          return;
+        }
+        setMetadataAvailability("error");
+        setMetadataError(err.message);
+      }
+      if (!cancelled) timer = setTimeout(poll, 5000);
+    };
+    void poll();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [connectionId]);
+
+  const useStored = metadataAvailability === "available" && searchMode === "stored";
+  const useShared = metadataAvailability === "available" && searchMode === "shared";
+  const useSourceIndex = metadataAvailability === "unavailable" ||
+    (metadataAvailability !== "checking" && searchMode === "browser");
+  const useBrowser = useSourceIndex || useShared;
+  const indexMode = useShared ? "shared" : "browser";
+  const currentIndex = loadedIndex?.connectionId === connectionId && loadedIndex.mode === indexMode &&
+    (indexMode === "browser" || loadedIndex.generation === metadataGeneration) ? loadedIndex : null;
+  const index = currentIndex?.index ?? null;
+  const indexDuration = currentIndex?.duration ?? null;
+
+  useEffect(() => {
+    if (!connectionId || !useBrowser || index || (useShared && metadataStatus?.state === "building")) return;
+    let cancelled = false;
+    const controller = new AbortController();
+    const start = performance.now();
+    const load = Promise.resolve().then(() => {
+      if (cancelled) return null;
+      setIndexState("loading");
+      setIndexError(null);
+      return useShared
+        ? api<DownloadedIndex>(`connections/${connectionId}/metadata-index`, { signal: controller.signal }).then((snapshot): SearchIndex => ({
+            status: snapshot.status.state === "ready" ? "success" : "partial",
+            datasets: snapshot.datasets,
+            failed: [],
+          }))
+        : Promise.all([
+            api<SearchIndex>(`connections/${connectionId}/search-index`, { signal: controller.signal }),
+            api<CuratedRow[]>(`connections/${connectionId}/definitions`, { signal: controller.signal }).catch(() => [] as CuratedRow[]),
+          ]).then(([idx, defs]) => withCuratedDefinitions(idx, defs));
+    });
+    load
+      .then((idx) => {
+        if (cancelled || !idx) return;
+        setLoadedIndex({ connectionId, mode: indexMode, generation: metadataGeneration, index: idx, duration: performance.now() - start });
+        setIndexState("ready");
+      })
+      .catch((e: Error) => {
+        if (!cancelled) {
+          setIndexError(e.message);
+          setIndexState("error");
+        }
+      });
+    return () => { cancelled = true; controller.abort(); };
+  }, [connectionId, useBrowser, useShared, indexMode, index, indexAttempt, metadataGeneration, metadataStatus?.state]);
+
+  const changeSearchMode = (mode: SearchMode) => {
+    localStorage.setItem(SEARCH_MODE_KEY, mode);
+    setLoadedIndex(null);
+    setIndexState("loading");
+    setIndexError(null);
+    setSearchMode(mode);
+  };
+
+  const refreshMetadata = async () => {
+    const serial = refreshSerial.current;
+    setRefreshingMetadata(true);
+    setRefreshError(null);
+    try {
+      await api(`connections/${connectionId}/metadata-refresh`, { method: "POST" });
+      const status = await api<MetadataStatus>(`connections/${connectionId}/metadata-status`);
+      if (serial === refreshSerial.current) setMetadataStatus(status);
+    } catch (e) {
+      if (serial === refreshSerial.current) setRefreshError((e as Error).message);
+    } finally {
+      if (serial === refreshSerial.current) setRefreshingMetadata(false);
+    }
+  };
 
   const caseSensitive = ["snowflake", "mysql", "oracle"].includes(connections.find((c) => c.id === connectionId)?.kind ?? "");
   const tablePathParts = ["mysql", "oracle"].includes(connections.find((c) => c.id === connectionId)?.kind ?? "") ? 2 : 3;
@@ -357,10 +535,77 @@ export default function Explorer({
     () => index?.datasets.reduce((n, d) => n + d.tables.filter((t) => isSnapshot(t.name)).length, 0) ?? 0,
     [index],
   );
-  const results = useMemo(
-    () => (visibleIndex && terms.length ? searchIndex(visibleIndex, terms, prefs) : null),
-    [visibleIndex, terms, prefs],
-  );
+  useEffect(() => {
+    if (!useBrowser || !visibleIndex || !terms.length) return;
+    const timer = setTimeout(() => {
+      const start = performance.now();
+      const results = searchIndex(visibleIndex, terms, prefs);
+      setBrowserSearch({ results, duration: performance.now() - start, query: deferredSearch, index: visibleIndex, prefs });
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [useBrowser, visibleIndex, terms, prefs, deferredSearch]);
+  const currentBrowserSearch = browserSearch?.query === deferredSearch && browserSearch.index === visibleIndex &&
+    browserSearch.prefs === prefs ? browserSearch : null;
+
+  const storedKey = JSON.stringify([
+    connectionId, deferredSearch, hideSnapshots, metadataGeneration, mine?.favorites, mine?.recent,
+  ]);
+  const loadStoredPage = useCallback(async (cursor: string | null, serial: number, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ q: deferredSearch.trim(), limit: "50", include_snapshots: String(!hideSnapshots) });
+    if (cursor) params.set("cursor", cursor);
+    const start = performance.now();
+    try {
+      const page = await api<StoredPage>(`connections/${connectionId}/metadata-search?${params}`, { signal });
+      if (serial !== searchSerial.current) return;
+      setStoredPage((previous) => cursor && previous ? { ...page, items: [...previous.items, ...page.items] } : page);
+      setStoredPageKey(storedKey);
+      setStoredDuration(performance.now() - start);
+      setMetadataStatus(page.status);
+      setStoredError(null);
+    } catch (e) {
+      if (serial === searchSerial.current && !(e instanceof DOMException && e.name === "AbortError")) {
+        setStoredError((e as Error).message);
+      }
+    } finally {
+      if (serial === searchSerial.current) setStoredLoading(false);
+    }
+  }, [connectionId, deferredSearch, hideSnapshots, storedKey]);
+
+  useEffect(() => {
+    const serial = ++searchSerial.current;
+    const controller = new AbortController();
+    let requestTimer: ReturnType<typeof setTimeout>;
+    const timer = setTimeout(() => {
+      setStoredPage(null);
+      setStoredError(null);
+      setStoredDuration(null);
+      if (!useStored || !connectionId || !terms.length) {
+        setStoredLoading(false);
+        return;
+      }
+      setStoredLoading(true);
+      requestTimer = setTimeout(() => { void loadStoredPage(null, serial, controller.signal); }, 250);
+    }, 0);
+    return () => { clearTimeout(timer); clearTimeout(requestTimer); controller.abort(); };
+  }, [useStored, connectionId, terms, loadStoredPage, metadataGeneration]);
+
+  const currentStoredPage = storedPageKey === storedKey ? storedPage : null;
+  const storedResults = useMemo(() => {
+    if (!currentStoredPage || !terms.length) return null;
+    const groups = new Map<string, DatasetHit>();
+    for (const hit of currentStoredPage.items) {
+      const key = JSON.stringify(hit.container_path);
+      let group = groups.get(key);
+      if (!group) {
+        group = { dataset: { path: hit.container_path, name: hit.container_name, tables: [] }, hits: [] };
+        groups.set(key, group);
+      }
+      const columns = hit.matching_fields.map((f) => ({ name: f.path.join("."), type: f.data_type, description: f.description }));
+      group.hits.push({ table: { path: hit.path, name: hit.name, kind: hit.kind, columns, columnCount: null }, columnHits: columns });
+    }
+    return [...groups.values()];
+  }, [currentStoredPage, terms]);
+  const results = useStored ? storedResults : currentBrowserSearch?.results ?? null;
 
   useEffect(() => {
     api<{ role: string }>("me")
@@ -492,17 +737,41 @@ export default function Explorer({
   const fieldHitCount = results?.reduce((n, d) => n + d.hits.reduce((m, h) => m + h.columnHits.length, 0), 0) ?? 0;
   const indexedTables = visibleIndex?.datasets.reduce((n, d) => n + d.tables.length, 0) ?? 0;
   const hiddenNote = hideSnapshots && snapshotCount ? ` · ${snapshotCount} snapshots hidden` : "";
-  const status = results
+  const browserStatus = useShared && !index && metadataStatus?.state === "building"
+    ? "Metadata refresh is running; download will start when it finishes."
+    : results
     ? `${tableHitCount} ${tableHitCount === 1 ? "table" : "tables"} match` +
       (fieldHitCount ? `, ${fieldHitCount} matching ${fieldHitCount === 1 ? "field" : "fields"}` : "") +
       hiddenNote
     : indexState === "loading"
       ? "Indexing datasets, tables and fields…"
       : indexState === "error"
-        ? "Search is unavailable; browse the tree below."
+        ? "Search index is unavailable; browse the tree below."
         : index?.status === "partial"
-          ? `${indexedTables} tables indexed; some datasets could not be indexed.${hiddenNote}`
+          ? `${indexedTables} tables indexed; metadata may be incomplete or stale.${hiddenNote}`
           : `${indexedTables} tables searchable${hiddenNote}`;
+  const status = useStored
+    ? storedLoading && !currentStoredPage ? "Searching stored metadata…"
+      : storedError ? "Stored search failed."
+        : results ? `${tableHitCount} tables loaded${currentStoredPage?.next_cursor ? "; more available" : ""}`
+          : metadataStatus?.state === "not_indexed" ? "No stored metadata yet."
+            : metadataStatus?.state === "building"
+              ? `Indexing metadata${metadataStatus.progress_total != null ? `: ${metadataStatus.progress_done ?? 0}/${metadataStatus.progress_total} datasets` : "…"}`
+              : "Search persisted metadata."
+    : metadataAvailability === "error" && !useBrowser
+      ? "Stored search is unavailable; choose browser index to continue."
+      : browserStatus;
+  const lastFailure = metadataStatus?.state === "building"
+    ? metadataStatus.last_completed_status
+    : metadataStatus?.state;
+  const failureCode = metadataStatus?.state === "building"
+    ? metadataStatus.last_completed_error_code
+    : metadataStatus?.error_code;
+  const metadataWarning = ["stale", "partial", "failed", "cancelled"].includes(lastFailure ?? "")
+    ? failureCode === "credential_error"
+      ? "Metadata refresh could not use these credentials. Use encrypted connection credentials or an immutable secret version."
+      : "Metadata may be incomplete or stale because the last refresh did not succeed."
+    : null;
   const selectedPath = schema?.path.join(".") ?? null;
 
   const sidebar = (
@@ -526,6 +795,49 @@ export default function Explorer({
         {connections.length === 0 && !error && (
           <p className="muted">No data sources yet. Add one in Settings → Data sources.</p>
         )}
+        {(metadataAvailability === "available" || metadataAvailability === "error") && (
+          <label>
+            Search method
+            <select value={searchMode} onChange={(e) => changeSearchMode(e.target.value as SearchMode)}>
+              <option value="stored">Stored metadata API</option>
+              <option value="shared">Shared downloaded index</option>
+              <option value="browser">Browser full index</option>
+            </select>
+          </label>
+        )}
+        {(useStored || useShared) && metadataStatus && (
+          <div className="metadata-controls">
+            <span className="muted">
+              {metadataStatus.last_success_at
+                ? `Last complete refresh: ${new Date(metadataStatus.last_success_at).toLocaleString()}`
+                : "No complete refresh yet."}
+            </span>
+            {metadataStatus.can_refresh ? (
+              <button type="button" className="link" disabled={refreshingMetadata} onClick={() => void refreshMetadata()}>
+                {refreshingMetadata ? "Starting…" : metadataStatus.state === "building" ? "Retry if stalled" :
+                  metadataStatus.state === "not_indexed" ? "Build index" : "Refresh index"}
+              </button>
+            ) : metadataStatus.state === "not_indexed" && (
+              <span className="muted">An authorized administrator or operator must build this index.</span>
+            )}
+          </div>
+        )}
+        {(metadataWarning || (useShared && index?.status === "partial" ? "Downloaded metadata may be incomplete or stale." : null)) &&
+          (useStored || useShared) && (
+            <p role="alert" className="error">
+              {metadataWarning ?? "Downloaded metadata may be incomplete or stale."}
+            </p>
+          )}
+        {useShared && index && metadataStatus?.state === "building" && (
+          <p className="muted">Refresh in progress; searching the previously downloaded index.</p>
+        )}
+        {(metadataError || refreshError) && <p role="alert" className="error">{refreshError ?? metadataError}</p>}
+        {useBrowser && indexState === "error" && indexError && (
+          <p role="alert" className="error">
+            {indexError}{" "}
+            <button type="button" className="link" onClick={() => setIndexAttempt((n) => n + 1)}>Retry</button>
+          </p>
+        )}
         <div className="search-row">
           <input
             type="search"
@@ -534,7 +846,7 @@ export default function Explorer({
             onKeyDown={(e) => e.key === "Escape" && setSearch("")}
             placeholder="Search datasets, tables and fields"
             aria-label="Search datasets, tables and fields"
-            disabled={indexState === "error"}
+            disabled={useBrowser && indexState === "error"}
             aria-describedby="search-status"
           />
           <button
@@ -553,9 +865,17 @@ export default function Explorer({
         </div>
         <p id="search-status" role="status" className="muted search-status">
           {status}
+          {useStored && storedDuration != null && ` · API ${Math.round(storedDuration)} ms`}
+          {useBrowser && currentBrowserSearch && ` · browser ${Math.round(currentBrowserSearch.duration)} ms`}
+          {useBrowser && indexDuration != null && ` · ${useShared ? "shared download" : "index load"} ${(indexDuration / 1000).toFixed(2)} s`}
         </p>
-        {results ? (
+        {useStored && terms.length > 0 && storedLoading && !currentStoredPage ? (
+          <p className="muted">Searching…</p>
+        ) : useStored && terms.length > 0 && storedError ? (
+          <p role="alert" className="error">{storedError}</p>
+        ) : results ? (
           results.length ? (
+            <>
             <CatalogSearchResults
               results={results}
               terms={terms}
@@ -564,8 +884,31 @@ export default function Explorer({
               prefs={prefs}
               onToggleFavorite={toggleFavorite}
             />
+            {useStored && currentStoredPage?.next_cursor && currentStoredPage.items.length < 200 && (
+              <button
+                type="button"
+                className="link"
+                disabled={storedLoading}
+                onClick={() => {
+                  setStoredLoading(true);
+                  void loadStoredPage(currentStoredPage.next_cursor, searchSerial.current);
+                }}
+              >
+                {storedLoading ? "Loading…" : "Load more"}
+              </button>
+            )}
+            {useStored && currentStoredPage && currentStoredPage.items.length >= 200 && currentStoredPage.next_cursor && (
+              <p className="muted">Showing the first 200 tables; refine your search.</p>
+            )}
+            </>
           ) : (
-            <p className="muted">No datasets, tables or fields match “{deferredSearch.trim()}”.</p>
+            <p className="muted">
+              {useStored && metadataStatus?.state === "not_indexed"
+                ? "Build the metadata index before searching."
+                : useStored && metadataStatus?.state === "building"
+                  ? "No matches indexed yet; refresh is still running."
+                  : `No datasets, tables or fields match “${deferredSearch.trim()}”.`}
+            </p>
           )
         ) : (
         <>
@@ -963,6 +1306,7 @@ export default function Explorer({
                 {schema.row_count != null && ` · ${schema.row_count.toLocaleString()} rows`}
                 {schema.size_bytes != null && ` · ${formatBytes(schema.size_bytes)}`} · chat is scoped to this table
               </span>
+              <ExplorerProfile connectionId={connectionId} schema={schema} />
               <div className="odn-selection-actions">
                 <button type="button" className="odn-btn odn-btn--on-panel odn-btn--small" onClick={() => onWorkbenchOpenChange(true)}>
                   Details &amp; SQL

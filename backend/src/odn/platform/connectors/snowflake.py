@@ -202,6 +202,9 @@ class SnowflakeConnector(BaseConnector):
             for name, kind, comment in rows if _SNOWFLAKE_IDENTIFIER.fullmatch(name)
         ]
 
+    def list_catalog_complete(self, parent: tuple[str, ...] = ()) -> list[CatalogNode]:
+        return self.list_catalog(parent)
+
     def get_schema(self, path: tuple[str, ...]) -> TableSchema:
         if len(path) != 3:
             raise ValueError("path must be (database, schema, table)")

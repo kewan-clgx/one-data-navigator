@@ -37,6 +37,7 @@ async function proxy(req: NextRequest, { params }: Params) {
   const headers: Record<string, string> = {
     "content-type": upstream.headers.get("content-type") ?? "application/json",
   };
+  if (path.at(-1) === "metadata-index" || path.at(-1) === "column-profile") headers["cache-control"] = "private, no-store";
   for (const name of ["content-disposition", "x-content-type-options", "content-security-policy"]) {
     const value = upstream.headers.get(name);
     if (value) headers[name] = value;

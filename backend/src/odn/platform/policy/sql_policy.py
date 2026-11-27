@@ -240,7 +240,7 @@ class SqlPolicy:
         return node.sql_name().lower()
 
     @staticmethod
-    def _cte_reference_ids(root: exp.Expression) -> set[int]:
+    def _cte_reference_ids(root: exp.Expr) -> set[int]:
         ids: set[int] = set()
         for scope in traverse_scope(root):
             for name, selected in scope.selected_sources.items():

@@ -97,6 +97,10 @@ class BaseConnector(ABC):
     @abstractmethod
     def list_catalog(self, parent: tuple[str, ...] = ()) -> list[CatalogNode]: ...
 
+    def list_catalog_complete(self, parent: tuple[str, ...] = ()) -> list[CatalogNode]:
+        """List a whole scope or raise; suitable for reconciling persisted metadata."""
+        raise ConnectorError("complete catalog enumeration is not supported by this connector")
+
     @abstractmethod
     def get_schema(self, path: tuple[str, ...]) -> TableSchema: ...
 

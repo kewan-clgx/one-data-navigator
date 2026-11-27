@@ -3,7 +3,7 @@
 import { Fragment, useState } from "react";
 
 export type IndexedColumn = { name: string; type: string; description?: string | null };
-export type IndexedTable = { path: string[]; name: string; kind: string; columns: IndexedColumn[] };
+export type IndexedTable = { path: string[]; name: string; kind: string; columns: IndexedColumn[]; columnCount?: number | null };
 export type IndexedDataset = { path: string[]; name: string; tables: IndexedTable[] };
 export type SearchIndex = { status: "success" | "partial"; datasets: IndexedDataset[]; failed: string[] };
 export type MyTables = {
@@ -101,7 +101,7 @@ export function Highlight({ text, terms }: { text: string; terms: string[] }) {
 }
 
 type TableHit = { table: IndexedTable; columnHits: IndexedColumn[] };
-type DatasetHit = { dataset: IndexedDataset; hits: TableHit[] };
+export type DatasetHit = { dataset: IndexedDataset; hits: TableHit[] };
 
 export function searchIndex(index: SearchIndex, terms: string[], prefs: Prefs = NO_PREFS): DatasetHit[] {
   const count = (ts: string[], ...texts: (string | null | undefined)[]) => {
@@ -216,7 +216,7 @@ export default function CatalogSearchResults({
                           <Highlight text={table.name} terms={terms} />
                         </span>
                         {prefs.recent.has(pathKey(table.path, prefs.caseSensitive)) && <span className="badge">recent</span>}
-                        <span className="count">{table.columns.length} cols</span>
+                        {table.columnCount !== null && <span className="count">{table.columnCount ?? table.columns.length} cols</span>}
                       </button>
                       <StarButton path={table.path} label={table.name} prefs={prefs} onToggle={onToggleFavorite} />
                       </div>
