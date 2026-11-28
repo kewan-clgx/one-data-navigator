@@ -284,9 +284,7 @@ Where this differs from §4–§5, this section wins.
   - The platform model is called through the agent's `POST /internal/complete` (agent token plus the user's bearer), because litellm and its settings live only in the agent.
   - Usage is recorded with `record_llm_usage(..., "platform")`, so it counts toward the tenant budget; a budget that has run out skips generation.
 - **API** (`odn/api/question_routes.py`):
-  - `GET /v1/connections/{id}/questions?path=` returns `{status, questions ≤ 5, all}`; `all` covers every question, including hidden ones, and is sent to data leads and admins only;
-  - `POST …/questions` and `PATCH …/questions/{qid}` (title, question, hidden, pinned) are for data leads and admins;
-  - `POST …/questions/regenerate?path=`;
+  - `GET /v1/connections/{id}/questions?path=` returns `{status, questions ≤ 5}`;
   - `POST …/questions/{qid}/open`;
   - `POST /v1/questions/capture` (agent only).
 - **Popular** means at least 3 distinct askers.
@@ -304,9 +302,9 @@ Where this differs from §4–§5, this section wins.
 - **Two sections:**
   - **Get to know this table:** the starter chips.
   - **Questions about the data:** full-sentence rows, because generated questions read better than 6-word titles. Columns show as inline code.
-- **Badges:** ★ Pinned, ★ Popular, You asked, Asked by a teammate, ✦ Suggested, Private.
+- **Badges:** ★ Popular, You asked, Asked by a teammate, ✦ Suggested, Private.
 - **Saved answers:** marked ⚡ *Saved answer* (or *data changed*). A click opens the saved answer instantly; ↻ pre-fills the question to ask again. Other questions pre-fill on click.
 - **While generating:** three shimmer rows, polling every 2s for up to 25s.
-- **Curation:** inline in the card, not in a workbench tab. Data leads and admins get **Edit**, where they can Pin/Unpin, Hide/Show, add a question (title plus text), or use **Write new suggestions**.
+- **No manual curation** (decided 2026-11-27): every asked question joins the list automatically, so there is no Edit UI or curation API. The `curated` source and `hidden` flag stay in the schema, unused.
+- **Empty:** the section is hidden until the table has questions (suggested or asked); the ⚡ hint shows only when a saved answer is listed.
 - **Explorer:** the selected table gets **Suggested questions ›**, which starts a new conversation scoped to it.
-- The `/api/odn` proxy now forwards `PATCH`.

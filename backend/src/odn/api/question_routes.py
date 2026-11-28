@@ -6,12 +6,12 @@ import uuid
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 from google.api_core import exceptions as gexc
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
-from odn.api.deps import Context, require_data_lead
+from odn.api.deps import Context
 from odn.api.routes import _connector, _profile
 from odn.api.usage_routes import require_agent
 from odn.platform.catalog import table_questions as tq
@@ -21,7 +21,6 @@ from odn.platform.sharing.service import _agent
 from odn.tenancy.context import RequestContext
 
 router = APIRouter(prefix="/v1")
-DataLead = Annotated[RequestContext, Depends(require_data_lead)]
 
 
 def _allowed_path(ctx: RequestContext, connection_id: UUID, path: list[str]):
@@ -47,50 +46,9 @@ def list_questions(
     """Up to five questions for a table (curated, popular, yours, generated); generates the suggested set once."""
     profile, connector = _allowed_path(ctx, connection_id, path)
     try:
-        return tq.list_questions(ctx, profile, connector, tuple(path), can_edit=ctx.role in ("data_lead", "admin"),
-                                 llm=tq.platform_llm(_token(request)))
+        return tq.list_questions(ctx, profile, connector, tuple(path), llm=tq.platform_llm(_token(request)))
     except (gexc.GoogleAPIError, ConnectorError, ValueError) as exc:
         raise _source_error(exc) from None
-
-
-class QuestionIn(BaseModel):
-    path: list[str] = Field(min_length=2, max_length=3)
-    title: str = Field(min_length=1, max_length=60)
-    question: str = Field(min_length=12, max_length=300)
-
-
-class QuestionPatch(BaseModel):
-    title: str | None = Field(default=None, min_length=1, max_length=60)
-    question: str | None = Field(default=None, min_length=12, max_length=300)
-    hidden: bool | None = None
-    pinned: bool | None = None
-
-
-@router.post("/connections/{connection_id}/questions", status_code=status.HTTP_201_CREATED)
-def add_question(connection_id: UUID, data: QuestionIn, ctx: DataLead) -> dict[str, str]:
-    profile, _ = _allowed_path(ctx, connection_id, data.path)
-    return {"id": str(tq.add_curated(ctx, profile, tuple(data.path), data.title, data.question))}
-
-
-@router.patch("/connections/{connection_id}/questions/{question_id}", status_code=status.HTTP_204_NO_CONTENT)
-def edit_question(connection_id: UUID, question_id: UUID, data: QuestionPatch, ctx: DataLead) -> None:
-    try:
-        tq.update(ctx, _profile(ctx, connection_id), question_id, **data.model_dump())
-    except tq.QuestionNotFound:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "question not found") from None
-
-
-@router.post("/connections/{connection_id}/questions/regenerate", status_code=status.HTTP_202_ACCEPTED)
-def regenerate(
-    connection_id: UUID, request: Request, ctx: DataLead, path: Annotated[list[str], Query()]
-) -> dict[str, str]:
-    profile, connector = _allowed_path(ctx, connection_id, path)
-    try:
-        info = tq.table_info(profile, connector, tuple(path))
-    except (gexc.GoogleAPIError, ConnectorError, ValueError) as exc:
-        raise _source_error(exc) from None
-    return {"status": tq.ensure_generated(ctx, profile, tuple(path), info, llm=tq.platform_llm(_token(request)),
-                                          force=True)}
 
 
 def _token(request: Request) -> str:

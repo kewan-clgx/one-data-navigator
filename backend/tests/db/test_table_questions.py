@@ -75,7 +75,7 @@ def world(monkeypatch: pytest.MonkeyPatch):
 
 
 def _list(ctx, profile, connector, llm=None):
-    return tq.list_questions(ctx, profile, connector, PATH, can_edit=ctx.role != "member",
+    return tq.list_questions(ctx, profile, connector, PATH,
                              llm=llm or (lambda m: (_ for _ in ()).throw(tq.LlmUnavailable("off"))))
 
 
@@ -167,16 +167,3 @@ def test_generation_once_per_schema_and_validated(world) -> None:
     tq._info_cache.clear()
     _list(ctx["u1"], p["shared"], FakeConnector(datetime(2026, 1, 1, tzinfo=UTC), ("id", "status")), llm)
     assert len(calls) == 2  # schema changed -> regenerated
-
-
-def test_data_lead_curation(world) -> None:
-    ctx, p = world
-    conn = FakeConnector(datetime(2026, 1, 1, tzinfo=UTC))
-    _capture(ctx["u1"], p["shared"], conn)
-    asked = _list(ctx["lead"], p["shared"], conn).questions[0]
-    tq.add_curated(ctx["lead"], p["shared"], PATH, "Revenue by month", "What is total amount per month in 2026?")
-    tq.update(ctx["lead"], p["shared"], asked.id, hidden=True)
-    listing = _list(ctx["u2"], p["shared"], conn)
-    assert [q.source for q in listing.questions] == ["curated"] and listing.all is None
-    lead_view = _list(ctx["lead"], p["shared"], conn)
-    assert {q.hidden for q in lead_view.all} == {True, False}

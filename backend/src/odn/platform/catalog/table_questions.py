@@ -69,8 +69,6 @@ class QuestionList(BaseModel):
     status: Literal["ready", "generating", "unavailable"]
     generated_at: datetime | None = None
     questions: list[QuestionItem]
-    # Data leads/admins: every question for this table (including hidden), for curation.
-    all: list[QuestionItem] | None = None
 
 
 # -- text rules -----------------------------------------------------------------------------------------------------
@@ -239,7 +237,7 @@ def rank(items: list[QuestionItem], rows: dict[UUID, dict[str, Any]], limit: int
 
 def list_questions(
     ctx: RequestContext, profile: ConnectionProfile, connector: BaseConnector, path: tuple[str, ...], *,
-    can_edit: bool, llm: Callable[[list[dict[str, str]]], LlmReply],
+    llm: Callable[[list[dict[str, str]]], LlmReply],
 ) -> QuestionList:
     info = table_info(profile, connector, path)
     status = ensure_generated(ctx, profile, path, info, llm=llm)
@@ -253,7 +251,7 @@ def list_questions(
     items = [_item(r, info) for r in rows]
     return QuestionList(
         status=status, generated_at=generated_at["generated_at"] if generated_at else None,
-        questions=rank(items, by_id), all=items if can_edit else None,
+        questions=rank(items, by_id),
     )
 
 
@@ -299,7 +297,7 @@ _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="table-question
 
 def ensure_generated(
     ctx: RequestContext, profile: ConnectionProfile, path: tuple[str, ...], info: TableInfo, *,
-    llm: Callable[[list[dict[str, str]]], LlmReply], force: bool = False,
+    llm: Callable[[list[dict[str, str]]], LlmReply],
 ) -> Literal["ready", "generating", "unavailable"]:
     """Claims generation when there is no current set (first visit, schema change, expired, retry after failure)."""
     now = datetime.now(UTC)
@@ -309,7 +307,7 @@ def ensure_generated(
             "WHERE tenant_id = %s AND connection_id = %s AND table_path = %s FOR UPDATE",
             (ctx.tenant_id, profile.id, list(path)),
         ).fetchone()
-        due = force or row is None or row["schema_fingerprint"] != info.fingerprint or (
+        due = row is None or row["schema_fingerprint"] != info.fingerprint or (
             row["status"] == "ready" and (row["generated_at"] is None or row["generated_at"] < now - GENERATED_TTL)
         ) or (row["status"] in ("failed", "skipped") and row["updated_at"] < now - RETRY_FAILED_AFTER) or (
             row["status"] == "generating" and row["updated_at"] < now - STUCK_AFTER
@@ -575,48 +573,3 @@ def cached_answer(ctx: RequestContext, profile: ConnectionProfile, connector: Ba
             {"id": f"faq-{question_id}-answer", "role": "assistant", "content": f"{note}\n\n{row['answer_md']}{sql}"},
         ],
     }
-
-
-# -- curation (data leads) ----------------------------------------------------------------------------------------
-
-def add_curated(ctx: RequestContext, profile: ConnectionProfile, path: tuple[str, ...], title: str,
-                question: str) -> UUID:
-    q = clean(question)
-    with tenant_transaction(ctx.tenant_id, ctx.user_id) as conn:
-        row = conn.execute(
-            "INSERT INTO metadata_table_questions (tenant_id, connection_id, table_path, source, title, question, "
-            "normalized_hash, updated_by) VALUES (%s, %s, %s, 'curated', %s, %s, %s, %s) "
-            "ON CONFLICT (tenant_id, connection_id, table_path, normalized_hash) DO UPDATE "
-            "SET source = 'curated', hidden = false, title = EXCLUDED.title, updated_by = EXCLUDED.updated_by "
-            "RETURNING id",
-            (ctx.tenant_id, profile.id, list(path), clean(title).rstrip(" .?!")[:60], q, question_hash(q), ctx.user_id),
-        ).fetchone()
-    return row["id"]
-
-
-def update(ctx: RequestContext, profile: ConnectionProfile, question_id: UUID, *, title: str | None = None,
-           question: str | None = None, hidden: bool | None = None, pinned: bool | None = None) -> None:
-    sets: list[str] = ["updated_by = %s"]
-    args: list[Any] = [ctx.user_id]
-    if title is not None:
-        sets.append("title = %s")
-        args.append(clean(title).rstrip(" .?!")[:60])
-    if question is not None:
-        q = clean(question)
-        sets += ["question = %s", "normalized_hash = %s"]
-        args += [q, question_hash(q)]
-    if hidden is not None:
-        sets.append("hidden = %s")
-        args.append(hidden)
-    if pinned is True:
-        sets.append("source = 'curated'")
-    elif pinned is False:
-        sets.append("source = CASE WHEN ask_count > 0 THEN 'asked' ELSE 'generated' END")
-    with tenant_transaction(ctx.tenant_id, ctx.user_id) as conn:
-        cur = conn.execute(
-            f"UPDATE metadata_table_questions SET {', '.join(sets)} "
-            "WHERE id = %s AND tenant_id = %s AND connection_id = %s",
-            (*args, question_id, ctx.tenant_id, profile.id),
-        )
-        if cur.rowcount == 0:
-            raise QuestionNotFound(str(question_id))

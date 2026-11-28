@@ -524,10 +524,7 @@ export default function AppShell({
         <div className="odn-chat-messages" aria-live="polite" aria-atomic="false">
           <OpenSqlContext.Provider value={openSqlInWorkbench}>
           <AskContext.Provider value={prefillChat}>
-          <ScopedStarters
-            scope={scope} onPick={prefillChat} onOpenThread={openSavedAnswer}
-            canEdit={role === "data_lead" || role === "admin"}
-          />
+          <ScopedStarters scope={scope} onPick={prefillChat} onOpenThread={openSavedAnswer} />
           <CopilotChat
             markdownTagRenderers={{ pre: FoldableSql, a: AskLink }}
             attachments={{
