@@ -947,6 +947,17 @@ table.wb-grid thead th.wb-rownum { z-index: 2; background: var(--surface-alt); }
 .tq-chip:hover { border-color: var(--accent); }
 .tq-chip:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
 .tq-hint { margin: 0.7rem 0 0; font-size: 0.74rem; color: var(--fg-muted); }
+/* Suggested follow-up questions in chat answers ([question](#ask), AskLink.tsx). */
+.ask-link {
+  display: inline; padding: 0.05rem 0.45rem; font: inherit; text-align: left; color: var(--accent); cursor: pointer;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: var(--radius);
+  -webkit-box-decoration-break: clone; box-decoration-break: clone;
+}
+.ask-link:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.ask-link:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+.ask-link-icon { margin-left: 0.3rem; font-size: 0.8em; opacity: 0.7; }
+td:has(> .ask-link) { min-width: 15rem; }
 .tq-group-row { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
 .tq-link {
   padding: 0; font: inherit; font-size: 0.78rem; color: var(--accent); background: none; border: 0; cursor: pointer;

@@ -18,6 +18,7 @@ import { useCollibraBridge, useCollibraEnvironments } from "@/lib/collibra";
 import ArtifactsPanel from "./ArtifactsPanel";
 import ChatsPanel, { useConversations } from "./Conversations";
 import Explorer, { type ActiveConnection, type SqlRequest, type TableScope } from "./Explorer";
+import AskLink, { AskContext } from "./AskLink";
 import FoldableSql, { OpenSqlContext } from "./FoldableSql";
 import ScopedStarters from "./TableQuestions";
 import ResultsPanel, { AGENT_ID, type AgentState } from "./Results";
@@ -522,12 +523,13 @@ export default function AppShell({
       <div className="odn-chat-body">
         <div className="odn-chat-messages" aria-live="polite" aria-atomic="false">
           <OpenSqlContext.Provider value={openSqlInWorkbench}>
+          <AskContext.Provider value={prefillChat}>
           <ScopedStarters
             scope={scope} onPick={prefillChat} onOpenThread={openSavedAnswer}
             canEdit={role === "data_lead" || role === "admin"}
           />
           <CopilotChat
-            markdownTagRenderers={{ pre: FoldableSql }}
+            markdownTagRenderers={{ pre: FoldableSql, a: AskLink }}
             attachments={{
               enabled: Boolean(sessionId),
               accept: CHAT_ATTACH_ACCEPT,
@@ -552,6 +554,7 @@ export default function AppShell({
             }}
             {...(demo ? { suggestions: DEMO_SUGGESTIONS } : {})}
           />
+          </AskContext.Provider>
           </OpenSqlContext.Provider>
         </div>
         <div ref={setWorkbenchHost} className="odn-workbench-host" />
