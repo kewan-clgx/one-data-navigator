@@ -25,6 +25,11 @@ import WorkbenchResults from "./WorkbenchResults";
 import { fieldPath, fillRate, profileField, ProfileStatus, useColumnProfile } from "./ColumnProfile";
 import { DIALECT_LABEL, type EditorStatus, type SqlSchema } from "./SqlEditor";
 import { dialectFor, formatSql } from "@/lib/sqlFormat";
+import {
+  notifySavedSqlChanged, SAVED_SQL_CHANGED, savedSql, suggestName, VersionConflictError,
+  type OpenFile, type SavedQuery, type SavedQueryVersion,
+} from "@/lib/savedSql";
+import SaveSqlPopover from "./SaveSqlPopover";
 
 // The editor (CodeMirror) loads only when the workbench opens, keeping the chat bundle light.
 const SqlEditor = dynamic(() => import("./SqlEditor"), {
@@ -37,7 +42,11 @@ const WRAP_KEY = "odn.sql.wrap";
 export type TableScope = { connectionId: string; connectionName: string; path: string[]; others?: string[][] };
 
 /** SQL sent from a chat answer to the workbench; `nonce` makes repeated clicks reopen it. */
-export type SqlRequest = { sql: string; nonce: number };
+/**
+ * SQL to open in the workbench: from a chat answer, or a saved query (`saved`, then Save overwrites it). `save`
+ * opens the "Save as" popover right away (chat "Save SQL").
+ */
+export type SqlRequest = { sql: string; nonce: number; saved?: SavedQuery; save?: boolean };
 
 type WorkspaceArtifact = {
   artifact: { name: string; row_count: number; truncated: boolean; columns: { name: string; type: string; nullable: boolean }[] };
@@ -215,6 +224,7 @@ export default function Explorer({
   onFocusChange,
   onAskAbout,
   onSuggestQuestions,
+  onShowSavedSql,
 }: {
   scope: TableScope | null;
   onScopeChange: (scope: TableScope | null) => void;
@@ -233,6 +243,8 @@ export default function Explorer({
   onAskAbout?: (text: string) => void;
   /** Starts a new conversation scoped to the selected table, which shows its suggested questions. */
   onSuggestQuestions?: () => void;
+  /** Shows the user's saved SQL that reads this table (Artifacts → SQL). */
+  onShowSavedSql?: (table: string) => void;
 }) {
   const [connections, setConnections] = useState<Connection[]>([]);
   const [connectionId, setConnectionId] = useState<string>("");
@@ -270,6 +282,21 @@ export default function Explorer({
   const [focusColumn, setFocusColumn] = useState<string | null>(null);
   const [role, setRole] = useState<string | null>(null);
   const [sql, setSql] = useState("");
+  // The saved query open in the editor (Save overwrites it); null for untitled SQL.
+  const [file, setFile] = useState<OpenFile | null>(null);
+  const [saveMode, setSaveMode] = useState<"save-as" | "rename" | null>(null);
+  const [history, setHistory] = useState<SavedQueryVersion[] | null>(null);
+  const [copyName, setCopyName] = useState<string | null>(null);
+  const dirty = file !== null && sql !== file.savedSql;
+  const fileRef = useRef<{ file: OpenFile | null; dirty: boolean }>({ file: null, dirty: false });
+  useEffect(() => {
+    fileRef.current = { file, dirty };
+  }, [file, dirty]);
+  // Replacing the editor's SQL would lose unsaved edits to the open saved query: ask first.
+  const discardOk = useCallback(() => {
+    const { file: f, dirty: d } = fileRef.current;
+    return !f || !d || window.confirm(`Discard your unsaved changes to ${f.name}.sql?`);
+  }, []);
   const [editorStatus, setEditorStatus] = useState<EditorStatus | null>(null);
   // Wrap is on by default: the workbench is narrow and long `project.dataset.table` paths are common.
   const [wrap, setWrap] = useState(() => typeof window === "undefined" || localStorage.getItem(WRAP_KEY) !== "0");
@@ -649,6 +676,7 @@ export default function Explorer({
 
   const openTable = useCallback(
     async (path: string[], column?: string, fromSql?: { others: string[][] }) => {
+      if (!fromSql && !discardOk()) return;
       try {
         const s = await api<TableSchema>(`connections/${connectionId}/schema?${query({ path })}`);
         setSchema(s);
@@ -659,6 +687,7 @@ export default function Explorer({
           ...(fromSql?.others.length ? { others: fromSql.others } : {}),
         });
         if (fromSql) return; // keep the SQL that was opened from the chat
+        setFile(null);
         setTarget("connection");
         const names = s.columns.map((c) => c.name).filter((n) => ["snowflake", "mysql", "oracle"].includes(conn?.kind ?? "") || !n.includes("."));
         const picked = column && names.includes(column) ? [column, ...names.filter((n) => n !== column)] : names;
@@ -679,7 +708,7 @@ export default function Explorer({
         setError((e as Error).message);
       }
     },
-    [connectionId, connections, onScopeChange],
+    [connectionId, connections, onScopeChange, discardOk],
   );
 
   // Clearing the scope chip in the chat also clears the selection here.
@@ -798,6 +827,21 @@ export default function Explorer({
       : "Metadata may be incomplete or stale because the last refresh did not succeed."
     : null;
   const selectedPath = schema?.path.join(".") ?? null;
+  const [savedCount, setSavedCount] = useState<{ path: string; n: number } | null>(null);
+  useEffect(() => {
+    if (!selectedPath) return;
+    let cancelled = false;
+    const load = () => savedSql.list({ table: selectedPath, limit: 100 })
+      .then((items) => { if (!cancelled) setSavedCount({ path: selectedPath, n: items.length }); })
+      .catch(() => undefined);
+    void load();
+    window.addEventListener(SAVED_SQL_CHANGED, load);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(SAVED_SQL_CHANGED, load);
+    };
+  }, [selectedPath]);
+  const savedHere = savedCount?.path === selectedPath ? savedCount.n : 0;
 
   const sidebar = (
       <aside className="sidebar" aria-label="Schema explorer">
@@ -1040,16 +1084,26 @@ export default function Explorer({
   useEffect(() => {
     if (!sqlRequest || sqlRequest.nonce === lastRequest.current || !connections.length) return;
     lastRequest.current = sqlRequest.nonce;
+    if (!discardOk()) return;
     const tables = tablesIn(sqlRequest.sql);
+    const saved = sqlRequest.saved;
     onWorkbenchOpenChange(true);
-    if (isWorkspaceSql(tables)) {
+    setFile(saved ? { id: saved.id, name: saved.name, version: saved.version, savedSql: saved.sql } : null);
+    setHistory(null);
+    setSaveMode(sqlRequest.save ? "save-as" : null);
+    // The popover opens before this SQL reaches the editor, so suggest its name from the request itself.
+    setCopyName(sqlRequest.save ? suggestName(sqlRequest.sql) : null);
+    if (saved?.dialect === "duckdb" || (!saved?.connection_id && isWorkspaceSql(tables))) {
       setPending(null);
       setTarget("workspace");
       setSql(sqlRequest.sql);
       setOutcome(null);
       return;
     }
-    const id = connectionFor(tables, connections, connectionId);
+    // A saved query runs on the connection it was saved with, when the user still has it.
+    const id = saved?.connection_id && connections.some((c) => c.id === saved.connection_id)
+      ? saved.connection_id
+      : connectionFor(tables, connections, connectionId);
     if (id !== connectionId) chooseConnection(id);
     setPending({ sql: sqlRequest.sql, tables, connectionId: id });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1106,13 +1160,71 @@ export default function Explorer({
   function copySql() {
     void navigator.clipboard?.writeText(sql).then(() => flash("Copied to clipboard"));
   }
+  const suggestedName = () => suggestName(sql, schema?.path.join("."));
   function downloadSql() {
     const url = URL.createObjectURL(new Blob([sql], { type: "application/sql" }));
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${(schema?.path[schema.path.length - 1] ?? "query").replace(/[^\w.-]+/g, "_")}.sql`;
+    a.download = `${file?.name ?? suggestedName()}.sql`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+  const savedDialect = target === "workspace" ? "duckdb" : dialect;
+  const savedConnection = target === "workspace" ? null : connectionId || null;
+  const opened = (q: SavedQuery) => {
+    setFile({ id: q.id, name: q.name, version: q.version, savedSql: q.sql });
+    notifySavedSqlChanged();
+  };
+  async function saveAs(name: string, description: string) {
+    const q = await savedSql.create({ name, description, sql, dialect: savedDialect, connection_id: savedConnection });
+    opened(q);
+    setSaveMode(null);
+    flash(`Saved as ${q.name}.sql`);
+  }
+  async function rename(name: string) {
+    if (!file) return;
+    const q = await savedSql.update(file.id, { version: file.version, name });
+    setFile({ ...file, name: q.name, version: q.version });
+    notifySavedSqlChanged();
+    setSaveMode(null);
+    flash(`Renamed to ${q.name}.sql`);
+  }
+  // Save: overwrite the open saved query (asking on a conflict), or "Save as" for untitled SQL.
+  async function save() {
+    if (!sql.trim()) return;
+    if (!file) {
+      setSaveMode("save-as");
+      return;
+    }
+    const body = { sql, dialect: savedDialect, connection_id: savedConnection };
+    try {
+      opened(await savedSql.update(file.id, { ...body, version: file.version }));
+      flash(`Saved ${file.name}.sql`);
+    } catch (e) {
+      if (!(e instanceof VersionConflictError)) {
+        flash(`Couldn't save: ${(e as Error).message}`);
+        return;
+      }
+      if (window.confirm(`${file.name}.sql was saved somewhere else (another tab?) since you opened it. Overwrite it with your version?\n\nCancel to save yours as a copy instead.`)) {
+        opened(await savedSql.update(file.id, { ...body, version: e.version }));
+        flash(`Saved ${file.name}.sql`);
+      } else {
+        setCopyName(`${file.name}_copy`);
+        setFile(null);
+        setSaveMode("save-as");
+      }
+    }
+  }
+  async function toggleHistory() {
+    if (history || !file) {
+      setHistory(null);
+      return;
+    }
+    try {
+      setHistory(await savedSql.versions(file.id));
+    } catch (e) {
+      flash(`Couldn't load history: ${(e as Error).message}`);
+    }
   }
 
   const dictionary = schema && (
@@ -1176,7 +1288,7 @@ export default function Explorer({
               <button type="button" className="sqled-btn" onClick={copySql} disabled={!sql.trim()} title="Copy SQL">
                 Copy
               </button>
-              <button type="button" className="sqled-btn" onClick={downloadSql} disabled={!sql.trim()} title="Download as .sql">
+              <button type="button" className="sqled-btn" onClick={downloadSql} disabled={!sql.trim()} title={`Download as ${file?.name ?? "a"} .sql file`}>
                 .sql
               </button>
               {onFocusChange && (
@@ -1299,6 +1411,12 @@ export default function Explorer({
       aria-label="SQL workbench"
       tabIndex={-1}
       onKeyDown={(e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+          e.preventDefault(); // not the browser's "Save page"
+          if (e.shiftKey) setSaveMode("save-as");
+          else void save();
+          return;
+        }
         // Esc inside the SQL editor belongs to the editor (close suggestions, search, selection), not the workbench.
         if (e.key === "Escape" && !(e.target as HTMLElement).closest(".cm-editor")) {
           e.stopPropagation();
@@ -1310,6 +1428,69 @@ export default function Explorer({
         <div className="odn-workbench-title">
           <span>SQL workbench</span>
           {selectedPath && <code title={selectedPath}>{selectedPath}</code>}
+        </div>
+        <div className="wb-file">
+          {file ? (
+            <button
+              type="button" className="wb-file-name" onClick={() => setSaveMode("rename")}
+              title="Saved in Artifacts → SQL. Click to rename."
+            >
+              <span aria-hidden="true">▣</span> {file.name}.sql
+              {dirty && <span className="wb-file-dirty" title="Unsaved changes" aria-label="unsaved changes">●</span>}
+            </button>
+          ) : (
+            <span className="wb-file-name wb-file-name--untitled">Untitled query</span>
+          )}
+          {file && (
+            <button type="button" className="sqled-btn" aria-expanded={history !== null} onClick={toggleHistory} title="Earlier saves of this query">
+              History
+            </button>
+          )}
+          <button
+            type="button" className="sqled-btn" onClick={() => void save()} disabled={!sql.trim() || (file !== null && !dirty)}
+            title={file ? "Save changes (⌘S)" : "Save to your SQL in Artifacts (⌘S)"}
+          >
+            Save
+          </button>
+          <button type="button" className="sqled-btn" onClick={() => setSaveMode("save-as")} disabled={!sql.trim()} title="Save as a new query (⇧⌘S)">
+            Save as…
+          </button>
+          {saveMode && (
+            <SaveSqlPopover
+              key={saveMode}
+              title={saveMode === "rename" ? "Rename saved query" : "Save SQL"}
+              initialName={saveMode === "rename" && file ? file.name : copyName ?? (file ? `${file.name}_copy` : suggestedName())}
+              withDescription={saveMode !== "rename"}
+              submitLabel={saveMode === "rename" ? "Rename" : "Save"}
+              onSubmit={(name, description) => (saveMode === "rename" ? rename(name) : saveAs(name, description))}
+              onClose={() => {
+                setSaveMode(null);
+                setCopyName(null);
+              }}
+            />
+          )}
+          {history && (
+            <div className="wb-history" role="dialog" aria-label={`Earlier saves of ${file?.name}.sql`}>
+              <p className="sqlsave-title">Earlier saves</p>
+              <ul>
+                {history.map((v) => (
+                  <li key={v.version}>
+                    <span>
+                      Version {v.version}
+                      <span className="muted"> · {new Date(v.saved_at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</span>
+                    </span>
+                    {v.sql === sql ? (
+                      <span className="muted">In the editor</span>
+                    ) : (
+                      <button type="button" className="sqled-btn" onClick={() => { setSql(v.sql); setHistory(null); flash(`Restored version ${v.version}; Save to keep it`); }}>
+                        Restore
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
         <div className="odn-workbench-actions">
           <button
@@ -1347,6 +1528,14 @@ export default function Explorer({
                 {onSuggestQuestions && (
                   <button type="button" className="odn-btn odn-btn--ghost-panel odn-btn--small" onClick={onSuggestQuestions}>
                     Suggested questions ›
+                  </button>
+                )}
+                {onShowSavedSql && savedHere > 0 && schema && (
+                  <button
+                    type="button" className="odn-btn odn-btn--ghost-panel odn-btn--small"
+                    onClick={() => onShowSavedSql(schema.path.join("."))}
+                  >
+                    Saved SQL ({savedHere}) ›
                   </button>
                 )}
                 <button type="button" className="odn-btn odn-btn--ghost-panel odn-btn--small" onClick={() => onScopeChange(null)}>

@@ -80,6 +80,24 @@ async def get_my_tables(connection_id: str) -> dict[str, Any]:
     }
 
 
+async def find_saved_sql(search: str = "") -> dict[str, Any]:
+    """Finds SQL the user saved in their SQL repository (Artifacts → SQL), e.g. "run my revenue query".
+
+    Args:
+        search: Words to match in the saved query's name, description, SQL text or tables; empty lists the newest.
+
+    Returns:
+        `queries` (at most 10): `name` (shown as name.sql), `description`, `connection_id`, `dialect`, `tables`,
+        `updated_at` and the full `sql`. Run one with `run_sql` (it goes through the usual checks and approval);
+        adapt it if the user asks for a variation, and say which saved query you started from.
+    """
+    resp = await _api("GET", "saved-queries", params={"q": search[:200], "limit": 10, "full": "true"})
+    if resp.status_code != 200:
+        return {"error": _detail(resp)}
+    keys = ("name", "description", "connection_id", "dialect", "tables", "updated_at", "sql")
+    return {"queries": [{k: q.get(k) for k in keys} for q in resp.json()]}
+
+
 def _keyword_relevance(table_name: str, keywords: list[str]) -> float:
     """Score table relevance to keywords (0.0 to 1.0). Higher = better match."""
     name_lower = table_name.lower()

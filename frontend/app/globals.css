@@ -517,6 +517,37 @@ body.resizing iframe { pointer-events: none; }
 .odn-artifact-preview .results { max-height: 320px; }
 .odn-artifact-preview .odn-btn { margin-top: 0.5rem; }
 
+/* Saved SQL in Artifacts (ArtifactsPanel SavedSqlCard). */
+.odn-artifact-kind--sql { background: var(--panel-hover); color: var(--panel-fg); border: 1px solid var(--panel-border-strong); }
+.odn-artifact-snippet {
+  margin-top: 0.25rem; font-family: var(--font-mono); font-size: 0.7rem; color: var(--panel-muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.odn-artifact-search {
+  width: 100%; margin: 0 0 0.5rem; padding: 0.5rem 0.7rem; font: inherit; font-size: 0.85rem;
+  color: var(--panel-fg); background: var(--panel-input-bg); border: 1px solid var(--panel-border-strong);
+  border-radius: var(--radius);
+}
+.odn-artifact-search::placeholder { color: var(--panel-muted); }
+.odn-artifact-search:focus-visible {
+  outline: none; border-color: var(--panel-focus);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--panel-focus) 28%, transparent);
+}
+.odn-artifact-more { position: relative; }
+.odn-artifact-menu {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 5; display: flex; flex-direction: column; min-width: 9rem;
+  padding: 0.25rem; background: var(--surface); color: var(--fg); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+}
+.odn-artifact-menu button {
+  padding: 0.35rem 0.6rem; font: inherit; font-size: 0.8rem; text-align: left; color: inherit; background: none;
+  border: 0; border-radius: var(--radius); cursor: pointer;
+}
+.odn-artifact-menu button:hover, .odn-artifact-menu button:focus-visible { background: var(--surface-alt); outline: none; }
+.odn-artifact-menu .danger { color: var(--danger); }
+.odn-artifact-popover { position: relative; margin-top: 0.4rem; }
+.odn-artifact-popover .sqlsave { position: static; width: 100%; }
+
 /* ============ Chat pane ============ */
 
 .odn-chat {
@@ -677,6 +708,42 @@ body.resizing iframe { pointer-events: none; }
 .odn-workbench-title > span { flex: none; white-space: nowrap; }
 .odn-workbench-title code { font-weight: 500; font-size: 0.8rem; color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .odn-workbench-actions { display: flex; gap: 0.4rem; flex: none; }
+/* Saved SQL file identity in the workbench header: name (click to rename), ● unsaved, History, Save, Save as. */
+.wb-file { position: relative; display: flex; align-items: center; gap: 0.35rem; min-width: 0; margin-left: auto; flex: 0 1 auto; }
+.odn-workbench-head .odn-workbench-title { flex: 1 1 0; }
+.wb-file .sqled-btn { flex: none; white-space: nowrap; }
+.wb-file-name {
+  display: inline-flex; align-items: center; gap: 0.3rem; min-width: 4rem; max-width: 22rem; padding: 0.2rem 0.45rem; flex: 0 1 auto;
+  font: inherit; font-family: var(--font-mono); font-size: 0.78rem; color: var(--fg); background: none;
+  border: 1px solid transparent; border-radius: var(--radius); cursor: pointer; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis;
+}
+button.wb-file-name:hover { border-color: var(--border); background: var(--surface); }
+.wb-file-name--untitled { font-family: inherit; color: var(--fg-muted); cursor: default; font-style: italic; }
+.wb-file-dirty { color: var(--accent); font-size: 0.7rem; }
+.sqlsave, .wb-history {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30; width: min(24rem, 80vw);
+  display: flex; flex-direction: column; gap: 0.45rem; padding: 0.8rem 0.9rem; color: var(--fg); background: var(--surface);
+  border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+}
+.sqlsave-title { margin: 0; font-size: 0.85rem; font-weight: 600; }
+.sqlsave-field { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.75rem; font-weight: 600; color: var(--fg-muted); }
+.sqlsave-field input {
+  width: 100%; min-width: 0; padding: 0.4rem 0.55rem; font: inherit; font-size: 0.85rem; font-weight: 400; color: var(--fg);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+}
+.sqlsave-field input:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 0; }
+.sqlsave-name { display: flex; align-items: center; gap: 0.25rem; }
+.sqlsave-name input { font-family: var(--font-mono); font-size: 0.82rem; }
+.sqlsave-name > span { font-family: var(--font-mono); font-size: 0.82rem; font-weight: 400; color: var(--fg-muted); }
+.sqlsave-hint { font-size: 0.7rem; color: var(--fg-muted); }
+.sqlsave-error { margin: 0; font-size: 0.75rem; color: var(--danger); }
+.sqlsave-actions { display: flex; justify-content: flex-end; gap: 0.4rem; }
+.wb-history ul { list-style: none; margin: 0; padding: 0; max-height: 16rem; overflow: auto; display: flex; flex-direction: column; gap: 0.25rem; }
+/* Outside the code toolbar the editor buttons follow the page colours (code themes can be dark). */
+.wb-file .sqled-btn, .sqlsave .sqled-btn { color: var(--fg); border-color: var(--border); }
+.wb-file .sqled-btn:hover:not(:disabled), .sqlsave .sqled-btn:hover:not(:disabled) { background: var(--surface); color: var(--fg); border-color: var(--fg-muted); }
+.wb-history li { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; font-size: 0.8rem; }
 .odn-workbench .workspace { flex: 1; min-height: 0; overflow: auto; padding: 1rem 1.1rem 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
 .workspace h2 { font-size: 1rem; margin: 0 0 0.25rem; overflow-wrap: anywhere; }
 .workspace section > label { display: block; font-size: 0.78rem; font-weight: 600; margin-bottom: 0.3rem; }

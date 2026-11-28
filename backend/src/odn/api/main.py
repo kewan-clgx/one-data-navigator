@@ -17,6 +17,7 @@ from odn.api.collibra_routes import router as collibra_router
 from odn.api.me_routes import router as me_router
 from odn.api.question_routes import router as question_router
 from odn.api.routes import router
+from odn.api.saved_query_routes import router as saved_query_router
 from odn.api.share_routes import admin_router as sharing_admin_router
 from odn.api.share_routes import public_router as public_share_router
 from odn.api.share_routes import router as share_router
@@ -69,6 +70,7 @@ app.include_router(public_share_router)
 app.include_router(wall_router)
 app.include_router(public_wall_router)
 app.include_router(question_router)
+app.include_router(saved_query_router)
 
 
 @app.exception_handler(auth_exc.RefreshError)

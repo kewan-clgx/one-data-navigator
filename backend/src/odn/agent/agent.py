@@ -16,6 +16,7 @@ from odn.agent.budget import RoutedLiteLlm, record_usage
 from odn.agent.capture import CONTINUED_STATE_KEY, capture_question
 from odn.agent.collibra_tools import BROWSER_TOOL_NAMES, COLLIBRA_TOOLS
 from odn.agent.tools import (
+    find_saved_sql,
     generate_chart,
     get_my_tables,
     get_table_schema,
@@ -78,6 +79,8 @@ How to work:
 8. For follow-ups on data you already fetched ("break that down", "top 10", "remove nulls", etc.),
    call `query_workspace` with DuckDB SQL over workspace tables by name. Do NOT re-scan the warehouse
    for data already in the workspace. Call `list_workspace` if unsure which table has which columns.
+   Saved SQL: when the user mentions a query they saved ("my revenue query"), call `find_saved_sql` and run or
+   adapt it instead of writing new SQL.
 9. For charts/plots, call `generate_chart` on a workspace table (prepare it with `query_workspace` first).
    Use bar + sort "y_desc" for rankings, line for trends over dates.
 10. **Questions about a table itself** ("what are the fill rates of the core fields", "when was it last updated",
@@ -243,7 +246,7 @@ def build_root_agent() -> LlmAgent:
         after_agent_callback=capture_question,
         tools=[
             list_connections, get_my_tables, search_tables_by_keyword, list_tables, get_table_schema, 
-            run_sql, query_workspace, list_workspace, generate_chart, *COLLIBRA_TOOLS,
+            run_sql, query_workspace, list_workspace, generate_chart, find_saved_sql, *COLLIBRA_TOOLS,
             AGUIToolset(tool_filter=BROWSER_TOOL_NAMES),
         ],
     )

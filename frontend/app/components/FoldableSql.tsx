@@ -9,8 +9,8 @@ const SqlCode = dynamic(() => import("./SqlCode"), {
   loading: () => <pre className="sqlh-block" aria-busy="true" />,
 });
 
-/** Opens the SQL workbench with this SQL (provided by AppShell). */
-export const OpenSqlContext = createContext<((sql: string) => void) | null>(null);
+/** Opens the SQL workbench with this SQL (provided by AppShell); `save` also opens its "Save as" popover. */
+export const OpenSqlContext = createContext<((sql: string, opts?: { save?: boolean }) => void) | null>(null);
 
 type CodeProps = { className?: string; children?: ReactNode };
 
@@ -68,6 +68,16 @@ export default function FoldableSql({ children, node: _node, ...rest }: { childr
                 <DownloadIcon />
               </button>
             </>
+          )}
+          {openSql && (
+            <button
+              type="button"
+              className="odn-btn odn-btn--outline odn-btn--small"
+              onClick={() => openSql(code.text, { save: true })}
+              title="Save this SQL to your SQL in Artifacts, with a name you choose"
+            >
+              Save SQL
+            </button>
           )}
           {openSql && (
             <button

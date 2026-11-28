@@ -15,7 +15,8 @@ import { AgentStepsToggle, ChatSessionContext, ShowResultsContext, useAgentStepR
 import { CollibraBrowserTools, type CollibraScope } from "./CollibraBrowserTools";
 import CollibraPanel from "./CollibraPanel";
 import { useCollibraBridge, useCollibraEnvironments } from "@/lib/collibra";
-import ArtifactsPanel from "./ArtifactsPanel";
+import ArtifactsPanel, { type ArtifactsRequest } from "./ArtifactsPanel";
+import type { SavedQuery } from "@/lib/savedSql";
 import ChatsPanel, { useConversations } from "./Conversations";
 import Explorer, { type ActiveConnection, type SqlRequest, type TableScope } from "./Explorer";
 import AskLink, { AskContext } from "./AskLink";
@@ -232,7 +233,12 @@ export default function AppShell({
   const [workbenchOpen, setWorkbenchOpen] = useState(false);
   const [workbenchFocus, setWorkbenchFocus] = useState(false);
   const [sqlRequest, setSqlRequest] = useState<SqlRequest | null>(null);
-  const openSqlInWorkbench = useCallback((sql: string) => setSqlRequest({ sql, nonce: Date.now() }), []);
+  const openSqlInWorkbench = useCallback(
+    (sql: string, opts?: { save?: boolean }) => setSqlRequest({ sql, nonce: Date.now(), save: opts?.save }), [],
+  );
+  const openSavedSql = useCallback((saved: SavedQuery) => setSqlRequest({ sql: saved.sql, saved, nonce: Date.now() }), []);
+  // Explorer "Saved SQL (n) ›": the Artifacts tab, filtered to SQL that reads the table.
+  const [artifactsRequest, setArtifactsRequest] = useState<ArtifactsRequest | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [workbenchHost, setWorkbenchHost] = useState<HTMLDivElement | null>(null);
   const tabRefs = useRef<Partial<Record<TabId, HTMLButtonElement | null>>>({});
@@ -337,6 +343,12 @@ export default function AppShell({
     openWorkbench(false);
   }, [startNewConversation, openWorkbench]);
 
+  const showSavedSql = useCallback((table: string) => {
+    setArtifactsRequest({ kind: "sql", q: table.split(".").pop() ?? table, nonce: Date.now() });
+    showPanel(true);
+    selectTab("artifacts");
+  }, [showPanel, selectTab]);
+
   const onConversationDeleted = useCallback(
     (id: string) => {
       forgetConversation(id);
@@ -424,6 +436,7 @@ export default function AppShell({
           onFocusChange={changeWorkbenchFocus}
           onAskAbout={askAbout}
           onSuggestQuestions={suggestQuestions}
+          onShowSavedSql={showSavedSql}
         />
       </div>
       {(collibraEnvs?.length ?? 0) > 0 && (
@@ -443,6 +456,8 @@ export default function AppShell({
             conversations={conversations}
             revision={revision}
             onOpenConversation={openConversation}
+            onOpenSql={openSavedSql}
+            request={artifactsRequest}
           />
         )}
       </div>
