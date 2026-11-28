@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useId, useRef, useState, type ChangeEvent, type RefObject } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ChangeEvent, type ReactNode, type RefObject } from "react";
 
 import { downloadSvgAsPng } from "@/lib/chartExport";
 import { describeUpload, FILES_CHANGED, UPLOAD_ACCEPT, uploadFile } from "@/lib/uploads";
@@ -143,8 +143,10 @@ function ArchivedNote({ item }: { item: StoreItem }) {
 }
 
 /** ⋯ menu: Share, (extra items, e.g. Rename for SQL), Archive or Restore, Delete; Archive asks how long to keep it. */
-function CardMenu({ item, actions, extra = [] }: {
+function CardMenu({ item, actions, extra = [], inline = false }: {
   item: StoreItem; actions: Actions; extra?: { label: string; run: () => void }[];
+  /** Plain buttons instead of a ⋯ menu (charts: next to Download PNG). */
+  inline?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [archiving, setArchiving] = useState(false);
@@ -152,6 +154,47 @@ function CardMenu({ item, actions, extra = [] }: {
   const ids = useId();
   const label = itemLabel(item);
   const close = () => setOpen(false);
+  const archiveChoice = archiving && (
+    <fieldset className="odn-artifact-archive" onKeyDown={(e) => e.key === "Escape" && setArchiving(false)}>
+      <legend>Archive {label}? It leaves this list and search.</legend>
+      <label>
+        <input type="radio" name={`${ids}-keep`} checked={keep === "30d"} onChange={() => setKeep("30d")} />
+        Keep 30 days, then delete it
+      </label>
+      <label>
+        <input type="radio" name={`${ids}-keep`} checked={keep === "forever"} onChange={() => setKeep("forever")} />
+        Keep it until I delete it
+      </label>
+      <span className="odn-artifact-archive-actions">
+        <button type="button" className={`odn-btn odn-btn--small${inline ? "" : " odn-btn--on-panel"}`} onClick={() => { setArchiving(false); actions.onArchive(item, keep); }}>
+          Archive
+        </button>
+        <button type="button" className={`odn-btn odn-btn--small ${inline ? "odn-btn--outline" : "odn-btn--ghost-panel"}`} onClick={() => setArchiving(false)}>
+          Cancel
+        </button>
+      </span>
+    </fieldset>
+  );
+  if (inline) {
+    return (
+      <>
+        {actions.archivedView ? (
+          <button type="button" className="odn-btn odn-btn--outline odn-btn--small" onClick={() => actions.onRestore(item)}>Restore</button>
+        ) : (
+          <>
+            <button type="button" className="odn-btn odn-btn--outline odn-btn--small" onClick={() => actions.onShare(item)}>Share</button>
+            <button type="button" className="odn-btn odn-btn--outline odn-btn--small" aria-expanded={archiving} onClick={() => setArchiving(!archiving)}>
+              Archive
+            </button>
+          </>
+        )}
+        <button type="button" className="odn-btn odn-btn--outline odn-btn--small odn-btn--danger-text" onClick={() => actions.onDelete(item)}>
+          Delete
+        </button>
+        {archiveChoice && <div className="odn-artifact-archive-row">{archiveChoice}</div>}
+      </>
+    );
+  }
   return (
     <>
       <span className="odn-artifact-more">
@@ -180,25 +223,7 @@ function CardMenu({ item, actions, extra = [] }: {
           </span>
         )}
       </span>
-      {archiving && (
-        <fieldset className="odn-artifact-archive" onKeyDown={(e) => e.key === "Escape" && setArchiving(false)}>
-          <legend>Archive {label}? It leaves this list and search.</legend>
-          <label>
-            <input type="radio" name={`${ids}-keep`} checked={keep === "30d"} onChange={() => setKeep("30d")} />
-            Keep 30 days, then delete it
-          </label>
-          <label>
-            <input type="radio" name={`${ids}-keep`} checked={keep === "forever"} onChange={() => setKeep("forever")} />
-            Keep it until I delete it
-          </label>
-          <span className="odn-artifact-archive-actions">
-            <button type="button" className="odn-btn odn-btn--on-panel odn-btn--small" onClick={() => { setArchiving(false); actions.onArchive(item, keep); }}>
-              Archive
-            </button>
-            <button type="button" className="odn-btn odn-btn--ghost-panel odn-btn--small" onClick={() => setArchiving(false)}>Cancel</button>
-          </span>
-        </fieldset>
-      )}
+      {archiveChoice}
     </>
   );
 }
@@ -260,7 +285,7 @@ function TablePreview({ item }: { item: StoreItem }) {
   );
 }
 
-function ChartPreview({ item }: { item: StoreItem }) {
+function ChartPreview({ item, children }: { item: StoreItem; children?: ReactNode }) {
   const [data, setData] = useState<ChartData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -277,16 +302,19 @@ function ChartPreview({ item }: { item: StoreItem }) {
       <div ref={ref}>
         <Chart data={data} />
       </div>
-      <button
-        type="button"
-        className="odn-btn odn-btn--small"
-        onClick={() => {
-          const svg = ref.current?.querySelector("svg");
-          if (svg) downloadSvgAsPng(svg, `${item.title || item.name}.png`).catch((e: Error) => setError(e.message));
-        }}
-      >
-        Download PNG
-      </button>
+      <div className="odn-artifact-chart-actions">
+        <button
+          type="button"
+          className="odn-btn odn-btn--small"
+          onClick={() => {
+            const svg = ref.current?.querySelector("svg");
+            if (svg) downloadSvgAsPng(svg, `${item.title || item.name}.png`).catch((e: Error) => setError(e.message));
+          }}
+        >
+          Download PNG
+        </button>
+        {children}
+      </div>
     </>
   );
 }
@@ -361,7 +389,9 @@ function ArtifactCard({
           ) : (
             <>
               {item.kind === "table" && <TablePreview item={item} />}
-              {item.kind === "chart" && <ChartPreview item={item} />}
+              {item.kind === "chart" && (
+                <ChartPreview item={item}><CardMenu item={item} actions={actions} inline /></ChartPreview>
+              )}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               {isImage && <img src={fileUrl(item, true)} alt={item.name} loading="lazy" />}
             </>
@@ -389,7 +419,7 @@ function ArtifactCard({
             Download
           </a>
         )}
-        <CardMenu item={item} actions={actions} />
+        {item.kind !== "chart" && <CardMenu item={item} actions={actions} />}
       </div>
     </li>
   );

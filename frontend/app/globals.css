@@ -535,7 +535,7 @@ body.resizing iframe { pointer-events: none; }
 }
 .odn-artifact-more { position: relative; }
 .odn-artifact-menu {
-  position: absolute; right: 0; top: calc(100% + 4px); z-index: 5; display: flex; flex-direction: column; min-width: 9rem;
+  position: absolute; left: 0; top: calc(100% + 4px); z-index: 5; display: flex; flex-direction: column; min-width: 9rem;
   padding: 0.25rem; background: var(--surface); color: var(--fg); border: 1px solid var(--border);
   border-radius: var(--radius); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
 }
@@ -573,6 +573,12 @@ body.resizing iframe { pointer-events: none; }
 .odn-artifact-archive label { display: flex; align-items: center; gap: 0.4rem; }
 .odn-artifact-archive-actions { display: flex; gap: 0.35rem; margin-top: 0.2rem; }
 .odn-artifact-archived { color: var(--panel-fg); font-style: italic; }
+/* Charts: Download PNG, Share, Archive, Delete in one row inside the (light) preview. */
+.odn-artifact-chart-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; margin-top: 0.5rem; }
+.odn-artifact-preview .odn-artifact-chart-actions .odn-btn { margin-top: 0; }
+.odn-artifact-archive-row { flex-basis: 100%; }
+.odn-artifact-archive-row .odn-artifact-archive { border-color: var(--border); color: var(--fg); }
+.odn-btn--danger-text { color: var(--danger); }
 .shared-artifact-desc { margin-top: 0.5rem; }
 .shared-artifact-sql { margin-top: 0.75rem; }
 .shared-artifact-sql summary { cursor: pointer; font-size: 0.85rem; color: var(--fg-muted); }
