@@ -19,6 +19,8 @@ const short = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…
 // The app's chart colours (themes/cotality.css --chart-1..8).
 const PALETTE = ["#1e1405", "#f2735e", "#f4a259", "#6b8f71", "#8c5a3c", "#4a6fa5", "#b8a07a", "#7d6b5d"];
 const MAX_CATEGORIES = 12;
+const MAX_LINE_POINTS = 200;
+const MAX_LINE_LABELS = 10;
 
 function fmt(n: number) {
   const a = Math.abs(n);
@@ -31,7 +33,9 @@ function fmt(n: number) {
 /** The shared chart as the app draws it: categories along x, a bar (or dot) per series, legend. */
 function ChartImage({ artifact, height }: { artifact: Extract<PublicArtifact, { kind: "chart" }>; height: number }) {
   const { spec, points } = artifact.result;
-  const categories = [...new Set(points.map((p) => label(p.x)))].slice(0, MAX_CATEGORIES);
+  const lines = spec.type === "line";
+  // Bars need room per category; a line can show a whole series (e.g. 24 months) with thinned-out labels.
+  const categories = [...new Set(points.map((p) => label(p.x)))].slice(0, lines ? MAX_LINE_POINTS : MAX_CATEGORIES);
   const series = [...new Set(points.map((p) => label(p.series)))].slice(0, PALETTE.length);
   const value = new Map(points.map((p) => [`${label(p.x)}\u0000${label(p.series)}`, Number(p.y)]));
   const ys = [...value.values()].filter(Number.isFinite);
@@ -40,6 +44,52 @@ function ChartImage({ artifact, height }: { artifact: Extract<PublicArtifact, { 
   const groupW = Math.floor(1040 / Math.max(categories.length, 1));
   const barW = Math.max(4, Math.floor((groupW * 0.78) / Math.max(series.length, 1)));
   const dots = spec.type !== "bar";
+  if (lines) {
+    const width = groupW * categories.length;
+    const y = (v: number) => plotH - Math.max(0, (Math.max(v, 0) / max) * (plotH - 24));
+    const x = (i: number) => groupW * i + groupW / 2;
+    const every = Math.max(1, Math.ceil(categories.length / MAX_LINE_LABELS));
+    return (
+      <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
+        <div style={{ display: "flex", height: plotH, borderBottom: `2px solid ${INK}`, position: "relative" }}>
+          <div style={{ display: "flex", position: "absolute", top: 0, left: 0, fontSize: 16, color: MUTED }}>{fmt(max)}</div>
+          <svg width={width} height={plotH} viewBox={`0 0 ${width} ${plotH}`}>
+            {series.map((ser, si) => {
+              const pts = categories
+                .map((c, i) => [i, value.get(`${c}\u0000${ser}`)] as const)
+                .filter((pt): pt is readonly [number, number] => pt[1] !== undefined && Number.isFinite(pt[1]));
+              return (
+                <g key={ser}>
+                  <polyline
+                    points={pts.map(([i, v]) => `${x(i)},${y(v)}`).join(" ")}
+                    fill="none" stroke={PALETTE[si]} strokeWidth={4} strokeLinejoin="round" strokeLinecap="round"
+                  />
+                  {pts.length <= 40 && pts.map(([i, v]) => <circle key={i} cx={x(i)} cy={y(v)} r={6} fill={PALETTE[si]} />)}
+                </g>
+              );
+            })}
+          </svg>
+        </div>
+        <div style={{ display: "flex" }}>
+          {categories.map((c, i) => (
+            <div key={c} style={{ display: "flex", width: groupW, justifyContent: "center", fontSize: 16, color: MUTED, marginTop: 6, overflow: "visible", whiteSpace: "nowrap" }}>
+              {i % every === 0 ? short(c, 12) : ""}
+            </div>
+          ))}
+        </div>
+        {series.length > 1 && (
+          <div style={{ display: "flex", gap: 22, marginTop: 10, fontSize: 18, color: INK }}>
+            {series.map((ser, i) => (
+              <div key={ser} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ width: 16, height: 16, background: PALETTE[i] }} />
+                {short(ser || spec.y || "value", 24)}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
   return (
     <div style={{ display: "flex", flexDirection: "column", width: "100%" }}>
       <div style={{ display: "flex", alignItems: "flex-end", height: plotH, borderBottom: `2px solid ${INK}`, position: "relative" }}>
@@ -100,8 +150,12 @@ function MiniTable({ artifact }: { artifact: Extract<PublicArtifact, { kind: "ta
 }
 
 /** ImageResponse always adds a one-year immutable cache header; serve its PNG with ours instead. */
-function png(image: ImageResponse, cacheControl: string) {
-  return new Response(image.body, { headers: { "Content-Type": "image/png", "Cache-Control": cacheControl } });
+// Buffered with a Content-Length: some unfurlers (Slack's image proxy) skip streamed images of unknown size.
+async function png(image: ImageResponse, cacheControl: string) {
+  const body = await image.arrayBuffer();
+  return new Response(body, {
+    headers: { "Content-Type": "image/png", "Content-Length": String(body.byteLength), "Cache-Control": cacheControl },
+  });
 }
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {

@@ -32,8 +32,8 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
     description,
     robots: { index: false, follow: false },
     openGraph: {
-      title, description, siteName: "EasyQuery", type: "article",
-      images: [{ url: `/s/${share.id}/image`, width: 1200, height: 630, alt: title }],
+      title, description, siteName: "EasyQuery", type: "article", url: `/s/${share.id}`,
+      images: [{ url: `/s/${share.id}/image`, width: 1200, height: 630, alt: title, type: "image/png" }],
     },
     twitter: { card: "summary_large_image", title, description, images: [`/s/${share.id}/image`] },
   };
