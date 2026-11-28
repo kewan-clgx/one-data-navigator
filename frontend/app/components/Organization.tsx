@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 
 import { api } from "@/lib/client-api";
 import { useSite } from "@/lib/site-context";
@@ -107,11 +107,11 @@ function SharingSection({ onSummary }: { onSummary: (s: SharingSummary) => void 
   const [links, setLinks] = useState<OrgShare[]>([]);
   const [filter, setFilter] = useState<ShareFilter>("all");
   const [error, setError] = useState<string | null>(null);
-  const load = useCallback(async () => {
-    const [s, l] = await Promise.all([api<Sharing>("admin/sharing"), api<OrgShare[]>("shares?scope=all")]);
-    setSettings(s);
-    setLinks(l);
-  }, []);
+  const load = useCallback(() =>
+    Promise.all([api<Sharing>("admin/sharing"), api<OrgShare[]>("shares?scope=all")]).then(([s, l]) => {
+      setSettings(s);
+      setLinks(l);
+    }), []);
   useEffect(() => {
     load().catch((e: Error) => setError(e.message));
   }, [load]);
@@ -233,11 +233,15 @@ function SharingSection({ onSummary }: { onSummary: (s: SharingSummary) => void 
   );
 }
 
+const subscribeOrigin = () => () => {};
+const browserOrigin = () => window.location.origin;
+const serverOrigin = () => "";
+
 /** The organization's own sign-in page (/<slug>): to share in onboarding emails, the intranet or bookmarks. */
 function SignInLink({ slug }: { slug: string }) {
-  const [url, setUrl] = useState(`/${slug}`);
+  const origin = useSyncExternalStore(subscribeOrigin, browserOrigin, serverOrigin);
+  const url = `${origin}/${slug}`;
   const [copied, setCopied] = useState(false);
-  useEffect(() => setUrl(`${window.location.origin}/${slug}`), [slug]);
   return (
     <div className="org-panel">
       <h3>Sign-in link</h3>
@@ -271,14 +275,16 @@ function DemoVisitorsSection({ onSummary }: { onSummary: (s: string) => void }) 
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setError(null);
+    let cancelled = false;
     Promise.all([api<Funnel>(`admin/demo/funnel?days=${days}`), api<Checkin[]>(`admin/demo/checkins?days=${days}&limit=200`)])
       .then(([f, r]) => {
+        if (cancelled) return;
         setFunnel(f);
         setRows(r);
         onSummary(`${f.visitors} in ${days} days`);
       })
-      .catch((e: Error) => setError(e.message));
+      .catch((e: Error) => { if (!cancelled) setError(e.message); });
+    return () => { cancelled = true; };
   }, [days, onSummary]);
 
   const pct = (n: number) => (funnel && funnel.visitors ? `${Math.round((100 * n) / funnel.visitors)}%` : "");
@@ -290,7 +296,7 @@ function DemoVisitorsSection({ onSummary }: { onSummary: (s: string) => void }) 
           <p className="settings-hint">Emails are as typed at check-in (not verified).</p>
         </div>
         <div className="org-head-tools">
-          <select aria-label="Period" value={days} onChange={(e) => setDays(Number(e.target.value))}>
+          <select aria-label="Period" value={days} onChange={(e) => { setError(null); setDays(Number(e.target.value)); }}>
             <option value={7}>Last 7 days</option>
             <option value={30}>Last 30 days</option>
             <option value={90}>Last 90 days</option>
@@ -381,16 +387,16 @@ export default function Organization({ currentUserId, demo = false }: { currentU
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
-  const load = useCallback(async () => {
-    const [o, u, e] = await Promise.all([
+  const load = useCallback(() =>
+    Promise.all([
       api<Org>("admin/organization"),
       api<User[]>("admin/users"),
       api<AdminEvent[]>("admin/events?limit=20"),
-    ]);
-    setOrg(o);
-    setUsers(u);
-    setEvents(e);
-  }, []);
+    ]).then(([o, u, e]) => {
+      setOrg(o);
+      setUsers(u);
+      setEvents(e);
+    }), []);
 
   useEffect(() => {
     load().catch((e: Error) => setMessage({ kind: "error", text: e.message }));

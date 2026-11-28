@@ -591,7 +591,8 @@ export default function AppShell({
 
   return (
     <SiteContext.Provider value={site}>
-    <CopilotKit runtimeUrl="/api/copilotkit" agent={AGENT_ID} threadId={threadId}>
+    <CopilotKit runtimeUrl="/api/copilotkit" useSingleEndpoint agent={AGENT_ID} threadId={threadId}
+      enableInspector={IS_DEV ? undefined : false} showDevConsole={IS_DEV ? undefined : false}>
       <ShowResultsContext.Provider value={showResults}>
       <ChatSessionContext.Provider value={sessionId}>
         <HistoryHydrator threadId={threadId} />
