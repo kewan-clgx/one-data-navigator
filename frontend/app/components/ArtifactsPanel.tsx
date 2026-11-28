@@ -332,12 +332,15 @@ function ArtifactCard({
   isCurrent,
   onOpenConversation,
   actions,
+  conversationsLoaded,
 }: {
   item: StoreItem;
   conversation: Conversation | undefined;
   isCurrent: boolean;
   onOpenConversation: (threadId: string) => void;
   actions: Actions;
+  /** Until the Chats list has loaded, a missing conversation isn't known to be gone. */
+  conversationsLoaded: boolean;
 }) {
   const [ref, inView] = useInView<HTMLLIElement>();
   const [showSql, setShowSql] = useState(false);
@@ -377,8 +380,12 @@ function ArtifactCard({
               {conversationTitle(conversation)}
             </button>
           </>
+        ) : conversationsLoaded ? (
+          <span title="The conversation was deleted, or the item came from the SQL workbench in a chat that was never saved">
+            Its conversation is no longer available
+          </span>
         ) : (
-          "From a deleted conversation"
+          "From a conversation…"
         )}
       </div>
       <ArchivedNote item={item} />
@@ -850,6 +857,7 @@ export default function ArtifactsPanel({
               isCurrent={item.session_id === sessionId}
               onOpenConversation={onOpenConversation}
               actions={actions}
+              conversationsLoaded={conversations !== null}
             />
           ),
         )}

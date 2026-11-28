@@ -113,7 +113,10 @@ function HistoryHydrator({ threadId }: { threadId: string }) {
  * Calls `onNew` when the agent publishes a new result or chart during a run (not when a saved
  * conversation is loaded), and `onRunEnd` when a run finishes (titles and artifacts may have changed).
  */
-function RunWatcher({ onNew, onRunEnd }: { onNew: () => void; onRunEnd: () => void }) {
+// Opening a past conversation restores its last result; for this long that isn't a new result to jump to.
+const RESTORE_GRACE_MS = 4000;
+
+function RunWatcher({ threadId, onNew, onRunEnd }: { threadId: string | null; onNew: () => void; onRunEnd: () => void }) {
   const { state, running } = useCoAgent<AgentState>({ name: AGENT_ID, initialState: {} });
   const { last_result, last_chart } = state ?? {};
   const key = last_result || last_chart
@@ -121,8 +124,16 @@ function RunWatcher({ onNew, onRunEnd }: { onNew: () => void; onRunEnd: () => vo
     : "";
   const previous = useRef(key);
   const wasRunning = useRef(running);
+  const switchedAt = useRef(0);
+  const lastThread = useRef(threadId);
   useEffect(() => {
-    if (running && key && key !== previous.current) onNew();
+    if (threadId === lastThread.current) return;
+    lastThread.current = threadId;
+    switchedAt.current = Date.now();
+  }, [threadId]);
+  useEffect(() => {
+    const restoring = Date.now() - switchedAt.current < RESTORE_GRACE_MS;
+    if (running && key && key !== previous.current && !restoring) onNew();
     previous.current = key;
   }, [key, running, onNew]);
   useEffect(() => {
@@ -329,7 +340,8 @@ export default function AppShell({
   const openConversation = useCallback((id: string) => {
     setThreadId(id);
     setResultsUnseen(false);
-  }, []);
+    openWorkbench(false); // the workbench covers the chat: show the conversation that was asked for
+  }, [openWorkbench]);
 
   // A saved FAQ answer arrives as a new conversation of the user's own; refresh the Chats list to show it.
   const openSavedAnswer = useCallback((id: string) => {
@@ -583,7 +595,7 @@ export default function AppShell({
       <ShowResultsContext.Provider value={showResults}>
       <ChatSessionContext.Provider value={sessionId}>
         <HistoryHydrator threadId={threadId} />
-        <RunWatcher onNew={onNewResult} onRunEnd={bump} />
+        <RunWatcher threadId={threadId} onNew={onNewResult} onRunEnd={bump} />
         <ScopeContext scope={scope} connection={connection} />
         <UploadsContext sessionId={sessionId} revision={revision} />
         <ChatRenderers />
