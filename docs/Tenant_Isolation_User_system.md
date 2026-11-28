@@ -344,6 +344,11 @@ Estimates are focused engineering days. Each phase lists its exit check.
 ### U4 — Tenant admin console (3 days)
 - [x] Settings → **Organization** tab (admins): tenant profile, domains (read-only), users table (name,
       email, role, status, last sign-in), invite (domain-checked), change role, disable/enable, admins list.
+- [x] Layout (2026-11-28): one section at a time behind the same status switcher as Settings — **Overview**
+      (people/sharing tiles, access, sign-in link + Copy), **People** (one-row invite, status filters, search
+      over 5 people), **Sharing** (policy switches, shared answers with filters), **Activity** (When / Who / What),
+      and **Demo visitors** for the live-demo organization. The last section is remembered in the browser
+      (`odn.organization.section`); the admin APIs are unchanged and still enforce access.
 - [x] API `/v1/admin/users*`, `require_admin`; Identity Platform user create/disable for password tenants.
 - [x] Admin events `user.invited`, `user.role_changed`, `user.status_changed`, `user.invite_resent`, `user.invite_revoked`
       (migration `0011`, `admin_events`).

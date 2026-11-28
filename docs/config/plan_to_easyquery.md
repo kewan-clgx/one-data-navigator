@@ -313,7 +313,7 @@ which also adds the reserved-slug CHECK; `provision tenant` refuses reserved slu
 (branded sign-in: *Continue with Google* with the `hd` hint, *Continue* for OIDC, email + password for password
 organizations; personal tenant → `/?account=personal`; signed in elsewhere → *Go to your workspace* / *Sign out and
 sign in to …*), the slug remembered in the organization cookie, sign-out returning to the link, and the link in
-Organization → profile ("Sign-in link" + Copy). Invite emails don't include the link yet.
+Organization → Overview ("Sign-in link" + Copy). Invite emails don't include the link yet.
 
 - **Route:** `easyquery.ai/<slug>` for an active organization slug (`cotality`, `indulge`, …). Unknown slugs → 404
   (no organization enumeration beyond what discovery already reveals). Reserve slugs that clash with app/marketing

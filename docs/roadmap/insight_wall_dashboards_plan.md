@@ -186,7 +186,8 @@ dashboard_tile_results(tile_id, tenant_id, run_at, object_key, row_count, bytes_
   search, cards with chart and highlight, upvote, paging; signed out: public only, server-rendered)
 - [x] **Share dialog:** *Post to an Insight Wall* choice. *Links for this conversation:* wall status and
   post/move/remove
-- [x] **Organization → Sharing:** wall switches, *Wall* column, Feature / Remove from wall
+- [x] **Organization → Sharing:** wall switches (*Organization Insight Wall*, *Public EasyQuery Insight Wall*, nested
+      under *Share answers as links*), *Wall* column, *On a wall* filter, Feature / Remove from wall
 - [x] **App toolbar:** *Insights* button
 - [x] **Caddy:** `ODN_INSIGHTS_HOSTNAME` host (`/` → `/insights`; everything else → the app),
   `docker-compose.prod.yml`, [deploy_gcp_vm.md](../deploy_gcp_vm.md)

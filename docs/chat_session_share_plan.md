@@ -367,14 +367,14 @@ What changed:
   by Ann… new queries use your own connections"). Chats lists it with *· shared by Ann*. Same organization only;
   readers from other organizations see the public summary and a message. Activity log: `share.continued`.
   Result names now take `max + 1` (not `count + 1`) so a continued conversation starting at e.g. `q10` can't clash.
-- **Admin** (phase 3 done): Organization → **Sharing**: *People can share answers as links*, *Allow links that
-  anyone with the link can open*, and every link in the organization with **Revoke**.
+- **Admin** (phase 3 done): Organization → **Sharing** section. **Policy** switches: *Share answers as links*,
+  and under it *Anyone with the link*; **Shared answers**: every link in the organization (filter All / Active /
+  On a wall / Revoked or expired) with **Revoke**.
 - Tests: public links need the admin switch, are hidden when it's turned off, expose no emails/object keys/tenant
   ids, sign-in shares stay private; continue copies into the reader's workspace and refuses other organizations;
   the agent import reads back as history and marks everything processed.
 
-**To turn it on in production:** an admin opens Organization → Sharing → *Allow links that anyone with the link can
-open*. Until then links are sign-in only.
+**To turn it on in production:** an admin opens Organization → Sharing → Policy → *Anyone with the link*. Until then links are sign-in only.
 
 **2026-11-20 — adjustments:**
 
