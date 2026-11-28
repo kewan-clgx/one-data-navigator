@@ -440,7 +440,7 @@ def get(ctx: RequestContext, share_id: str) -> dict[str, Any]:
                     "INSERT INTO admin_events (tenant_id, actor_user_id, action, target) VALUES (%s, %s, %s, %s)",
                     (ctx.tenant_id, ctx.user_id, "share.viewed", share_id),
                 )
-    out = {k: v for k, v in share.items() if k not in ("owner_user_id",)}
+    out = {k: v for k, v in _with_description(share).items() if k not in ("owner_user_id",)}
     out["artifacts"] = [{k: v for k, v in a.items() if k != "object_key"} for a in share["artifacts"]]
     out["is_owner"] = share["owner_user_id"] == ctx.user_id
     out["status"] = _status(share)
@@ -517,7 +517,9 @@ def public_get(share_id: str) -> dict[str, Any]:
                               "columns": [c if isinstance(c, str) else c.get("name") for c in a["columns"]],
                               "rows": rows.get("rows", [])[:PUBLIC_ROWS]})
     return {
-        "id": share["id"], "kind": share["kind"], "title": share["title"], "messages": share["messages"],
+        "id": share["id"], "kind": share["kind"], "title": share["title"],
+        "messages": _with_description({"kind": share["kind"], "artifacts": share["artifacts"],
+                                       "messages": share["messages"]})["messages"],
         "artifacts": artifacts, "created_at": share["created_at"], "expires_at": share["expires_at"],
         "owner_name": share["owner_name"], "organization": share["organization"],
     }
@@ -690,9 +692,37 @@ def _short(tables: list[str]) -> str:
     return ", ".join(t.split(".")[-1] for t in tables[:3]) + (f" +{len(tables) - 3}" if len(tables) > 3 else "")
 
 
+def describe_artifact(a: dict[str, Any]) -> str:
+    """One line under the link's title (previews, the share page). Never repeats the title, which already names it."""
+    if a["kind"] == "table":
+        n, cols = a.get("row_count") or 0, len(a.get("columns") or [])
+        src = a.get("source_tables") or []
+        return (f"**{n:,} {'row' if n == 1 else 'rows'} × {cols} {'column' if cols == 1 else 'columns'}**"
+                + (f" from {_short(src)}." if src and a.get("table_kind") != "upload" else "."))
+    if a["kind"] == "chart":
+        result = a.get("result") or {}
+        kind = ((result.get("spec") or {}).get("type") or "").capitalize() or "A"
+        src = result.get("source_tables") or []
+        return f"{kind} chart" + (f" from {_short(src)}." if src else ".")
+    if a["kind"] == "file":
+        ext = a["name"].rsplit(".", 1)[-1].upper() if "." in a["name"] else "File"
+        return f"{ext} file, {max(1, (a.get('size_bytes') or 0) // 1024):,} KB."
+    tables = a.get("tables") or []
+    text = f"{_DIALECTS.get(a.get('dialect'), a.get('dialect') or '')} SQL" + (f" reading {_short(tables)}." if tables else ".")
+    return text + (f"\n\n{a['description']}" if a.get("description") else "")
+
+
+def _with_description(share: dict[str, Any]) -> dict[str, Any]:
+    """Artifact shares describe their item when read, so older links get today's wording too."""
+    if share.get("kind") == "artifact" and share.get("artifacts"):
+        share = {**share, "messages": [{"id": "artifact", "role": "assistant",
+                                        "content": describe_artifact(share["artifacts"][0])}]}
+    return share
+
+
 def _artifact_copy(conn: Any, ctx: RequestContext, kind: ArtifactKind, item_id: uuid.UUID,
-                   share_id: str) -> tuple[dict[str, Any], str, str, bool]:
-    """The frozen copy stored with the share, a default title, a one-paragraph description, used-personal flag."""
+                   share_id: str) -> tuple[dict[str, Any], str, bool]:
+    """The frozen copy stored with the share, a default title and the used-personal flag."""
     if kind == "table":
         t = conn.execute(
             "SELECT a.id, a.name, a.kind, a.sql_text, a.source_tables, a.object_key, a.row_count, a.truncated, "
@@ -704,14 +734,10 @@ def _artifact_copy(conn: Any, ctx: RequestContext, kind: ArtifactKind, item_id: 
             raise ShareError("Result table not found.", 404)
         dst = share_key(ctx.tenant_id, share_id, f"{t['name']}.parquet")
         copy_object(assert_tenant_key(ctx.tenant_id, ctx.user_id, t["object_key"]), dst)
-        cols = len(t["columns"])
-        desc = (f"**{t['row_count']:,} {'row' if t['row_count'] == 1 else 'rows'} × {cols} "
-                f"{'column' if cols == 1 else 'columns'}**"
-                + (f" from {_short(t['source_tables'])}." if t["source_tables"] and t["kind"] != "upload" else "."))
         return ({"kind": "table", "id": str(t["id"]), "name": t["name"], "table_kind": t["kind"], "sql": t["sql_text"],
                  "source_tables": t["source_tables"], "row_count": t["row_count"], "truncated": t["truncated"],
                  "columns": t["columns"], "object_key": dst},
-                f"Result table {t['name']}", desc, bool(t["personal"]))
+                f"Result table {t['name']}", bool(t["personal"]))
     if kind == "chart":
         c = conn.execute(
             "SELECT id, name, title, chart_type, result FROM workspace_charts "
@@ -720,10 +746,8 @@ def _artifact_copy(conn: Any, ctx: RequestContext, kind: ArtifactKind, item_id: 
         if c is None:
             raise ShareError("Chart not found.", 404)
         title = c["title"] or f"{c['chart_type'].capitalize()} chart"
-        sources = (c["result"] or {}).get("source_tables") or []
-        desc = f"**{title}** ({c['chart_type']} chart)" + (f" from {_short(sources)}." if sources else ".")
         return ({"kind": "chart", "id": str(c["id"]), "name": c["name"], "title": c["title"], "result": c["result"]},
-                title, desc, False)
+                title, False)
     if kind == "file":
         f = conn.execute(
             "SELECT id, filename, mime_type, size_bytes, object_key FROM workspace_files "
@@ -733,9 +757,8 @@ def _artifact_copy(conn: Any, ctx: RequestContext, kind: ArtifactKind, item_id: 
             raise ShareError("File not found.", 404)
         dst = share_key(ctx.tenant_id, share_id, "files", str(f["id"]))
         copy_object(assert_tenant_key(ctx.tenant_id, ctx.user_id, f["object_key"]), dst)
-        desc = f"**{f['filename']}** ({max(1, f['size_bytes'] // 1024):,} KB)."
         return ({"kind": "file", "id": str(f["id"]), "name": f["filename"], "mime_type": f["mime_type"],
-                 "size_bytes": f["size_bytes"], "object_key": dst}, f["filename"], desc, False)
+                 "size_bytes": f["size_bytes"], "object_key": dst}, f["filename"], False)
     q = conn.execute(
         "SELECT s.id, s.name, s.description, s.sql_text, s.dialect, s.tables, "
         "(c.owner_user_id IS NOT NULL) AS personal FROM saved_queries s "
@@ -744,12 +767,9 @@ def _artifact_copy(conn: Any, ctx: RequestContext, kind: ArtifactKind, item_id: 
     ).fetchone()
     if q is None:
         raise ShareError("Saved query not found.", 404)
-    desc = (f"**{q['name']}.sql**: {_DIALECTS.get(q['dialect'], q['dialect'])} SQL"
-            + (f" reading {_short(q['tables'])}." if q["tables"] else ".")
-            + (f"\n\n{q['description']}" if q["description"] else ""))
     return ({"kind": "sql", "id": str(q["id"]), "name": q["name"], "description": q["description"],
              "sql": q["sql_text"], "dialect": q["dialect"], "tables": q["tables"]},
-            f"{q['name']}.sql", desc, bool(q["personal"]))
+            f"{q['name']}.sql", bool(q["personal"]))
 
 
 def share_artifact(ctx: RequestContext, *, kind: ArtifactKind, item_id: uuid.UUID, title: str, audience: Audience,
@@ -770,7 +790,8 @@ def share_artifact(ctx: RequestContext, *, kind: ArtifactKind, item_id: uuid.UUI
     expires = datetime.now(UTC) + timedelta(days=expires_days)
     with tenant_transaction(ctx.tenant_id, ctx.user_id) as conn:
         recipients = _active_recipients(conn, ctx, recipient_ids) if audience == "people" else []
-        artifact, default_title, description, personal = _artifact_copy(conn, ctx, kind, item_id, share_id)
+        artifact, default_title, personal = _artifact_copy(conn, ctx, kind, item_id, share_id)
+        description = describe_artifact(artifact)
         final_title = (title.strip() or default_title)[:200]
         conn.execute(
             "INSERT INTO shared_conversations (id, tenant_id, owner_user_id, source_thread_id, source_session_id, title, "

@@ -124,6 +124,8 @@ def test_sharing_one_artifact(users) -> None:
                                          audience="public", recipient_ids=[], expires_days=7)
     public = sharing.public_get(chart_share["id"])
     assert public["title"] == "Revenue by state" and public["artifacts"][0]["kind"] == "chart"
+    assert public["messages"][0]["content"] == "Bar chart from t."  # the title isn't repeated under itself
+    assert sharing.get(bob, share["id"])["messages"][0]["content"].startswith("BigQuery SQL reading t.")
     manage.archive(alice, "sql", q.id, "30d")
     with pytest.raises(sharing.ShareError, match="not found"):  # archived items can't be shared
         sharing.share_artifact(alice, kind="sql", item_id=q.id, title="", audience="organization",
