@@ -105,6 +105,8 @@ A new (empty) conversation with a table in scope shows **Ask about `<table>`** w
 The workbench header shows the open file, e.g. `▣ ca_businesses_by_naics.sql ●` (● = unsaved), with **History**, **Save** (⌘S) and **Save as…** (⇧⌘S).
 - **Save as** is a small popover. The name is pre-filled from the SQL (table, `by_<columns>`, filter value, `topN`) and selected, so typing replaces it. A fixed `.sql` suffix and an optional description follow. A name clash offers the next free name.
 - **Artifacts → SQL** lists saved queries with a search box (name, SQL text, tables). Each has **Open in workbench**, **Show SQL**, **.sql**, and ⋯ for Rename, Duplicate, Copy SQL and Delete (with Undo).
+- **Artifacts list:** previews are open by default. SQL shows its first 10 lines ("Show all N lines"); tables show 10 rows ("Show more rows" opens the full paged grid, with the SQL folded behind **SQL**); charts and images render. Each preview loads only when its card scrolls into view.
+- **Paging:** the list arrives 20 at a time from `GET /v1/artifacts/page` (server-side search, kind filter, *Newest* or *Name A–Z* sort, cursor paging). The next page loads on scroll, with **Load more** as a fallback. The filter chips show counts per kind.
 - Chat SQL blocks have **Save SQL**. The Explorer shows **Saved SQL (n) ›** for a table. Saved SQL is private to its owner. Details: [sql_repository_plan.md](./sql_repository_plan.md).
 
 ### 3.4 Attach a file

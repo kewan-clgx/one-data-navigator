@@ -19,6 +19,8 @@ export default function ResultsGrid({
   columns,
   initialRows,
   rowsBase,
+  pageSize = PAGE,
+  preview = false,
 }: {
   sessionId: string;
   name: string;
@@ -26,6 +28,10 @@ export default function ResultsGrid({
   initialRows: Record<string, unknown>[];
   /** Alternative source (e.g. a shared conversation's copy); its `/rows` is used and CSV download is hidden. */
   rowsBase?: string;
+  /** Rows per page (Artifacts previews use 10). */
+  pageSize?: number;
+  /** A compact preview: no row pager or CSV link (the card has its own actions). */
+  preview?: boolean;
 }) {
   const [offset, setOffset] = useState(0);
   const [sort, setSort] = useState<{ col: string; desc: boolean } | null>(null);
@@ -42,7 +48,7 @@ export default function ResultsGrid({
 
   useEffect(() => {
     let cancelled = false;
-    const q = new URLSearchParams({ offset: String(offset), limit: String(PAGE) });
+    const q = new URLSearchParams({ offset: String(offset), limit: String(pageSize) });
     if (sort) {
       q.set("order_by", sort.col);
       q.set("descending", String(sort.desc));
@@ -60,10 +66,10 @@ export default function ResultsGrid({
     return () => {
       cancelled = true;
     };
-  }, [base, offset, sort]);
+  }, [base, offset, sort, pageSize]);
 
   const total = page?.total;
-  const rows = total === 0 ? [] : page?.rows ?? initialRows.slice(0, PAGE);
+  const rows = total === 0 ? [] : page?.rows ?? initialRows.slice(0, pageSize);
   const toggleSort = (col: string) => {
     setOffset(0);
     setSort((s) => (s?.col === col ? (s.desc ? null : { col, desc: true }) : { col, desc: false }));
@@ -71,25 +77,25 @@ export default function ResultsGrid({
 
   return (
     <div className="results-grid">
-      <div className="grid-toolbar">
+      {!preview && <div className="grid-toolbar">
         <span className="muted" role="status">
           {total === undefined
             ? loading ? "Loading…" : ""
             : total === 0
               ? "No rows"
-              : total <= PAGE
+              : total <= pageSize
                 ? "" // the row count is already shown above the grid
-                : `Rows ${offset + 1}–${Math.min(offset + PAGE, total)} of ${total.toLocaleString()}`}
+                : `Rows ${offset + 1}–${Math.min(offset + pageSize, total)} of ${total.toLocaleString()}`}
         </span>
         <span className="pager">
           {/* Row pages only exist past PAGE rows; disabled buttons on a one-page result look broken. */}
-          {total !== undefined && total > PAGE && (
+          {total !== undefined && total > pageSize && (
             <>
-              <button type="button" onClick={() => setOffset((o) => Math.max(0, o - PAGE))} disabled={offset === 0 || loading}>
-                ‹ Prev {PAGE}
+              <button type="button" onClick={() => setOffset((o) => Math.max(0, o - pageSize))} disabled={offset === 0 || loading}>
+                ‹ Prev {pageSize}
               </button>
-              <button type="button" onClick={() => setOffset((o) => o + PAGE)} disabled={offset + PAGE >= total || loading}>
-                Next {PAGE} ›
+              <button type="button" onClick={() => setOffset((o) => o + pageSize)} disabled={offset + pageSize >= total || loading}>
+                Next {pageSize} ›
               </button>
             </>
           )}
@@ -99,7 +105,7 @@ export default function ResultsGrid({
             </a>
           )}
         </span>
-      </div>
+      </div>}
       {error && <p role="alert" className="error">{error}</p>}
       <HScroll className="results" columns={columns.length} busy={loading}>
         <table className="grid">

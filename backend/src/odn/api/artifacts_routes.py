@@ -12,11 +12,15 @@ from fastapi.responses import StreamingResponse
 from odn.api.deps import Context
 from odn.platform.workspace.service import Artifact, ChartResult, InvalidSession
 from odn.platform.workspace.store import (
+    PanelKind,
+    PanelPage,
+    PanelSort,
     StoreItem,
     StoreKind,
     get_chart,
     list_store,
     open_file,
+    page_store,
     table_artifact,
 )
 
@@ -32,6 +36,23 @@ def artifacts(
 ) -> list[StoreItem]:
     try:
         return list_store(ctx, kind=kind, session_id=session_id, limit=limit)
+    except InvalidSession as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
+
+
+@router.get("/page")
+def artifacts_page(
+    ctx: Context,
+    kind: PanelKind | None = None,
+    session_id: str | None = None,
+    q: Annotated[str, Query(max_length=200)] = "",
+    sort: PanelSort = "newest",
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    cursor: Annotated[str | None, Query(max_length=500)] = None,
+) -> PanelPage:
+    """The Artifacts panel: one page across tables, charts, files and saved SQL, searched; `next_cursor` continues."""
+    try:
+        return page_store(ctx, kind=kind, session_id=session_id, q=q, sort=sort, limit=limit, cursor=cursor)
     except InvalidSession as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from None
 

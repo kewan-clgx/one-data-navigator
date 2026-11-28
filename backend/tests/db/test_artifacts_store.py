@@ -7,8 +7,9 @@ import pytest
 
 from odn.config import settings
 from odn.db import tenant_transaction
-from odn.platform.workspace.service import ChartResult, ChartSpec, save_chart
-from odn.platform.workspace.store import get_chart, list_store
+from odn.platform.workspace import saved_queries as sq
+from odn.platform.workspace.service import ChartResult, ChartSpec, InvalidSession, save_chart
+from odn.platform.workspace.store import get_chart, list_store, page_store
 from odn.tenancy.context import RequestContext
 from tests.db.test_rls import APP_URL, OWNER_URL, _reachable
 
@@ -78,3 +79,40 @@ def test_files_are_private_even_within_the_tenant(users) -> None:
             "object_key) VALUES (%s, %s, 's1', 'x.png', 'image/png', 1, 'k')",
             (alice.tenant_id, alice.user_id),
         )
+
+
+def test_panel_pages_every_kind_with_search_counts_and_sorting(users) -> None:
+    alice, bob = users
+    carol = RequestContext(tenant_id=alice.tenant_id, user_id=uuid.uuid4(), subject="c", role="member")
+    with psycopg.connect(OWNER_URL) as conn:
+        conn.execute("INSERT INTO users (id, tenant_id, subject) VALUES (%s, %s, %s)",
+                     (carol.user_id, carol.tenant_id, carol.user_id.hex))
+    save_chart(carol, "s1", _chart("Revenue by state"), None)
+    for i in range(23):
+        sq.create_query(carol, name=f"query_{i:02d}", sql="\n".join(f"-- line {n}" for n in range(14)) + "\nSELECT 1",
+                        dialect="bigquery", connection_id=None)
+    with tenant_transaction(carol.tenant_id, carol.user_id) as conn:
+        conn.execute(
+            "INSERT INTO workspace_files (tenant_id, user_id, session_id, filename, mime_type, size_bytes, "
+            "object_key) VALUES (%s, %s, 's1', 'zips.csv', 'text/csv', 10, 'k')", (carol.tenant_id, carol.user_id),
+        )
+
+    first = page_store(carol)
+    assert len(first.items) == 20 and first.counts == {"chart": 1, "sql": 23, "file": 1}
+    sql_item = next(i for i in first.items if i.kind == "sql")
+    assert sql_item.sql_lines == 15 and sql_item.sql_head.count("\n") == 9  # 10-line preview
+    rest = page_store(carol, cursor=first.next_cursor)
+    assert rest.next_cursor is None and rest.counts is None
+    ids = [i.id for i in first.items + rest.items]
+    assert len(ids) == len(set(ids)) == 25  # every item exactly once
+
+    by_name = page_store(carol, sort="name", limit=3)
+    assert [i.name for i in by_name.items] == ["query_00", "query_01", "query_02"]
+    assert [i.name for i in page_store(carol, sort="name", limit=3, cursor=by_name.next_cursor).items] == [
+        "query_03", "query_04", "query_05"]
+    assert [i.title for i in page_store(carol, q="revenue").items] == ["Revenue by state"]
+    assert [i.kind for i in page_store(carol, kind="file").items] == ["file"]
+    assert {i.kind for i in page_store(carol, session_id="s1").items} == {"chart", "file"}  # no saved SQL
+    assert page_store(bob, q="query").items == []
+    with pytest.raises(InvalidSession):
+        page_store(carol, cursor="not-a-cursor")
