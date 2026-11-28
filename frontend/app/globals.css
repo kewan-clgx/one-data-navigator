@@ -625,7 +625,8 @@ body.resizing iframe { pointer-events: none; }
 .odn-chat-body > .odn-chat-messages { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 /* The scoped-table question card shares the column with the chat: it shrinks (and scrolls) first, so the message
    box always stays visible. */
-.odn-chat-messages > .copilotKitChat { flex: 1 1 auto; height: auto; min-height: 9rem; }
+/* z-index: CopilotKit sets 30 on .copilotKitChat; as a flex item it would apply and cover the SQL workbench (20). */
+.odn-chat-messages > .copilotKitChat { flex: 1 1 auto; height: auto; min-height: 9rem; z-index: auto; }
 .odn-chat-messages > .tq { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
 /* With the card showing the conversation is empty: the chat needs only its message box. */
 .odn-chat-messages > .tq ~ .copilotKitChat { flex: 0 0 auto; min-height: 0; margin-top: auto; }
