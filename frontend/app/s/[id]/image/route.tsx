@@ -127,7 +127,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", padding: "40px 64px", background: PAPER }}>
         <div style={{ display: "flex", flexShrink: 0, fontSize: 22, color: MUTED }}>
           <span style={{ color: ACCENT, fontWeight: 700, marginRight: 14 }}>EasyQuery</span>
-          {short(`Shared answer · ${share.organization}`, 60)}
+          {short(`${share.kind === "artifact" ? `Shared ${visual?.kind === "chart" ? "chart" : "table"}` : "Shared answer"} · ${share.organization}`, 60)}
         </div>
         <div style={{ display: "flex", flexShrink: 0, fontSize: visual ? 40 : 54, fontWeight: 700, color: INK, marginTop: 10, lineHeight: 1.15 }}>
           {short(share.title, visual ? 70 : 140)}
