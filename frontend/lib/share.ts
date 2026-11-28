@@ -8,7 +8,7 @@ export type PublicArtifact =
   | { kind: "table"; name: string; row_count: number; columns: string[]; rows: Record<string, unknown>[] };
 /** An "anyone with the link" share as the API returns it without sign-in. */
 export type PublicShare = {
-  id: string; kind: "conversation" | "answer"; title: string; messages: Message[]; artifacts: PublicArtifact[];
+  id: string; kind: "conversation" | "answer" | "artifact"; title: string; messages: Message[]; artifacts: PublicArtifact[];
   created_at: string; expires_at: string; owner_name: string; organization: string;
 };
 

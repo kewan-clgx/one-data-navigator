@@ -18,8 +18,8 @@ type Turn = {
 };
 type WallSwitches = { org_wall: boolean; public_wall: boolean; personal: boolean };
 type Preview = WallSwitches & { title: string; turns: Turn[]; sharing_enabled: boolean; public_links: boolean };
-type Audience = "public" | "organization";
-type Created = { id: string; title: string; url: string; expires_at: string; wall: WallChoice };
+export type Audience = "public" | "organization";
+export type Created = { id: string; title: string; url: string; expires_at: string; wall: WallChoice };
 type MyShare = { id: string; title: string; audience: string; status: string; expires_at: string; views: number; wall: WallChoice };
 
 /** Walls a link with this audience may be posted to under the organization's settings. */
@@ -46,10 +46,11 @@ function suggested(t: Turn) {
   return suggestTitle(t.question, t.answer, t.charts.find((c) => t.default_artifacts.includes(c.name))?.title);
 }
 
-function ShareResult({ created, turn, audience, onDone }: { created: Created; turn: Turn; audience: Audience; onDone: () => void }) {
+/** The link and where to send it (Teams, Slack, email, copy); `answer` is the markdown summarised in messages. */
+export function ShareResult({ created, answer, audience, onDone }: { created: Created; answer: string; audience: Audience; onDone: () => void }) {
   const [copied, setCopied] = useState<string | null>(null);
-  const summary = summaryText(created.title, turn.answer, created.url);
-  const slackText = summaryText(created.title, turn.answer, created.url, "*");
+  const summary = summaryText(created.title, answer, created.url);
+  const slackText = summaryText(created.title, answer, created.url, "*");
   const copy = async (text: string, what: string) => {
     await navigator.clipboard.writeText(text);
     setCopied(what);
@@ -96,7 +97,10 @@ function ShareResult({ created, turn, audience, onDone }: { created: Created; tu
   );
 }
 
-function MyShares({ threadId, switches }: { threadId: string; switches: (WallSwitches & { public_links: boolean }) | null }) {
+/** The user's links for one conversation (or one artifact: thread id "artifact:<kind>:<id>"), with extend/revoke. */
+export function MyShares({ threadId, switches, heading = "Links for this conversation" }: {
+  threadId: string; switches: (WallSwitches & { public_links: boolean }) | null; heading?: string;
+}) {
   const [items, setItems] = useState<MyShare[] | null>(null);
   const load = useCallback(() => {
     api<MyShare[]>(`shares?scope=mine&thread_id=${encodeURIComponent(threadId)}`).then(setItems).catch(() => setItems([]));
@@ -113,7 +117,7 @@ function MyShares({ threadId, switches }: { threadId: string; switches: (WallSwi
   };
   return (
     <div className="share-mine">
-      <h3>Links for this conversation</h3>
+      <h3>{heading}</h3>
       <ul className="connection-list">
         {items.map((s) => (
           <li key={s.id}>
@@ -229,7 +233,7 @@ export default function ShareDialog({ threadId, open, onClose }: { threadId: str
         <button type="button" className="link" aria-label="Close" onClick={onClose}>✕</button>
       </div>
       {created && turn ? (
-        <ShareResult created={created} turn={turn} audience={audience} onDone={onClose} />
+        <ShareResult created={created} answer={turn.answer} audience={audience} onDone={onClose} />
       ) : !preview ? (
         error ? <p className="error" role="alert">{error}</p> : <p className="muted">Loading…</p>
       ) : !preview.sharing_enabled ? (

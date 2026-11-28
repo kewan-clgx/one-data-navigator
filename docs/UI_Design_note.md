@@ -107,6 +107,7 @@ The workbench header shows the open file, e.g. `▣ ca_businesses_by_naics.sql �
 - **Artifacts → SQL** lists saved queries with a search box (name, SQL text, tables). Each has **Open in workbench**, **Show SQL**, **.sql**, and ⋯ for Rename, Duplicate, Copy SQL and Delete (with Undo).
 - **Artifacts list:** previews are open by default. SQL shows its first 10 lines ("Show all N lines"); tables show 10 rows ("Show more rows" opens the full paged grid, with the SQL folded behind **SQL**); charts and images render. Each preview loads only when its card scrolls into view.
 - **Paging:** the list arrives 20 at a time from `GET /v1/artifacts/page` (server-side search, kind filter, *Newest* or *Name A–Z* sort, cursor paging). The next page loads on scroll, with **Load more** as a fallback. The filter chips show counts per kind.
+- **Every artifact's ⋯ menu:** Share… (a link to a frozen copy; Teams/Slack/email), Archive… (hidden, kept 30 days or forever, **Archived** view to restore) and Delete (5-second Undo). Details: [artifact_actions_plan.md](./artifact_actions_plan.md).
 - Chat SQL blocks have **Save SQL**. The Explorer shows **Saved SQL (n) ›** for a table. Saved SQL is private to its owner. Details: [sql_repository_plan.md](./sql_repository_plan.md).
 
 ### 3.4 Attach a file

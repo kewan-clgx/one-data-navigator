@@ -65,6 +65,8 @@ export function FollowUpButton({ shareId, signedIn, organization }: { shareId: s
 type ReportProps = {
   shareId: string; title: string; question: string; answer: string; owner: string; organization?: string;
   createdAt: string; status: string; expiresAt: string; artifacts: PublicArtifact[]; signedIn: boolean;
+  /** A single shared table or chart (not an answer): its own heading, no follow-up questions. */
+  artifact?: boolean;
 };
 
 /** A shared answer as a short report: the question, the answer (no SQL or result names), the chart or table. */
@@ -72,7 +74,10 @@ export function SummaryReport(p: ReportProps) {
   return (
     <div className="shared-page shared-report">
       <header className="shared-head">
-        <p className="shared-kicker">Shared answer{p.organization ? ` · ${p.organization}` : ""}</p>
+        <p className="shared-kicker">
+          {p.artifact ? `Shared ${p.artifacts[0]?.kind === "chart" ? "chart" : "table"}` : "Shared answer"}
+          {p.organization ? ` · ${p.organization}` : ""}
+        </p>
         <h1>{p.title}</h1>
         {p.question && p.question !== p.title && <p className="shared-question">“{p.question}”</p>}
         <p className="muted">
@@ -102,7 +107,9 @@ export function SummaryReport(p: ReportProps) {
           </figure>
         ),
       )}
-      {p.status === "active" && <FollowUpButton shareId={p.shareId} signedIn={p.signedIn} organization={p.organization} />}
+      {p.status === "active" && !p.artifact && (
+        <FollowUpButton shareId={p.shareId} signedIn={p.signedIn} organization={p.organization} />
+      )}
     </div>
   );
 }
@@ -114,7 +121,7 @@ export default function PublicShareView({ share, signedIn }: { share: PublicShar
     <SummaryReport
       shareId={share.id} title={share.title} question={question} answer={answer} owner={share.owner_name}
       organization={share.organization} createdAt={share.created_at} expiresAt={share.expires_at} status="active"
-      artifacts={share.artifacts} signedIn={signedIn}
+      artifacts={share.artifacts} signedIn={signedIn} artifact={share.kind === "artifact"}
     />
   );
 }

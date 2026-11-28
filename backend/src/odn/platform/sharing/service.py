@@ -536,6 +536,8 @@ def continue_share(ctx: RequestContext, token: str, share_id: str) -> dict[str, 
         share = _load(conn, share_id)
         if share is None or not _allowed(conn, ctx, share) or _status(share) != "active":
             raise ShareError("This answer wasn't shared with you, or the link has expired.", 404)
+        if share["kind"] == "artifact":
+            raise ShareError("A shared table, chart, file or SQL isn't a conversation to continue.", 422)
         thread_id = str(uuid.uuid4())
         table_ids: dict[str, uuid.UUID] = {}
         for a in share["artifacts"]:
@@ -673,3 +675,142 @@ def extend(ctx: RequestContext, share_id: str, days: int) -> str:
     if row is None:
         raise ShareError("Share not found.", 404)
     return row["expires_at"].isoformat()
+
+
+# -- one artifact (a table, chart, file or saved SQL) as a link ------------------------------------------------------
+
+ArtifactKind = Literal["table", "chart", "file", "sql"]
+# Signed-out readers see only summaries (first rows, the plot): SQL and files need sign-in, as for answers.
+PUBLIC_ARTIFACT_KINDS = ("table", "chart")
+_DIALECTS = {"bigquery": "BigQuery", "postgres": "PostgreSQL", "snowflake": "Snowflake", "mysql": "MySQL",
+             "oracle": "Oracle", "duckdb": "DuckDB"}
+
+
+def _short(tables: list[str]) -> str:
+    return ", ".join(t.split(".")[-1] for t in tables[:3]) + (f" +{len(tables) - 3}" if len(tables) > 3 else "")
+
+
+def _artifact_copy(conn: Any, ctx: RequestContext, kind: ArtifactKind, item_id: uuid.UUID,
+                   share_id: str) -> tuple[dict[str, Any], str, str, bool]:
+    """The frozen copy stored with the share, a default title, a one-paragraph description, used-personal flag."""
+    if kind == "table":
+        t = conn.execute(
+            "SELECT a.id, a.name, a.kind, a.sql_text, a.source_tables, a.object_key, a.row_count, a.truncated, "
+            "a.columns, (c.owner_user_id IS NOT NULL) AS personal FROM workspace_artifacts a "
+            "LEFT JOIN connections c ON c.id = a.connection_id "
+            "WHERE a.id = %s AND a.user_id = %s AND a.archived_at IS NULL", (item_id, ctx.user_id),
+        ).fetchone()
+        if t is None:
+            raise ShareError("Result table not found.", 404)
+        dst = share_key(ctx.tenant_id, share_id, f"{t['name']}.parquet")
+        copy_object(assert_tenant_key(ctx.tenant_id, ctx.user_id, t["object_key"]), dst)
+        cols = len(t["columns"])
+        desc = (f"**{t['row_count']:,} {'row' if t['row_count'] == 1 else 'rows'} × {cols} "
+                f"{'column' if cols == 1 else 'columns'}**"
+                + (f" from {_short(t['source_tables'])}." if t["source_tables"] and t["kind"] != "upload" else "."))
+        return ({"kind": "table", "id": str(t["id"]), "name": t["name"], "table_kind": t["kind"], "sql": t["sql_text"],
+                 "source_tables": t["source_tables"], "row_count": t["row_count"], "truncated": t["truncated"],
+                 "columns": t["columns"], "object_key": dst},
+                f"Result table {t['name']}", desc, bool(t["personal"]))
+    if kind == "chart":
+        c = conn.execute(
+            "SELECT id, name, title, chart_type, result FROM workspace_charts "
+            "WHERE id = %s AND user_id = %s AND archived_at IS NULL", (item_id, ctx.user_id),
+        ).fetchone()
+        if c is None:
+            raise ShareError("Chart not found.", 404)
+        title = c["title"] or f"{c['chart_type'].capitalize()} chart"
+        sources = (c["result"] or {}).get("source_tables") or []
+        desc = f"**{title}** ({c['chart_type']} chart)" + (f" from {_short(sources)}." if sources else ".")
+        return ({"kind": "chart", "id": str(c["id"]), "name": c["name"], "title": c["title"], "result": c["result"]},
+                title, desc, False)
+    if kind == "file":
+        f = conn.execute(
+            "SELECT id, filename, mime_type, size_bytes, object_key FROM workspace_files "
+            "WHERE id = %s AND user_id = %s AND archived_at IS NULL", (item_id, ctx.user_id),
+        ).fetchone()
+        if f is None:
+            raise ShareError("File not found.", 404)
+        dst = share_key(ctx.tenant_id, share_id, "files", str(f["id"]))
+        copy_object(assert_tenant_key(ctx.tenant_id, ctx.user_id, f["object_key"]), dst)
+        desc = f"**{f['filename']}** ({max(1, f['size_bytes'] // 1024):,} KB)."
+        return ({"kind": "file", "id": str(f["id"]), "name": f["filename"], "mime_type": f["mime_type"],
+                 "size_bytes": f["size_bytes"], "object_key": dst}, f["filename"], desc, False)
+    q = conn.execute(
+        "SELECT s.id, s.name, s.description, s.sql_text, s.dialect, s.tables, "
+        "(c.owner_user_id IS NOT NULL) AS personal FROM saved_queries s "
+        "LEFT JOIN connections c ON c.id = s.connection_id "
+        "WHERE s.id = %s AND s.user_id = %s AND s.archived_at IS NULL", (item_id, ctx.user_id),
+    ).fetchone()
+    if q is None:
+        raise ShareError("Saved query not found.", 404)
+    desc = (f"**{q['name']}.sql**: {_DIALECTS.get(q['dialect'], q['dialect'])} SQL"
+            + (f" reading {_short(q['tables'])}." if q["tables"] else ".")
+            + (f"\n\n{q['description']}" if q["description"] else ""))
+    return ({"kind": "sql", "id": str(q["id"]), "name": q["name"], "description": q["description"],
+             "sql": q["sql_text"], "dialect": q["dialect"], "tables": q["tables"]},
+            f"{q['name']}.sql", desc, bool(q["personal"]))
+
+
+def share_artifact(ctx: RequestContext, *, kind: ArtifactKind, item_id: uuid.UUID, title: str, audience: Audience,
+                   recipient_ids: list[uuid.UUID], expires_days: int) -> dict[str, Any]:
+    """Shares one artifact as a link (a frozen copy): the same audiences, expiry and revoking as shared answers."""
+    org = settings_for(ctx)
+    if not org["enabled"]:
+        raise ShareError("Sharing is turned off for your organization.", 403)
+    if audience == "public" and not org["public_links"]:
+        raise ShareError("Your organization doesn't allow links that anyone can open. Share with your organization instead.", 403)
+    if audience == "public" and kind not in PUBLIC_ARTIFACT_KINDS:
+        raise ShareError("SQL and files can only be shared with people who sign in.", 422)
+    if expires_days not in EXPIRY_DAYS:
+        raise ShareError(f"Expiry must be one of {EXPIRY_DAYS} days.", 422)
+    if audience == "people" and not recipient_ids:
+        raise ShareError("Pick at least one person to share with.", 422)
+    share_id = new_share_id()
+    expires = datetime.now(UTC) + timedelta(days=expires_days)
+    with tenant_transaction(ctx.tenant_id, ctx.user_id) as conn:
+        recipients = _active_recipients(conn, ctx, recipient_ids) if audience == "people" else []
+        artifact, default_title, description, personal = _artifact_copy(conn, ctx, kind, item_id, share_id)
+        final_title = (title.strip() or default_title)[:200]
+        conn.execute(
+            "INSERT INTO shared_conversations (id, tenant_id, owner_user_id, source_thread_id, source_session_id, title, "
+            "audience, include_results, messages, artifacts, used_personal_connections, used_collibra, expires_at, kind) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, true, %s, %s, %s, false, %s, 'artifact')",
+            (share_id, ctx.tenant_id, ctx.user_id, f"artifact:{kind}:{item_id}", "artifacts", final_title, audience,
+             Jsonb([{"id": "artifact", "role": "assistant", "content": description}]), Jsonb([artifact]), personal,
+             expires),
+        )
+        for r in recipients:
+            conn.execute(
+                "INSERT INTO shared_conversation_recipients (share_id, tenant_id, user_id) VALUES (%s, %s, %s)",
+                (share_id, ctx.tenant_id, r["id"]),
+            )
+        conn.execute(
+            "INSERT INTO admin_events (tenant_id, actor_user_id, action, target, detail) VALUES (%s, %s, %s, %s, %s)",
+            (ctx.tenant_id, ctx.user_id, "share.created", share_id,
+             Jsonb({"kind": "artifact", "artifact_kind": kind, "audience": audience,
+                    "recipients": [r["email"] for r in recipients], "expires_days": expires_days})),
+        )
+    return {"id": share_id, "title": final_title, "kind": "artifact", "artifact_kind": kind,
+            "expires_at": expires.isoformat(), "recipients": [dict(r) for r in recipients], "wall": "none",
+            "description": description}
+
+
+def save_shared_sql(ctx: RequestContext, share_id: str) -> dict[str, Any]:
+    """A reader's own copy of a shared SQL in their SQL repository (same organization, active link)."""
+    from odn.platform.workspace import saved_queries as sq
+
+    with tenant_transaction(ctx.tenant_id, ctx.user_id) as conn:
+        share = _load(conn, share_id)
+        if share is None or not _allowed(conn, ctx, share) or _status(share) != "active":
+            raise ShareError("This link wasn't shared with you, or it has expired.", 404)
+    item = next((a for a in share["artifacts"] if a.get("kind") == "sql"), None)
+    if item is None:
+        raise ShareError("This link has no SQL to save.", 422)
+    body = {"sql": item["sql"], "dialect": item["dialect"], "connection_id": None,
+            "description": item.get("description") or ""}
+    try:
+        saved = sq.create_query(ctx, name=item["name"], **body)
+    except sq.NameTaken as taken:
+        saved = sq.create_query(ctx, name=taken.suggestion, **body)
+    return {"id": str(saved.id), "name": saved.name}

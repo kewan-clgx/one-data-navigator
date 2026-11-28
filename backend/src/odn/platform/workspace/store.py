@@ -249,6 +249,9 @@ class PanelItem(StoreItem):
     dialect: str | None = None
     version: int | None = None
     tables: list[str] = []
+    # archived items (the Archived view): when they'll be deleted, None = kept forever
+    archived_at: datetime | None = None
+    purge_at: datetime | None = None
 
 
 class PanelPage(BaseModel):
@@ -277,16 +280,18 @@ def _decode_cursor(cursor: str, sort: PanelSort) -> tuple[Any, str, uuid.UUID]:
 
 def page_store(
     ctx: RequestContext, *, kind: PanelKind | None = None, session_id: str | None = None, q: str = "",
-    sort: PanelSort = "newest", limit: int = 20, cursor: str | None = None,
+    sort: PanelSort = "newest", limit: int = 20, cursor: str | None = None, archived: bool = False,
 ) -> PanelPage:
-    """One page of the user's artifacts, newest first or by name, across kinds, searched on the server."""
+    """One page of the user's artifacts, newest first or by name, across kinds, searched on the server. Archived
+    artifacts are left out (and not searchable), except in the Archived view (`archived=True`), which shows only them."""
     if session_id is not None:
         _check_session(session_id)
     like = f"%{q.strip()}%" if q.strip() else None
     base = [ctx.tenant_id, ctx.user_id]
 
     def part(select: str, table: str, search: str, session_col: str | None = "session_id") -> tuple[str, list[Any]]:
-        where, args = [f"{table}.tenant_id = %s", f"{table}.user_id = %s"], list(base)
+        where, args = [f"{table}.tenant_id = %s", f"{table}.user_id = %s",
+                       f"{table}.archived_at IS {'NOT ' if archived else ''}NULL"], list(base)
         if session_id is not None and session_col:
             where.append(f"{table}.{session_col} = %s")
             args.append(session_id)
@@ -348,8 +353,8 @@ def _panel_details(conn: Any, ctx: RequestContext, rows: list[dict[str, Any]]) -
     out: dict[tuple[str, Any], PanelItem] = {}
     if ids.get("table"):
         for r in conn.execute(
-            "SELECT id, session_id, name, kind, sql_text, source_tables, row_count, columns, created_at "
-            "FROM workspace_artifacts WHERE user_id = %s AND id = ANY(%s)", (ctx.user_id, ids["table"]),
+            "SELECT id, session_id, name, kind, sql_text, source_tables, row_count, columns, created_at, archived_at, "
+            "purge_at FROM workspace_artifacts WHERE user_id = %s AND id = ANY(%s)", (ctx.user_id, ids["table"]),
         ).fetchall():
             title = (f"Uploaded {r['source_tables'][0]}" if r["kind"] == "upload" and r["source_tables"]
                      else "Warehouse query" if r["kind"] == "warehouse" else "Workspace follow-up")
@@ -358,29 +363,33 @@ def _panel_details(conn: Any, ctx: RequestContext, rows: list[dict[str, Any]]) -
                 id=r["id"], kind="table", session_id=r["session_id"], name=r["name"], title=title,
                 created_at=r["created_at"], origin=r["kind"], row_count=r["row_count"],
                 column_count=len(r["columns"]), source_tables=r["source_tables"], sql_head=head, sql_lines=lines,
-                column_names=[c["name"] for c in r["columns"][:200]],
+                column_names=[c["name"] for c in r["columns"][:200]], archived_at=r["archived_at"],
+                purge_at=r["purge_at"],
             )
     if ids.get("chart"):
         for r in conn.execute(
             "SELECT id, session_id, name, title, chart_type, jsonb_array_length(result->'points') AS points, "
-            "result->'source_tables' AS source_tables, created_at FROM workspace_charts "
+            "result->'source_tables' AS source_tables, created_at, archived_at, purge_at FROM workspace_charts "
             "WHERE user_id = %s AND id = ANY(%s)", (ctx.user_id, ids["chart"]),
         ).fetchall():
             out[("chart", r["id"])] = PanelItem(
                 id=r["id"], kind="chart", session_id=r["session_id"], name=r["name"],
                 title=r["title"] or f"{r['chart_type'].capitalize()} chart", created_at=r["created_at"],
                 chart_type=r["chart_type"], point_count=r["points"], source_tables=r["source_tables"] or [],
+                archived_at=r["archived_at"], purge_at=r["purge_at"],
             )
     if ids.get("file"):
         for r in conn.execute(
-            "SELECT f.id, f.session_id, f.filename, f.mime_type, f.size_bytes, f.created_at, a.name AS table_name "
-            "FROM workspace_files f LEFT JOIN workspace_artifacts a ON a.id = f.table_artifact_id "
+            "SELECT f.id, f.session_id, f.filename, f.mime_type, f.size_bytes, f.created_at, f.archived_at, f.purge_at, "
+            "a.name AS table_name FROM workspace_files f LEFT JOIN workspace_artifacts a ON a.id = f.table_artifact_id "
             "WHERE f.user_id = %s AND f.id = ANY(%s)", (ctx.user_id, ids["file"]),
         ).fetchall():
-            out[("file", r["id"])] = PanelItem(**_file_item(r).model_dump())
+            out[("file", r["id"])] = PanelItem(**_file_item(r).model_dump(), archived_at=r["archived_at"],
+                                               purge_at=r["purge_at"])
     if ids.get("sql"):
         for r in conn.execute(
-            "SELECT id, name, description, sql_text, dialect, tables, version, updated_at FROM saved_queries "
+            "SELECT id, name, description, sql_text, dialect, tables, version, updated_at, archived_at, purge_at "
+            "FROM saved_queries "
             "WHERE user_id = %s AND id = ANY(%s)", (ctx.user_id, ids["sql"]),
         ).fetchall():
             head, lines = _head(r["sql_text"])
@@ -388,5 +397,6 @@ def _panel_details(conn: Any, ctx: RequestContext, rows: list[dict[str, Any]]) -
                 id=r["id"], kind="sql", session_id="", name=r["name"], title=r["description"],
                 created_at=r["updated_at"], description=r["description"], dialect=r["dialect"], tables=r["tables"],
                 version=r["version"], sql_head=head, sql_lines=lines, source_tables=r["tables"],
+                archived_at=r["archived_at"], purge_at=r["purge_at"],
             )
     return out

@@ -41,10 +41,16 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
         worker = threading.Thread(target=run_worker, args=(stop,), name="column-profile-worker", daemon=True)
         worker.start()
+    from odn.platform.workspace.manage import run_purger
+
+    # Deletes archived artifacts whose 30 days are up (hourly; safe to run on several instances).
+    purger = threading.Thread(target=run_purger, args=(stop,), name="artifact-purger", daemon=True)
+    purger.start()
     try:
         yield
     finally:
         stop.set()
+        purger.join(timeout=5)
         if worker:
             worker.join(timeout=5)
             if worker.is_alive():

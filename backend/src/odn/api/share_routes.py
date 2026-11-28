@@ -71,6 +71,37 @@ def people(ctx: Context, q: Annotated[str, Query(min_length=1, max_length=100)])
     return service.people(ctx, q)
 
 
+@router.get("/options")
+def options(ctx: Context) -> dict[str, bool]:
+    """What the caller's organization allows (sharing on, "anyone with the link"), for share dialogs."""
+    return service.settings_for(ctx)
+
+
+class ArtifactShareIn(BaseModel):
+    kind: service.ArtifactKind
+    id: UUID
+    title: str = Field(default="", max_length=200)
+    audience: service.Audience = "organization"
+    recipient_ids: list[UUID] = Field(default_factory=list, max_length=50)
+    expires_days: int = 30
+
+
+@router.post("/artifact", status_code=status.HTTP_201_CREATED)
+async def share_artifact(body: ArtifactShareIn, ctx: Context) -> dict[str, Any]:
+    """One table, chart, file or saved SQL as a link (a frozen copy), like a shared answer."""
+    try:
+        share = await run_in_threadpool(
+            service.share_artifact, ctx, kind=body.kind, item_id=body.id, title=body.title, audience=body.audience,
+            recipient_ids=body.recipient_ids, expires_days=body.expires_days,
+        )
+    except service.ShareError as exc:
+        raise _http(exc) from None
+    owner = await run_in_threadpool(_owner_name, ctx)
+    share["emailed"] = await run_in_threadpool(notify_recipients, owner, share["title"], share["id"], share["recipients"])
+    share["url"] = share_url(share["id"])
+    return share
+
+
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def create(body: ShareIn, request: Request, ctx: Context) -> dict[str, Any]:
     try:
@@ -147,6 +178,15 @@ def public_share(share_id: ShareId, response: Response) -> dict[str, Any]:
     response.headers["X-Robots-Tag"] = "noindex"
     try:
         return service.public_get(share_id)
+    except service.ShareError as exc:
+        raise _http(exc) from None
+
+
+@router.post("/{share_id}/save-sql", status_code=status.HTTP_201_CREATED)
+def save_sql(share_id: str, ctx: Context) -> dict[str, Any]:
+    """Saves a shared SQL into the reader's own SQL repository."""
+    try:
+        return service.save_shared_sql(ctx, share_id)
     except service.ShareError as exc:
         raise _http(exc) from None
 

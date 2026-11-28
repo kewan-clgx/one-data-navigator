@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type RefObject } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type ChangeEvent, type RefObject } from "react";
 
 import { downloadSvgAsPng } from "@/lib/chartExport";
 import { describeUpload, FILES_CHANGED, UPLOAD_ACCEPT, uploadFile } from "@/lib/uploads";
@@ -13,6 +13,7 @@ import { DIALECT_LABEL } from "@/lib/sqlSyntax";
 import Chart, { type ChartData } from "./Chart";
 import { conversationTitle, type Conversation } from "./Conversations";
 import ResultsGrid from "./ResultsGrid";
+import ArtifactShareDialog, { type ShareTarget } from "./ArtifactShareDialog";
 import SaveSqlPopover from "./SaveSqlPopover";
 
 const SqlCode = dynamic(() => import("./SqlCode"), { ssr: false, loading: () => <p className="muted">Loading…</p> });
@@ -46,6 +47,9 @@ type StoreItem = {
   dialect?: SqlDialect | null;
   version?: number | null;
   tables?: string[];
+  // archived items (the Archived view)
+  archived_at?: string | null;
+  purge_at?: string | null;
 };
 type Page = { items: StoreItem[]; next_cursor: string | null; counts: Partial<Record<Kind, number>> | null };
 
@@ -104,6 +108,100 @@ const fileUrl = (item: StoreItem, inline = false) =>
   `/api/odn/artifacts/files/${encodeURIComponent(item.id)}${inline ? "?inline=true" : ""}`;
 const csvUrl = (item: StoreItem) =>
   `/api/odn/workspace/${encodeURIComponent(item.session_id)}/artifacts/${encodeURIComponent(item.name)}/csv`;
+
+type Keep = "30d" | "forever";
+/** What a card can ask the panel to do; the panel owns undo, the share dialog and reloading. */
+type Actions = {
+  archivedView: boolean;
+  onShare: (item: StoreItem) => void;
+  onArchive: (item: StoreItem, keep: Keep) => void;
+  onRestore: (item: StoreItem) => void;
+  onDelete: (item: StoreItem) => void;
+};
+
+/** How an artifact is named in messages ("q1", "revenue.sql", the chart's title, the file name). */
+export function itemLabel(item: StoreItem): string {
+  if (item.kind === "sql") return `${item.name}.sql`;
+  if (item.kind === "chart") return item.title || item.name;
+  return item.name;
+}
+
+function shareTarget(item: StoreItem): ShareTarget {
+  const title = item.kind === "sql" ? `${item.name}.sql` : item.kind === "table" ? `Result table ${item.name}` : item.title || item.name;
+  return { kind: item.kind, id: item.id, title };
+}
+
+/** "Archived · deleted on Dec 28" / "Archived · kept until you delete it". */
+function ArchivedNote({ item }: { item: StoreItem }) {
+  if (!item.archived_at) return null;
+  return (
+    <div className="odn-artifact-meta odn-artifact-archived">
+      Archived {when(item.archived_at)} ·{" "}
+      {item.purge_at ? `deleted for good on ${new Date(item.purge_at).toLocaleDateString()}` : "kept until you delete it"}
+    </div>
+  );
+}
+
+/** ⋯ menu: Share, (extra items, e.g. Rename for SQL), Archive or Restore, Delete; Archive asks how long to keep it. */
+function CardMenu({ item, actions, extra = [] }: {
+  item: StoreItem; actions: Actions; extra?: { label: string; run: () => void }[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [keep, setKeep] = useState<Keep>("30d");
+  const ids = useId();
+  const label = itemLabel(item);
+  const close = () => setOpen(false);
+  return (
+    <>
+      <span className="odn-artifact-more">
+        <button
+          type="button" className="odn-btn odn-btn--ghost-panel odn-btn--small" aria-haspopup="menu" aria-expanded={open}
+          aria-label={`More actions for ${label}`} onClick={() => setOpen(!open)}
+        >
+          ⋯
+        </button>
+        {open && (
+          <span className="odn-artifact-menu" role="menu" onKeyDown={(e) => e.key === "Escape" && close()}>
+            {actions.archivedView ? (
+              <button type="button" role="menuitem" onClick={() => { close(); actions.onRestore(item); }}>Restore</button>
+            ) : (
+              <>
+                <button type="button" role="menuitem" onClick={() => { close(); actions.onShare(item); }}>Share…</button>
+                {extra.map((x) => (
+                  <button key={x.label} type="button" role="menuitem" onClick={() => { close(); x.run(); }}>{x.label}</button>
+                ))}
+                <button type="button" role="menuitem" onClick={() => { close(); setArchiving(true); }}>Archive…</button>
+              </>
+            )}
+            <button type="button" role="menuitem" className="danger" onClick={() => { close(); actions.onDelete(item); }}>
+              Delete
+            </button>
+          </span>
+        )}
+      </span>
+      {archiving && (
+        <fieldset className="odn-artifact-archive" onKeyDown={(e) => e.key === "Escape" && setArchiving(false)}>
+          <legend>Archive {label}? It leaves this list and search.</legend>
+          <label>
+            <input type="radio" name={`${ids}-keep`} checked={keep === "30d"} onChange={() => setKeep("30d")} />
+            Keep 30 days, then delete it
+          </label>
+          <label>
+            <input type="radio" name={`${ids}-keep`} checked={keep === "forever"} onChange={() => setKeep("forever")} />
+            Keep it until I delete it
+          </label>
+          <span className="odn-artifact-archive-actions">
+            <button type="button" className="odn-btn odn-btn--on-panel odn-btn--small" onClick={() => { setArchiving(false); actions.onArchive(item, keep); }}>
+              Archive
+            </button>
+            <button type="button" className="odn-btn odn-btn--ghost-panel odn-btn--small" onClick={() => setArchiving(false)}>Cancel</button>
+          </span>
+        </fieldset>
+      )}
+    </>
+  );
+}
 
 /** SQL shown by default: the first 10 lines, "Show all N lines" loads the rest. */
 function SqlPreview({ head, lines, dialect, label, loadFull }: {
@@ -205,11 +303,13 @@ function ArtifactCard({
   conversation,
   isCurrent,
   onOpenConversation,
+  actions,
 }: {
   item: StoreItem;
   conversation: Conversation | undefined;
   isCurrent: boolean;
   onOpenConversation: (threadId: string) => void;
+  actions: Actions;
 }) {
   const [ref, inView] = useInView<HTMLLIElement>();
   const [showSql, setShowSql] = useState(false);
@@ -253,6 +353,7 @@ function ArtifactCard({
           "From a deleted conversation"
         )}
       </div>
+      <ArchivedNote item={item} />
       {(item.kind !== "file" || isImage) && (
         <div className="odn-artifact-preview">
           {!inView ? (
@@ -288,6 +389,7 @@ function ArtifactCard({
             Download
           </a>
         )}
+        <CardMenu item={item} actions={actions} />
       </div>
     </li>
   );
@@ -298,12 +400,11 @@ function shortTable(t: string): string {
 }
 
 /** A saved query: its first 10 lines shown; open it in the workbench (Save then overwrites it), or manage it. */
-function SavedSqlCard({ item, onOpen, onDelete }: {
-  item: StoreItem; onOpen: (q: SavedQuery) => void; onDelete: (item: StoreItem) => void;
+function SavedSqlCard({ item, onOpen, actions }: {
+  item: StoreItem; onOpen: (q: SavedQuery) => void; actions: Actions;
 }) {
   const [ref, inView] = useInView<HTMLLIElement>();
   const [full, setFull] = useState<SavedQuery | null>(null);
-  const [menu, setMenu] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const tables = item.tables ?? [];
@@ -324,7 +425,6 @@ function SavedSqlCard({ item, onOpen, onDelete }: {
     if (q) onOpen(q);
   }
   async function duplicate() {
-    setMenu(false);
     const q = await load();
     if (!q) return;
     const body = { name: `${q.name}_copy`, sql: q.sql, dialect: q.dialect, connection_id: q.connection_id, description: q.description };
@@ -340,7 +440,6 @@ function SavedSqlCard({ item, onOpen, onDelete }: {
     notifySavedSqlChanged();
   }
   async function copy() {
-    setMenu(false);
     const q = await load();
     if (q) void navigator.clipboard?.writeText(q.sql).then(() => setNote("Copied to clipboard"));
   }
@@ -359,6 +458,7 @@ function SavedSqlCard({ item, onOpen, onDelete }: {
         {tables.length > 0 && ` · ${tables.slice(0, 3).map(shortTable).join(", ")}${tables.length > 3 ? ` +${tables.length - 3}` : ""}`}
         {(item.version ?? 1) > 1 && ` · v${item.version}`}
       </div>
+      <ArchivedNote item={item} />
       {item.sql_head && (
         <div className="odn-artifact-preview">
           {inView ? (
@@ -372,28 +472,22 @@ function SavedSqlCard({ item, onOpen, onDelete }: {
         </div>
       )}
       <div className="odn-artifact-actions">
-        <button type="button" className="odn-btn odn-btn--on-panel odn-btn--small" onClick={() => void open()}>
-          Open in workbench
-        </button>
+        {!actions.archivedView && (
+          <button type="button" className="odn-btn odn-btn--on-panel odn-btn--small" onClick={() => void open()}>
+            Open in workbench
+          </button>
+        )}
         <a className="odn-btn odn-btn--ghost-panel odn-btn--small" href={savedSql.downloadUrl(item.id)} download={`${item.name}.sql`}>
           .sql
         </a>
-        <span className="odn-artifact-more">
-          <button
-            type="button" className="odn-btn odn-btn--ghost-panel odn-btn--small" aria-haspopup="menu" aria-expanded={menu}
-            aria-label={`More actions for ${item.name}.sql`} onClick={() => setMenu(!menu)}
-          >
-            ⋯
-          </button>
-          {menu && (
-            <span className="odn-artifact-menu" role="menu" onKeyDown={(e) => e.key === "Escape" && setMenu(false)}>
-              <button type="button" role="menuitem" onClick={() => { setMenu(false); setRenaming(true); }}>Rename</button>
-              <button type="button" role="menuitem" onClick={() => void duplicate()}>Duplicate</button>
-              <button type="button" role="menuitem" onClick={() => void copy()}>Copy SQL</button>
-              <button type="button" role="menuitem" className="danger" onClick={() => { setMenu(false); onDelete(item); }}>Delete</button>
-            </span>
-          )}
-        </span>
+        <CardMenu
+          item={item} actions={actions}
+          extra={[
+            { label: "Rename", run: () => setRenaming(true) },
+            { label: "Duplicate", run: () => void duplicate() },
+            { label: "Copy SQL", run: () => void copy() },
+          ]}
+        />
       </div>
       {renaming && (
         <div className="odn-artifact-popover">
@@ -439,7 +533,11 @@ export default function ArtifactsPanel({
   const [counts, setCounts] = useState<Partial<Record<Kind, number>> | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [deleted, setDeleted] = useState<StoreItem | null>(null);
+  const [archivedView, setArchivedView] = useState(false);
+  const [sharing, setSharing] = useState<ShareTarget | null>(null);
+  // Hidden while a delete waits out its undo window; `notice` is the status line with its Undo.
+  const [pendingDelete, setPendingDelete] = useState<StoreItem | null>(null);
+  const [notice, setNotice] = useState<{ text: string; undo?: () => void } | null>(null);
   const [uploadStatus, setUploadStatus] = useState<{ ok: boolean; text: string } | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -467,9 +565,10 @@ export default function ArtifactsPanel({
     if (thisConversation) q.set("session_id", sessionId);
     if (query) q.set("q", query);
     if (after) q.set("cursor", after);
+    if (archivedView) q.set("archived", "true");
     return fetch(`/api/odn/artifacts/page?${q}`, { cache: "no-store" })
       .then((r) => (r.ok ? (r.json() as Promise<Page>) : Promise.reject(r.status)));
-  }, [filter, sort, thisConversation, sessionId, query]);
+  }, [filter, sort, thisConversation, sessionId, query, archivedView]);
 
   // The first page (also after any change, save or upload): replaces the list.
   const load = useCallback(() => {
@@ -523,20 +622,65 @@ export default function ArtifactsPanel({
     return () => io.disconnect();
   }, [cursor, loadMore]);
 
-  // Delete with a 5-second undo: the card hides at once, the API call happens when the undo window closes.
+  const itemUrl = (item: StoreItem, action = "") =>
+    `/api/odn/artifacts/${item.kind}/${encodeURIComponent(item.id)}${action}`;
+  const changed = (item: StoreItem) => (item.kind === "sql" ? notifySavedSqlChanged() : load());
+  const commitDelete = useCallback((item: StoreItem) => {
+    void fetch(itemUrl(item), { method: "DELETE" }).then((r) => {
+      if (!r.ok && r.status !== 404) setError(`Couldn't delete ${itemLabel(item)}.`);
+      setPendingDelete((p) => (p?.id === item.id ? null : p));
+      changed(item);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [load]);
+
+  // Delete with a 5-second undo: the card hides at once, the delete happens when the undo window closes.
   function remove(item: StoreItem) {
     window.clearTimeout(deleteTimer.current);
-    if (deleted) void savedSql.remove(deleted.id).then(notifySavedSqlChanged, () => undefined);
-    setDeleted(item);
-    deleteTimer.current = window.setTimeout(() => {
-      void savedSql.remove(item.id).then(notifySavedSqlChanged, () => setError(`Couldn't delete ${item.name}.sql.`));
-      setDeleted(null);
+    if (pendingDelete) commitDelete(pendingDelete);
+    setPendingDelete(item);
+    const timer = window.setTimeout(() => {
+      commitDelete(item);
+      setNotice(null);
     }, 5000);
+    deleteTimer.current = timer;
+    setNotice({
+      text: `Deleted ${itemLabel(item)}.`,
+      undo: () => {
+        window.clearTimeout(timer);
+        setPendingDelete(null);
+        setNotice(null);
+      },
+    });
   }
-  function undoDelete() {
-    window.clearTimeout(deleteTimer.current);
-    setDeleted(null);
+  async function archive(item: StoreItem, keep: Keep) {
+    const r = await fetch(itemUrl(item, "/archive"), {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ keep }),
+    });
+    if (!r.ok) {
+      setError(`Couldn't archive ${itemLabel(item)}.`);
+      return;
+    }
+    const { purge_at } = (await r.json()) as { purge_at: string | null };
+    changed(item);
+    setNotice({
+      text: `Archived ${itemLabel(item)}: ${purge_at ? `deleted for good on ${new Date(purge_at).toLocaleDateString()}` : "kept until you delete it"}. Find it under Archived.`,
+      undo: () => void restore(item, true),
+    });
   }
+  async function restore(item: StoreItem, undo = false) {
+    const r = await fetch(itemUrl(item, "/restore"), { method: "POST" });
+    if (!r.ok) {
+      setError(`Couldn't restore ${itemLabel(item)}.`);
+      return;
+    }
+    changed(item);
+    setNotice(undo ? null : { text: `Restored ${itemLabel(item)}.` });
+  }
+  const actions: Actions = {
+    archivedView, onShare: (item) => setSharing(shareTarget(item)), onArchive: (item, keep) => void archive(item, keep),
+    onRestore: (item) => void restore(item), onDelete: remove,
+  };
 
   async function onFiles(e: ChangeEvent<HTMLInputElement>) {
     const files = [...(e.target.files ?? [])];
@@ -558,7 +702,7 @@ export default function ArtifactsPanel({
   }
 
   const bySession = new Map((conversations ?? []).map((c) => [c.sessionId, c]));
-  const visible = items?.filter((i) => !(i.kind === "sql" && i.id === deleted?.id));
+  const visible = items?.filter((i) => !(i.kind === pendingDelete?.kind && i.id === pendingDelete.id));
   const count = (f: Filter) => {
     if (!counts) return null;
     const n = f === "all" ? Object.values(counts).reduce((a, b) => a + (b ?? 0), 0) : counts[f] ?? 0;
@@ -629,11 +773,24 @@ export default function ArtifactsPanel({
           </span>
           This conversation only
         </button>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={archivedView}
+          className="switch"
+          onClick={() => setArchivedView((v) => !v)}
+          title="Archived items are hidden everywhere else and not searchable"
+        >
+          <span aria-hidden className="switch-track">
+            <span className="switch-thumb" />
+          </span>
+          Archived
+        </button>
       </div>
-      {deleted && (
+      {notice && (
         <p className="odn-panel-status" role="status">
-          Deleted {deleted.name}.sql.{" "}
-          <button type="button" className="odn-linklike" onClick={undoDelete}>Undo</button>
+          {notice.text}{" "}
+          {notice.undo && <button type="button" className="odn-linklike" onClick={notice.undo}>Undo</button>}
         </p>
       )}
       {error && <p className="error" role="alert">{error}</p>}
@@ -642,7 +799,9 @@ export default function ArtifactsPanel({
         <p className="odn-panel-note">
           {query
             ? `Nothing matches “${query}”.`
-            : filter === "sql"
+            : archivedView
+              ? "Nothing archived. Archive (in an item's ⋯ menu) hides it from this list and search, for 30 days or until you delete it."
+              : filter === "sql"
               ? "No saved SQL yet. In the SQL workbench, Save (⌘S) keeps a query here with a name you choose; you can also save SQL from a chat answer."
               : thisConversation
                 ? "Nothing in this conversation yet. Query results, charts and uploads will collect here."
@@ -652,7 +811,7 @@ export default function ArtifactsPanel({
       <ul className="odn-artifact-list" aria-label="Artifacts">
         {visible?.map((item) =>
           item.kind === "sql" ? (
-            <SavedSqlCard key={`sql-${item.id}`} item={item} onOpen={onOpenSql} onDelete={remove} />
+            <SavedSqlCard key={`sql-${item.id}`} item={item} onOpen={onOpenSql} actions={actions} />
           ) : (
             <ArtifactCard
               key={`${item.kind}-${item.id}`}
@@ -660,10 +819,12 @@ export default function ArtifactsPanel({
               conversation={bySession.get(item.session_id)}
               isCurrent={item.session_id === sessionId}
               onOpenConversation={onOpenConversation}
+              actions={actions}
             />
           ),
         )}
       </ul>
+      {sharing && <ArtifactShareDialog target={sharing} onClose={() => setSharing(null)} />}
       {cursor && (
         <div ref={sentinel} className="odn-artifact-more-row">
           <button type="button" className="odn-btn odn-btn--ghost-panel odn-btn--small" onClick={loadMore} disabled={loadingMore}>

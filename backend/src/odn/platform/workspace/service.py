@@ -156,12 +156,15 @@ def _object_keys(ctx: RequestContext, session_id: str) -> dict[str, tuple[uuid.U
 def _insert_artifact(ctx: RequestContext, session_id: str, artifact_id: uuid.UUID, **fields: Any) -> Artifact:
     for _ in range(3):
         try:
-            with tenant_transaction(ctx.tenant_id) as conn:
-                # max, not count: a conversation continued from a share may start with e.g. only q10.
+            with tenant_transaction(ctx.tenant_id, ctx.user_id) as conn:
+                # max, not count: a conversation continued from a share may start with e.g. only q10; and never a
+                # number that was deleted (workspace_name_floor), so earlier messages keep their meaning.
                 count = conn.execute(
-                    "SELECT coalesce(max(substring(name from 2)::int), 0) AS n FROM workspace_artifacts "
+                    "SELECT greatest(coalesce(max(substring(name from 2)::int), 0), "
+                    "(SELECT coalesce(max(last_n), 0) FROM workspace_name_floor "
+                    " WHERE user_id = %s AND session_id = %s AND prefix = 'q')) AS n FROM workspace_artifacts "
                     "WHERE user_id = %s AND session_id = %s",
-                    (ctx.user_id, session_id),
+                    (ctx.user_id, session_id, ctx.user_id, session_id),
                 ).fetchone()["n"]
                 row = conn.execute(
                     f"""
@@ -328,9 +331,11 @@ def save_chart(ctx: RequestContext, session_id: str, result: ChartResult, source
         try:
             with tenant_transaction(ctx.tenant_id, ctx.user_id) as conn:
                 count = conn.execute(
-                    "SELECT coalesce(max(substring(name from 2)::int), 0) AS n FROM workspace_charts "
+                    "SELECT greatest(coalesce(max(substring(name from 2)::int), 0), "
+                    "(SELECT coalesce(max(last_n), 0) FROM workspace_name_floor "
+                    " WHERE user_id = %s AND session_id = %s AND prefix = 'c')) AS n FROM workspace_charts "
                     "WHERE user_id = %s AND session_id = %s",
-                    (ctx.user_id, session_id),
+                    (ctx.user_id, session_id, ctx.user_id, session_id),
                 ).fetchone()["n"]
                 name = f"c{count + 1}"
                 conn.execute(

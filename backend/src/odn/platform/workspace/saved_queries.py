@@ -119,7 +119,7 @@ def _item(row: dict[str, Any]) -> SavedQueryItem:
 def list_queries(ctx: RequestContext, *, q: str = "", table: str = "", limit: int = 200,
                  full: bool = False) -> list[SavedQueryItem]:
     """The user's saved SQL, recently edited first; `q` matches name, description, SQL text or a table name."""
-    where, args = ["tenant_id = %s", "user_id = %s"], [ctx.tenant_id, ctx.user_id]
+    where, args = ["tenant_id = %s", "user_id = %s", "archived_at IS NULL"], [ctx.tenant_id, ctx.user_id]
     if q.strip():
         like = f"%{q.strip()}%"
         where.append("(name ILIKE %s OR description ILIKE %s OR sql_text ILIKE %s "
