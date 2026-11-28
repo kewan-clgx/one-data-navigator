@@ -953,6 +953,9 @@ table.wb-grid thead th.wb-rownum { z-index: 2; background: var(--surface-alt); }
   background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
 }
 .tq-chip:hover { border-color: var(--accent); }
+.tq-chip--saved { display: inline-flex; gap: 0.3rem; align-items: center; border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.tq-chip--saved > span[aria-hidden] { color: var(--accent); }
+.tq-chip:disabled { cursor: progress; opacity: 0.75; }
 .tq-chip:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
 .tq-hint { margin: 0.7rem 0 0; font-size: 0.74rem; color: var(--fg-muted); }
 /* Suggested follow-up questions in chat answers ([question](#ask), AskLink.tsx). */

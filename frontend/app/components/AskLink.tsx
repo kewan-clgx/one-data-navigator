@@ -15,15 +15,22 @@ function textOf(node: ReactNode): string {
 }
 
 /**
- * Chat markdown `a`: the agent writes suggested follow-up questions as `[question](#ask)`; those render as buttons
+ * Chat markdown `a`: suggested follow-up questions are written as `[question](#ask)`; those render as buttons
  * that fill the message box, so the user can edit or just press Enter. Other links open in a new tab.
  */
 // react-markdown passes `node`; keep it off the DOM element.
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export default function AskLink({ href, children, node: _node, ...rest }: { href?: string; children?: ReactNode; node?: unknown }) {
   const ask = useContext(AskContext);
-  if (href?.endsWith("#ask") && ask) {
-    const question = textOf(children).trim();
+  // `#ask` asks the link text; `#ask=<encoded question>` asks that question (e.g. "Ask again for a fresh answer").
+  const match = href ? /#ask(?:=(.*))?$/.exec(href) : null;
+  if (match && ask) {
+    let question = textOf(children).trim();
+    try {
+      if (match[1]) question = decodeURIComponent(match[1]);
+    } catch {
+      // keep the link text
+    }
     return (
       <button type="button" className="ask-link" title="Put this question in the message box" onClick={() => ask(question)}>
         {children}

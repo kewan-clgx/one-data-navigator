@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
+from urllib.parse import quote
 from uuid import UUID
 
 from psycopg.types.json import Jsonb
@@ -69,6 +70,8 @@ class QuestionList(BaseModel):
     status: Literal["ready", "generating", "unavailable"]
     generated_at: datetime | None = None
     questions: list[QuestionItem]
+    # Saved answers to the "Get to know this table" starters (matched by question text in the app).
+    starters: list[QuestionItem] = []
 
 
 # -- text rules -----------------------------------------------------------------------------------------------------
@@ -109,6 +112,19 @@ def question_hash(text: str) -> str:
 def is_starter(text: str) -> bool:
     lowered = clean(text).lower()
     return any(p.search(lowered) for p in _STARTERS)
+
+
+_LIVE_STARTER = re.compile(r"^when was .+ last updated")
+_INSIGHTS_STARTER = re.compile(r"^what kinds of insights can i get from ")
+# Suggested follow-ups the agent writes in answers: [question](#ask).
+_ASK_LINK = re.compile(r"\[([^\]\n]{12,300})\]\(#ask\)")
+
+
+def is_cached_starter(text: str) -> bool:
+    """Starter answers come from stored metadata, so they are saved and shared like FAQ answers, except "last
+    updated": a saved answer about freshness could itself be out of date."""
+    lowered = clean(text).lower()
+    return is_starter(text) and not _LIVE_STARTER.search(lowered)
 
 
 def is_follow_up(text: str) -> bool:
@@ -212,8 +228,10 @@ def rank(items: list[QuestionItem], rows: dict[UUID, dict[str, Any]], limit: int
     def key(i: QuestionItem) -> tuple[Any, ...]:
         r = rows[i.id]
         last = r["last_asked_at"].timestamp() if r["last_asked_at"] else 0.0
+        # Newest suggestions first (the latest set, or "Try asking" questions from an insights answer).
+        created = r["created_at"].timestamp()
         return (i.source != "curated", -(r["distinct_askers"] >= 2), -i.asked_by_you, -r["distinct_askers"], -last,
-                r["created_at"].timestamp())
+                -created if i.source == "generated" else created)
 
     ordered = sorted(visible, key=key)
     top = ordered[:limit]
@@ -249,9 +267,11 @@ def list_questions(
         ).fetchone()
     by_id = {r["id"]: r for r in rows}
     items = [_item(r, info) for r in rows]
+    starters = [i for i in items if is_starter(i.question)]
     return QuestionList(
         status=status, generated_at=generated_at["generated_at"] if generated_at else None,
-        questions=rank(items, by_id),
+        questions=rank([i for i in items if not is_starter(i.question)], by_id),
+        starters=[i for i in starters if i.answer is not None and not i.private],
     )
 
 
@@ -484,7 +504,8 @@ def capture(
     q = clean(question)
     if not 12 <= len(q) <= 300:
         return {"stored": False, "reason": "length"}
-    if is_starter(q):
+    starter = is_starter(q)
+    if starter and not is_cached_starter(q):
         return {"stored": False, "reason": "starter"}
     if is_follow_up(q):
         return {"stored": False, "reason": "follow_up"}
@@ -502,7 +523,7 @@ def capture(
     unique = list(dict.fromkeys(paths))[:MAX_TABLES_PER_QUESTION]
     if not unique:
         return {"stored": False, "reason": "no_table"}
-    private_to = None if is_shareable(q) else ctx.user_id
+    private_to = None if starter or is_shareable(q) else ctx.user_id  # starters are fixed templates
     stored = []
     for path in unique:
         try:
@@ -541,8 +562,24 @@ def capture(
                 (row["id"], ctx.tenant_id, profile.id, revision["metadata_revision"], text[:ANSWER_MAX],
                  Jsonb(sqls[:3]), bytes_scanned, ctx.user_id, info.modified_at, info.fingerprint),
             )
+            if _INSIGHTS_STARTER.search(q.lower()):
+                _keep_suggestions(conn, ctx, profile, path, info, text)
             stored.append(".".join(path))
     return {"stored": bool(stored), "tables": stored, "private": private_to is not None}
+
+
+def _keep_suggestions(conn: Any, ctx: RequestContext, profile: ConnectionProfile, path: tuple[str, ...],
+                      info: TableInfo, answer: str) -> None:
+    """The "Try asking" questions of an insights answer join the table's suggested questions (validated like
+    generated ones), so later users see them without asking for insights again."""
+    candidates = [{"title": short_title(m), "question": m} for m in _ASK_LINK.findall(answer)]
+    for title, question in validate(candidates, {c.name for c in info.schema.columns}, limit=8):
+        conn.execute(
+            "INSERT INTO metadata_table_questions (tenant_id, connection_id, table_path, source, title, question, "
+            "normalized_hash, schema_fingerprint) VALUES (%s, %s, %s, 'generated', %s, %s, %s, %s) "
+            "ON CONFLICT (tenant_id, connection_id, table_path, normalized_hash) DO NOTHING",
+            (ctx.tenant_id, profile.id, list(path), title[:60], question, question_hash(question), info.fingerprint),
+        )
 
 
 # -- opening a cached answer --------------------------------------------------------------------------------------
@@ -561,9 +598,10 @@ def cached_answer(ctx: RequestContext, profile: ConnectionProfile, connector: Ba
         raise QuestionNotFound(str(question_id))
     info = table_info(profile, connector, tuple(row["table_path"]))
     when = row["answered_at"].strftime("%b %-d, %Y")
-    note = (f"_Saved answer from {when}. The data hasn't changed since; ask again for a fresh answer._"
+    again = f"[Ask again for a fresh answer](#ask={quote(row['question'], safe='')})"
+    note = (f"_Saved answer from {when}. The data hasn't changed since._ {again}"
             if is_fresh(row, info) else
-            f"_Saved answer from {when}. The data has changed since, so ask again for a fresh answer._")
+            f"_Saved answer from {when}. The data has changed since._ {again}")
     # The SQL behind the answer, folded in the chat with "Open in SQL workbench", so it can be checked or rerun.
     sql = "".join(f"\n\n```sql\n{q.strip()}\n```" for q in (row["sql"] or []) if isinstance(q, str) and q.strip())
     return {

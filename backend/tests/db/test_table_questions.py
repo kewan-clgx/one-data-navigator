@@ -111,7 +111,7 @@ def test_private_and_personal_questions_stay_with_their_owner(world) -> None:
 
 
 @pytest.mark.parametrize(("question", "answer", "sqls", "reason"), [
-    ("What are the fill rates of the core fields in orders?", "x", [], "starter"),
+    ("When was orders last updated?", "- Modified 2026-01-01", [SQL], "starter"),
     ("and now break that down by state", "x", [SQL], "follow_up"),
     ("How many orders are there per status?", "Which table should I use?", [SQL], "no_answer"),
     ("How many orders are there per status?", "x", ["SELECT * FROM `p.hr.salaries`"], "not_allowed"),
@@ -132,6 +132,7 @@ def test_cached_answer_goes_stale_and_is_dropped_on_new_access(world) -> None:
     saved = tq.cached_answer(ctx["u2"], p["shared"], old, qid)
     content = saved["messages"][1]["content"]
     assert content.startswith("_Saved answer from") and "hasn't changed" in content and f"```sql\n{SQL}\n```" in content
+    assert "(#ask=How%20many%20orders%20are%20there%20per%20status%3F)" in content  # "Ask again" pre-fills it
     tq._info_cache.clear()
     newer = FakeConnector(datetime(2026, 12, 1, tzinfo=UTC))  # data modified after the answer
     assert not _list(ctx["u2"], p["shared"], newer).questions[0].answer.fresh
@@ -167,3 +168,20 @@ def test_generation_once_per_schema_and_validated(world) -> None:
     tq._info_cache.clear()
     _list(ctx["u1"], p["shared"], FakeConnector(datetime(2026, 1, 1, tzinfo=UTC), ("id", "status")), llm)
     assert len(calls) == 2  # schema changed -> regenerated
+
+
+def test_starter_answers_are_shared_and_insight_questions_become_suggestions(world) -> None:
+    ctx, p = world
+    conn = FakeConnector(datetime(2026, 1, 1, tzinfo=UTC))
+    answer = ("**Orders by status and amount.**\n| Area | Try asking |\n"
+              "| Status | [How many orders are there per status?](#ask) |\n"
+              "| Value | [What is the total amount per order_date month?](#ask) |\n"
+              "| Bad | [What is the average churn_score by region?](#ask) |")
+    out = tq.capture(ctx["u1"], p["shared"], conn, question="What kinds of insights can I get from orders?",
+                     answer=answer, sqls=[], tables=["p.sales.orders"], bytes_scanned=None)
+    assert out["stored"] and not out["private"]
+    listing = _list(ctx["u2"], p["shared"], conn)
+    assert [s.question for s in listing.starters] == ["What kinds of insights can I get from orders?"]
+    assert sorted(q.question for q in listing.questions) == [
+        "How many orders are there per status?", "What is the total amount per order_date month?"]  # churn_score: no such column
+    assert all(q.source == "generated" for q in listing.questions)

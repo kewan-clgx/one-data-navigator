@@ -292,10 +292,12 @@ Where this differs from §4–§5, this section wins.
   - It stores only the **first question of a conversation**, never imported or shared threads.
   - The answer must come from one connection, with every `run_sql` successful and nothing awaiting approval. An approval granted in a later invocation still counts.
   - Tables come from the successful SQL, through the connection's policy, or from `get_table_schema` for metadata-only answers. At most 3 tables are recorded.
-  - Starters, follow-ups, notices and clarifying replies (ending in "?") are skipped. A question that trips the privacy filter is stored privately for the asker.
+  - Follow-ups, notices and clarifying replies (ending in "?") are skipped.
+  - **Starter answers are saved too** (they come from metadata and are shared by everyone on the connection), except **Last updated**, which is always answered live. A starter chip with a saved answer shows ⚡ and opens it instantly. Starters are listed separately (`starters` in `GET /questions`), not among the data questions.
+  - The ***Try asking* questions in an insights answer** (`[question](#ask)` links) are validated like generated ones (they must name real columns) and added to the table's suggested questions. The newest suggestions are listed first. A question that trips the privacy filter is stored privately for the asker.
 - **Saved answers:**
   - Each stores the final text and its SQL. No result preview or chart is stored; the SQL can rerun them.
-  - **Opening one** (`…/open`) imports a new conversation owned by the user, with the same mechanism as continuing a shared answer. It starts with "*Saved answer from <date>. The data hasn't changed since / has changed since…*", and the SQL appears as folded blocks with **Open in SQL workbench**.
+  - **Opening one** (`…/open`) imports a new conversation owned by the user, with the same mechanism as continuing a shared answer. It starts with "*Saved answer from <date>. The data hasn't changed since / has changed since.*" and an **Ask again for a fresh answer** button (`#ask=<question>`), and the SQL appears as folded blocks with **Open in SQL workbench**.
   - Follow-ups work as in any conversation. A stale answer still opens, with the "has changed" note.
 
 **Frontend** ([TableQuestions.tsx](../frontend/app/components/TableQuestions.tsx))

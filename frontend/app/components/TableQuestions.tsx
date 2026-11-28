@@ -13,7 +13,7 @@ type DataQuestion = {
   id: string; title: string; question: string; source: "generated" | "asked" | "curated";
   popular: boolean; asked_by_you: boolean; hidden: boolean; private: boolean; answer: Answer | null;
 };
-type QuestionList = { status: "ready" | "generating" | "unavailable"; questions: DataQuestion[] };
+type QuestionList = { status: "ready" | "generating" | "unavailable"; questions: DataQuestion[]; starters?: DataQuestion[] };
 type Handlers = { onPick: (question: string) => void; onOpenThread: (threadId: string) => void };
 
 const POLL_MS = 2000;
@@ -111,6 +111,7 @@ function TableQuestions({ scope, onPick, onOpenThread }: { scope: Scope } & Hand
   const [table, setTable] = useState<TableInfo | null>(null);
   const name = scope.path[scope.path.length - 1];
   const data = useDataQuestions(scope);
+  const starter = useOpenSaved(scope, onOpenThread);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -138,18 +139,28 @@ function TableQuestions({ scope, onPick, onOpenThread }: { scope: Scope } & Hand
       {meta && <p className="tq-meta">{meta}</p>}
       <h3 className="tq-group">Get to know this table</h3>
       <ul className="tq-chips">
-        {starters.map((s) => (
-          <li key={s.id}>
-            <button type="button" className="tq-chip" onClick={() => onPick(s.question)} title={s.question}>
-              {s.title}
-            </button>
-          </li>
-        ))}
+        {starters.map((s) => {
+          const saved = data.list?.starters?.find((q) => sameQuestion(q.question, s.question));
+          return (
+            <li key={s.id}>
+              <button
+                type="button" className={`tq-chip${saved ? " tq-chip--saved" : ""}`} disabled={starter.opening !== null}
+                onClick={() => (saved ? starter.openSaved(saved) : onPick(s.question))}
+                title={saved ? `${s.question} (saved answer, opens instantly)` : s.question}
+              >
+                {saved && <span aria-hidden="true">⚡</span>}
+                {starter.opening === saved?.id && saved ? "Opening…" : s.title}
+                {saved && <span className="sr-only"> (saved answer)</span>}
+              </button>
+            </li>
+          );
+        })}
       </ul>
+      {starter.error && <p className="tq-error" role="alert">{starter.error}</p>}
       <DataQuestions scope={scope} {...data} onPick={onPick} onOpenThread={onOpenThread} />
       <p className="tq-hint">
         Picks fill in the message box; press Enter to ask.
-        {data.list?.questions.some((q) => q.answer) && (
+        {(data.list?.questions.some((q) => q.answer) || Boolean(data.list?.starters?.length)) && (
           <> <span aria-hidden="true">⚡</span> opens a saved answer instantly, with no tokens or data scan.</>
         )}
       </p>
@@ -157,12 +168,10 @@ function TableQuestions({ scope, onPick, onOpenThread }: { scope: Scope } & Hand
   );
 }
 
-function DataQuestions({
-  scope, list, failed, onPick, onOpenThread,
-}: { scope: Scope; list: QuestionList | null; failed: boolean } & Handlers) {
+/** Opens a saved answer as a new conversation of the user's own (no tokens, no scan). */
+function useOpenSaved(scope: Scope, onOpenThread: (threadId: string) => void) {
   const [opening, setOpening] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
   async function openSaved(q: DataQuestion) {
     setOpening(q.id);
     setError(null);
@@ -177,6 +186,15 @@ function DataQuestions({
       setOpening(null);
     }
   }
+  return { opening, error, openSaved };
+}
+
+const sameQuestion = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+function DataQuestions({
+  scope, list, failed, onPick, onOpenThread,
+}: { scope: Scope; list: QuestionList | null; failed: boolean } & Handlers) {
+  const { opening, error, openSaved } = useOpenSaved(scope, onOpenThread);
 
   if (failed && !list) return null;
   const generating = !list || list.status === "generating";
